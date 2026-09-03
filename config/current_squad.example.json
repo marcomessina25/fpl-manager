@@ -1,0 +1,26 @@
+{
+  "season": "2026/27",
+  "player_ids": [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+  ],
+  "purchase_prices_tenths": {
+    "1": 45,
+    "2": 40,
+    "3": 40,
+    "4": 45,
+    "5": 45,
+    "6": 45,
+    "7": 50,
+    "8": 50,
+    "9": 50,
+    "10": 50,
+    "11": 50,
+    "12": 50,
+    "13": 55,
+    "14": 55,
+    "15": 55
+  },
+  "bank_tenths": 0,
+  "free_transfers": 1,
+  "chips_remaining": ["wildcard_1", "wildcard_2", "free_hit", "bench_boost", "triple_captain"]
+}

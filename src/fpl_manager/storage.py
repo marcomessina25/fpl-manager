@@ -2,9 +2,12 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from .models import Player, Position
 
 
 def utc_timestamp() -> str:
@@ -17,7 +20,7 @@ class SnapshotStore:
 
     def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -48,16 +51,26 @@ class SnapshotStore:
                     event INTEGER,
                     team_h INTEGER NOT NULL,
                     team_a INTEGER NOT NULL,
+                    team_h_difficulty INTEGER,
+                    team_a_difficulty INTEGER,
                     kickoff_time TEXT,
                     finished INTEGER NOT NULL,
                     PRIMARY KEY (snapshot_id, fixture_id)
                 );
                 """
             )
+            cursor = connection.execute("PRAGMA table_info(fixtures)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "team_h_difficulty" not in columns:
+                connection.execute("ALTER TABLE fixtures ADD COLUMN team_h_difficulty INTEGER DEFAULT 3")
+            if "team_a_difficulty" not in columns:
+                connection.execute("ALTER TABLE fixtures ADD COLUMN team_a_difficulty INTEGER DEFAULT 3")
+            connection.execute("UPDATE fixtures SET team_h_difficulty = 3 WHERE typeof(team_h_difficulty) = 'text'")
+            connection.execute("UPDATE fixtures SET team_a_difficulty = 3 WHERE typeof(team_a_difficulty) = 'text'")
 
     def save_snapshot(self, bootstrap: dict[str, Any], fixtures: list[dict[str, Any]], fetched_at: str) -> int:
         self.initialize()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             cursor = connection.execute("INSERT INTO snapshots (fetched_at) VALUES (?)", (fetched_at,))
             snapshot_id = int(cursor.lastrowid)
             connection.executemany(
@@ -81,7 +94,10 @@ class SnapshotStore:
                 ],
             )
             connection.executemany(
-                "INSERT INTO fixtures VALUES (?, ?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO fixtures (snapshot_id, fixture_id, event, team_h, team_a, team_h_difficulty, team_a_difficulty, kickoff_time, finished)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 [
                     (
                         snapshot_id,
@@ -89,6 +105,8 @@ class SnapshotStore:
                         fixture.get("event"),
                         fixture["team_h"],
                         fixture["team_a"],
+                        fixture.get("team_h_difficulty", 3),
+                        fixture.get("team_a_difficulty", 3),
                         fixture.get("kickoff_time"),
                         int(fixture["finished"]),
                     )
@@ -99,7 +117,7 @@ class SnapshotStore:
 
     def latest_summary(self) -> dict[str, Any] | None:
         self.initialize()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             snapshot = connection.execute(
                 "SELECT id, fetched_at FROM snapshots ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -110,6 +128,41 @@ class SnapshotStore:
             teams = connection.execute("SELECT COUNT(*) FROM teams WHERE snapshot_id = ?", (snapshot_id,)).fetchone()[0]
             fixtures = connection.execute("SELECT COUNT(*) FROM fixtures WHERE snapshot_id = ?", (snapshot_id,)).fetchone()[0]
         return {"snapshot_id": snapshot_id, "fetched_at": fetched_at, "players": players, "teams": teams, "fixtures": fixtures}
+
+    def latest_players(self) -> list[Player]:
+        """Return players from the newest persisted snapshot."""
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            if snapshot is None:
+                raise RuntimeError("No FPL data found. Run `fpl update` first.")
+            rows = connection.execute(
+                "SELECT player_id, web_name, position_id, team_id, price_tenths FROM players WHERE snapshot_id = ?",
+                (snapshot[0],),
+            ).fetchall()
+        return [Player(player_id, name, Position(position_id), team_id, price) for player_id, name, position_id, team_id, price in rows]
+
+    def search_latest_players(self, query: str) -> list[dict[str, Any]]:
+        """Find players by name in the newest snapshot for manual configuration."""
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            if snapshot is None:
+                raise RuntimeError("No FPL data found. Run `fpl update` first.")
+            rows = connection.execute(
+                """
+                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths
+                FROM players JOIN teams
+                  ON teams.snapshot_id = players.snapshot_id AND teams.team_id = players.team_id
+                WHERE players.snapshot_id = ? AND LOWER(players.web_name) LIKE ?
+                ORDER BY players.web_name
+                """,
+                (snapshot[0], f"%{query.lower()}%"),
+            ).fetchall()
+        return [
+            {"id": player_id, "name": name, "team": team, "price_tenths": price}
+            for player_id, name, team, price in rows
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)

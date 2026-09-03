@@ -3,9 +3,21 @@
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from .api import fetch_current_data
+from .fixtures import analyze_squad_fixtures, analyze_team_fixtures
+from .import_squad import (
+    DEFAULT_PLAYERS_PATH,
+    import_squad_from_file,
+    search_player_exact_or_single,
+)
+from .lineup import LINEUP_REPORT_PATH, select_starting_lineup
+from .squad_report import SQUAD_REPORT_PATH, generate_squad_report
+from .squad_state import load_current_squad
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
+from .suggest_transfers import TRANSFERS_REPORT_PATH, suggest_transfers
+from .transfers import Transfer, validate_transfers
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +25,7 @@ DATA_DIRECTORY = PROJECT_ROOT / "data"
 RAW_DIRECTORY = DATA_DIRECTORY / "raw"
 DATABASE_PATH = DATA_DIRECTORY / "fpl.sqlite3"
 REPORT_PATH = PROJECT_ROOT / "reports" / "current_state.json"
+DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
 
 
 def update() -> dict[str, object]:
@@ -30,23 +43,293 @@ def report() -> dict[str, object]:
     if summary is None:
         raise RuntimeError("No FPL data found. Run `fpl update` first.")
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    REPORT_PATH.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return summary
 
 
+def validate_transfer_set(
+    squad_path: Path,
+    transfers: list[str],
+    by_name: bool = False,
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, object]:
+    store = SnapshotStore(database_path)
+    parsed_transfers: list[Transfer] = []
+
+    for value in transfers:
+        if ":" not in value:
+            raise RuntimeError(f"Invalid transfer '{value}'. Use OUTGOING:INCOMING.")
+        outgoing_str, incoming_str = value.split(":", maxsplit=1)
+        outgoing_str = outgoing_str.strip()
+        incoming_str = incoming_str.strip()
+
+        if by_name:
+            outgoing_match = search_player_exact_or_single(store, outgoing_str)
+            if outgoing_match is None:
+                raise RuntimeError(f"Could not resolve outgoing player '{outgoing_str}' to a unique player.")
+
+            incoming_match = search_player_exact_or_single(store, incoming_str)
+            if incoming_match is None:
+                raise RuntimeError(f"Could not resolve incoming player '{incoming_str}' to a unique player.")
+
+            parsed_transfers.append(Transfer(outgoing_match["id"], incoming_match["id"]))
+        else:
+            try:
+                parsed_transfers.append(Transfer(int(outgoing_str), int(incoming_str)))
+            except ValueError as error:
+                raise RuntimeError(f"Invalid transfer '{value}'. Use OUTGOING_ID:INCOMING_ID.") from error
+
+    state = load_current_squad(squad_path)
+    result = validate_transfers(state, store.latest_players(), parsed_transfers)
+    return {
+        "is_valid": result.is_valid,
+        "errors": list(result.errors),
+        "bank_after_tenths": result.bank_after_tenths,
+        "transfer_hits": result.transfer_hits,
+    }
+
+
+def format_lineup_concise(result: dict[str, Any]) -> str:
+    gw = result.get("gameweek")
+    formation = result.get("formation")
+    pts = result.get("projected_points", {})
+    cap = result.get("captain", {})
+    vc = result.get("vice_captain", {})
+    starters = result.get("starters", [])
+    bench = result.get("bench", [])
+
+    lines = [
+        f"Matchday Lineup (GW{gw}) | Formation: {formation} | Projected: {pts.get('total_xp', 0.0):.1f} xP",
+        f"Captain: {cap.get('name')} ({cap.get('team')}, {cap.get('fixtures_summary')}) - {cap.get('expected_points', 0.0):.1f} xP (armband: {cap.get('expected_points', 0.0)*2:.1f} xP)",
+        f"Vice-Captain: {vc.get('name')} ({vc.get('team')}, {vc.get('fixtures_summary')}) - {vc.get('expected_points', 0.0):.1f} xP",
+        "",
+        f"Starting XI ({pts.get('starters_xp', 0.0):.1f} xP):",
+    ]
+
+    by_pos: dict[str, list[str]] = {}
+    for p in starters:
+        badge = " [C]" if p.get("role") == "CAPTAIN" else (" [VC]" if p.get("role") == "VICE_CAPTAIN" else "")
+        pos = p.get("pos_abbr", "MID")
+        by_pos.setdefault(pos, []).append(f"{p.get('name')}{badge} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP")
+
+    for pos in ("GKP", "DEF", "MID", "FWD"):
+        if pos in by_pos:
+            lines.append(f"  {pos}: " + " | ".join(by_pos[pos]))
+
+    lines.append("")
+    lines.append("Bench:")
+    for idx, p in enumerate(bench, 1):
+        role_label = "GK Sub" if p.get("role") == "GK_SUB" else f"Sub {idx - 1}"
+        lines.append(f"  {idx}. {p.get('name')} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP [{role_label}]")
+
+    return "\n".join(lines)
+
+
+def format_suggest_transfers_concise(result: dict[str, Any]) -> str:
+    num_tx = result.get("num_transfers", 1)
+    suggestions = result.get("top_suggestions", [])
+    if not suggestions:
+        return "No valid transfer options found matching criteria."
+
+    lines = [f"Top {num_tx}-Transfer Options ({result.get('total_options_evaluated', 0)} evaluated):"]
+    for idx, opt in enumerate(suggestions, 1):
+        out_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["outgoing"])
+        in_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["incoming"])
+        hit_str = f" | Hit: -{opt['transfer_hits']}pt" if opt.get("transfer_hits", 0) > 0 else ""
+        xp_str = f" | xP: {opt['xp_delta']:+.1f} (Net: {opt['score']:+.1f})" if "xp_delta" in opt else f" | Score: {opt['score']:+.1f}"
+        lines.append(
+            f"  {idx:2d}. Out: {out_names} -> In: {in_names} | Bank: {opt['bank_after_fmt']}{xp_str} | FDR: {opt['fdr_improvement']:+.1f}{hit_str}"
+        )
+    return "\n".join(lines)
+
+
+def format_squad_concise(result: dict[str, Any]) -> str:
+    fin = result.get("financials", {})
+    state = result.get("state", {})
+    players = result.get("players", [])
+
+    header = (
+        f"Current Squad ({result.get('season')}) | Bank: {fin.get('bank_fmt', '£0.0m')} | "
+        f"Selling Value: {fin.get('squad_selling_value_fmt', '£0.0m')} | "
+        f"Total Value: {fin.get('total_team_value_fmt', '£0.0m')} | FT: {state.get('free_transfers', 1)}"
+    )
+
+    by_pos: dict[str, list[str]] = {}
+    for p in players:
+        pos = p.get("position", "MIDFIELDER")
+        by_pos.setdefault(pos, []).append(f"{p['name']} ({p['team']}, {p['selling_price_fmt']})")
+
+    pos_lines = [f"  {pos}: " + ", ".join(by_pos[pos]) for pos in ("GOALKEEPER", "DEFENDER", "MIDFIELDER", "FORWARD") if pos in by_pos]
+    return header + "\n" + "\n".join(pos_lines)
+
+
+def format_validate_transfers_concise(result: dict[str, Any]) -> str:
+    is_valid = result.get("is_valid", False)
+    if is_valid:
+        bank_tenths = result.get("bank_after_tenths", 0)
+        bank_fmt = f"£{bank_tenths / 10:.1f}m" if bank_tenths is not None else "N/A"
+        return f"Valid: True | Bank after: {bank_fmt} | Transfer hits: {result.get('transfer_hits', 0)}"
+    else:
+        errors = "; ".join(result.get("errors", []))
+        return f"Valid: False | Errors: {errors}"
+
+
+def format_fixtures_concise(result: dict[str, Any]) -> str:
+    start_gw = result.get("start_gw")
+    end_gw = result.get("end_gw")
+    lines = [f"Upcoming Fixtures (GW{start_gw} - GW{end_gw}):"]
+
+    if "team_rankings" in result:
+        for t in result["team_rankings"]:
+            lines.append(f"  {t['short_name']:3s}: {t['ticker']} | Avg FDR: {t['avg_difficulty']:.2f}")
+    elif "squad_players" in result:
+        for p in result["squad_players"]:
+            lines.append(f"  {p['name']} ({p['team']}): {p['ticker']} | Avg FDR: {p['avg_difficulty']:.2f}")
+
+    return "\n".join(lines)
+
+
+def format_players_concise(result: dict[str, Any]) -> str:
+    players = result.get("players", [])
+    if not players:
+        return "No players found matching query."
+    lines = []
+    for p in players:
+        price_fmt = f"£{p['price_tenths'] / 10:.1f}m"
+        lines.append(f"  ID: {p['id']:3d} | {p['name']} ({p['team']}) | Price: {price_fmt}")
+    return "\n".join(lines)
+
+
+def format_update_concise(result: dict[str, Any]) -> str:
+    return (
+        f"Updated snapshot #{result.get('snapshot_id')} ({result.get('fetched_at')}): "
+        f"{result.get('players')} players, {result.get('fixtures')} fixtures."
+    )
+
+
+def format_report_concise(result: dict[str, Any]) -> str:
+    return (
+        f"Snapshot #{result.get('snapshot_id')} ({result.get('fetched_at')}): "
+        f"{result.get('players')} players, {result.get('teams')} teams, {result.get('fixtures')} fixtures."
+    )
+
+
+import sys
+
+
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(prog="fpl", description="Local-first FPL decision engine")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Output full detailed JSON payload")
     subcommands = parser.add_subparsers(dest="command", required=True)
+
     subcommands.add_parser("update", help="Download and persist the latest official FPL data")
     subcommands.add_parser("report", help="Write a machine-readable summary of the latest snapshot")
+    subcommands.add_parser("squad", help="Generate a detailed analysis report of your current squad")
+    subcommands.add_parser("squad-report", help="Alias for `fpl squad` command")
+
+    fixtures_parser = subcommands.add_parser("fixtures", help="Analyze upcoming team fixtures and difficulty ratings (FDR)")
+    fixtures_parser.add_argument("--gameweeks", type=int, default=5, help="Number of gameweeks to analyze (default: 5)")
+    fixtures_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
+    fixtures_parser.add_argument("--squad-only", action="store_true", help="Analyze fixtures only for players in your current squad")
+    fixtures_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+
+    suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1-, 2-, or 3-transfer move recommendations")
+    suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3], default=1, help="Number of transfers to evaluate (1, 2, or 3, default: 1; capped at 3 for performance)")
+    suggest_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
+    suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
+
+    options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
+    options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3], default=1, help="Number of transfers to evaluate (1, 2, or 3, default: 1; capped at 3 for performance)")
+    options_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
+    options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
+
+    for cmd_name, cmd_help in (
+        ("lineup", "Optimize legal starting 11, captaincy, and bench ordering based on xP"),
+        ("starting-xi", "Alias for `fpl lineup` command"),
+        ("captain", "Alias for `fpl lineup` command"),
+    ):
+        cmd_p = subcommands.add_parser(cmd_name, help=cmd_help)
+        cmd_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        cmd_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: next upcoming GW)")
+
+    players_parser = subcommands.add_parser("players", help="Find player IDs in the latest FPL snapshot")
+    players_parser.add_argument("--search", required=True, help="Part of a player's displayed name")
+    import_parser = subcommands.add_parser("import-squad", help="Automatically populate current_squad.json from a players.txt file")
+    import_parser.add_argument("--players", type=Path, default=DEFAULT_PLAYERS_PATH, help="Path to players text file")
+    import_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    validate_parser = subcommands.add_parser("validate-transfers", help="Validate proposed transfers against the local squad state")
+    validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
+    validate_parser.add_argument("-n", "--by-name", action="store_true", help="Resolve transfers by player name queries instead of integer IDs")
+    validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING:INCOMING; repeat for multiple moves")
     arguments = parser.parse_args()
 
     try:
-        result = update() if arguments.command == "update" else report()
-    except RuntimeError as error:
+        if arguments.command == "update":
+            result = update()
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_update_concise(result))
+        elif arguments.command == "report":
+            result = report()
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_report_concise(result))
+        elif arguments.command in ("squad", "squad-report"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            result = generate_squad_report(squad_path=squad_path, database_path=DATABASE_PATH, report_path=SQUAD_REPORT_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_squad_concise(result))
+        elif arguments.command == "fixtures":
+            if arguments.squad_only:
+                result = analyze_squad_fixtures(
+                    squad_path=arguments.squad,
+                    database_path=DATABASE_PATH,
+                    num_gameweeks=arguments.gameweeks,
+                    start_gw=arguments.start_gw,
+                )
+            else:
+                result = analyze_team_fixtures(
+                    database_path=DATABASE_PATH,
+                    num_gameweeks=arguments.gameweeks,
+                    start_gw=arguments.start_gw,
+                )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_fixtures_concise(result))
+        elif arguments.command in ("suggest-transfers", "options"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            result = suggest_transfers(
+                num_transfers=arguments.transfers,
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                max_results=arguments.max_results,
+                num_gameweeks=arguments.gameweeks,
+                report_path=TRANSFERS_REPORT_PATH,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_suggest_transfers_concise(result))
+        elif arguments.command in ("lineup", "starting-xi", "captain"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            gameweek = getattr(arguments, "gameweek", None)
+            result = select_starting_lineup(
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                gameweek=gameweek,
+                report_path=LINEUP_REPORT_PATH,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_lineup_concise(result))
+        elif arguments.command == "players":
+            result = {"players": SnapshotStore(DATABASE_PATH).search_latest_players(arguments.search)}
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_players_concise(result))
+        elif arguments.command == "import-squad":
+            import_squad_from_file(players_path=arguments.players, squad_path=arguments.squad)
+        else:
+            result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
+    except (RuntimeError, ValueError) as error:
         parser.error(str(error))
-    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
     main()
+
