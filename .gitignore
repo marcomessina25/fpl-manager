@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Runtime data is reproducible from the FPL API and may become large.
+data/*.sqlite3
+data/raw/
+reports/*.json
+!data/.gitkeep
+!reports/.gitkeep
