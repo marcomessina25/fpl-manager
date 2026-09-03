@@ -73,7 +73,7 @@ def validate_transfers(
             errors.append(f"Transfers need £{-bank_after / 10:.1f}m more than is available.")
 
         resulting_ids = (squad_ids - set(outgoing_ids)) | set(incoming_ids)
-        resulting_squad = [player_by_id[player_id] for player_id in resulting_ids]
+        resulting_squad = [player_by_id[player_id] for player_id in resulting_ids if player_id in player_by_id]
         squad_result = validate_squad(resulting_squad, budget_tenths=None)
         errors.extend(squad_result.errors)
 

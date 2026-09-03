@@ -51,12 +51,22 @@ class SnapshotStore:
                     event INTEGER,
                     team_h INTEGER NOT NULL,
                     team_a INTEGER NOT NULL,
+                    team_h_difficulty INTEGER,
+                    team_a_difficulty INTEGER,
                     kickoff_time TEXT,
                     finished INTEGER NOT NULL,
                     PRIMARY KEY (snapshot_id, fixture_id)
                 );
                 """
             )
+            cursor = connection.execute("PRAGMA table_info(fixtures)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "team_h_difficulty" not in columns:
+                connection.execute("ALTER TABLE fixtures ADD COLUMN team_h_difficulty INTEGER DEFAULT 3")
+            if "team_a_difficulty" not in columns:
+                connection.execute("ALTER TABLE fixtures ADD COLUMN team_a_difficulty INTEGER DEFAULT 3")
+            connection.execute("UPDATE fixtures SET team_h_difficulty = 3 WHERE typeof(team_h_difficulty) = 'text'")
+            connection.execute("UPDATE fixtures SET team_a_difficulty = 3 WHERE typeof(team_a_difficulty) = 'text'")
 
     def save_snapshot(self, bootstrap: dict[str, Any], fixtures: list[dict[str, Any]], fetched_at: str) -> int:
         self.initialize()
@@ -84,7 +94,10 @@ class SnapshotStore:
                 ],
             )
             connection.executemany(
-                "INSERT INTO fixtures VALUES (?, ?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO fixtures (snapshot_id, fixture_id, event, team_h, team_a, team_h_difficulty, team_a_difficulty, kickoff_time, finished)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 [
                     (
                         snapshot_id,
@@ -92,6 +105,8 @@ class SnapshotStore:
                         fixture.get("event"),
                         fixture["team_h"],
                         fixture["team_a"],
+                        fixture.get("team_h_difficulty", 3),
+                        fixture.get("team_a_difficulty", 3),
                         fixture.get("kickoff_time"),
                         int(fixture["finished"]),
                     )

@@ -14,7 +14,7 @@ Scope:
 - Validate a legal 11-player starting lineup and formation.
 - Generate a machine-readable snapshot summary.
 
-Status: **in progress — core implementation completed and live data successfully downloaded on 2026-09-03.**
+Status: **V0.1 completed on 2026-09-03.**
 
 Completed:
 
@@ -25,23 +25,26 @@ Completed:
 - Initial rule tests.
 - Private, Git-ignored current-squad JSON format and committed example template.
 - Deterministic transfer validation, including position, bank, club-limit, and transfer-hit checks.
-- CLI command for validating proposed transfers against the latest saved FPL snapshot.
+- CLI command for validating proposed transfers against the latest saved FPL snapshot (supporting integer IDs and `-n` name resolution).
 - SQLite persistence test coverage.
-
-Remaining before V0.1 is complete:
-
-- Populate the user's private `config/current_squad.json` with the actual squad and state.
-- Run a real transfer-validation smoke test against that private configuration.
-
-Implementation note: the initial foundation is under review in PR #1. Current-squad state and transfer validation are implemented on a separate branch, ready to follow it.
+- Automatic squad import utility script (`scripts/import_squad.py` and `fpl import-squad`) to populate `config/current_squad.json` from `players.txt`.
+- Real transfer-validation smoke testing against live private squad configuration.
 
 ### V0.2 — decision-support basics
 
-- Current-squad report.
-- Fixture analysis and transparent player rankings.
-- Basic, documented expected-points assumptions.
-- Legal one- and two-transfer option generation.
-- Starting-XI and captaincy options.
+Status: **V0.2 completed on 2026-09-03.**
+
+Completed:
+
+- Detailed Current-squad report (`fpl squad` / `fpl squad-report`), calculating individual player purchase/current/selling prices, team breakdown, bank value, remaining chips, free transfers, and hard squad rule validation (`reports/squad_report.json`).
+- Fixture analysis and transparent FDR difficulty rankings (`fpl fixtures`), supporting multi-gameweek tickers, team difficulty ranking, and `--squad-only` filtering (`reports/fixtures_report.json`).
+- Automated legal transfer candidate generator (`fpl suggest-transfers` / `fpl options`), evaluating 1-, 2-, and 3-transfer moves under budget, position, and club limits, ranking options by net expected points (xP) improvement and FDR (`reports/transfer_suggestions.json`). *(Note: transfers are currently capped at max 3 moves due to performance; 4-transfer search proved too slow under brute-force combination and we may revisit 4+ transfer moves tomorrow or in V0.3 with an optimized ILP/branch-and-bound solver).*
+- Transparent, deterministic expected-points (xP) baseline model combining price-tier prior, sample-size weighted form blending, official availability status discounting, position-aware FDR difficulty adjustments, and home/away venue multipliers (`src/fpl_manager/expected_points.py`, documented in `docs/expected_points.md`).
+- Matchday Starting-XI and captaincy options generator (`fpl lineup` / `fpl starting-xi` / `fpl captain`), evaluating all legal outfield formation distributions, selecting optimal primary Captain (2x) and Vice-Captain, ordering substitutes, independently verifying formation legality against `rules.py`, and writing `reports/lineup_report.json`.
+
+Remaining:
+
+- None. Ready for V0.3.
 
 ### V0.3 — projections and optimisation
 

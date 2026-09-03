@@ -1,5 +1,11 @@
+import json
+from pathlib import Path
+import pytest
+
+from fpl_manager.cli import validate_transfer_set
 from fpl_manager.models import Player, Position
 from fpl_manager.squad_state import CurrentSquadState
+from fpl_manager.storage import SnapshotStore, utc_timestamp
 from fpl_manager.transfers import Transfer, selling_price, validate_transfers
 
 
@@ -49,3 +55,57 @@ def test_counts_transfer_hit() -> None:
     result = validate_transfers(state, players, [Transfer(1, 16), Transfer(3, 17)])
     assert result.is_valid
     assert result.transfer_hits == 1
+
+
+def test_validate_transfer_set_by_name(tmp_path: Path) -> None:
+    db_path = tmp_path / "fpl.sqlite3"
+    squad_file = tmp_path / "current_squad.json"
+
+    store = SnapshotStore(db_path)
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Manchester City", "short_name": "MCI"},
+            {"id": 3, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+            {"id": 6, "name": "Newcastle", "short_name": "NEW"},
+        ],
+        "elements": [
+            {"id": 1, "web_name": "Raya", "team": 1, "element_type": 1, "now_cost": 55, "status": "a", "total_points": 100},
+            {"id": 2, "web_name": "Haaland", "team": 2, "element_type": 4, "now_cost": 150, "status": "a", "total_points": 200},
+            {"id": 3, "web_name": "Pickford", "team": 1, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 90},
+        ] + [
+            {
+                "id": k,
+                "web_name": f"P{k}",
+                "team": (k % 6) + 1,
+                "element_type": 1 if k == 4 else (2 if k < 10 else (3 if k < 15 else 4)),
+                "now_cost": 50,
+                "status": "a",
+                "total_points": 50,
+            }
+            for k in range(4, 18)
+        ],
+    }
+    store.save_snapshot(bootstrap, [], utc_timestamp())
+
+    # Build valid squad of 15 players
+    squad_data = {
+        "season": "2026/27",
+        "player_ids": [1] + list(range(4, 18)),
+        "purchase_prices_tenths": {str(k): 50 for k in [1] + list(range(4, 18))},
+        "bank_tenths": 20,
+        "free_transfers": 1,
+        "chips_remaining": [],
+    }
+    squad_file.write_text(json.dumps(squad_data), encoding="utf-8")
+
+    # Name-based transfer: Raya (ID 1) -> Pickford (ID 3)
+    res = validate_transfer_set(squad_file, ["Raya:Pickford"], by_name=True, database_path=db_path)
+    assert res["is_valid"] is True
+
+    # Failed resolution raises RuntimeError
+    with pytest.raises(RuntimeError, match="Could not resolve outgoing player 'NonExistent'"):
+        validate_transfer_set(squad_file, ["NonExistent:Pickford"], by_name=True, database_path=db_path)
+

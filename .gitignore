@@ -9,5 +9,6 @@ data/*.sqlite3
 data/raw/
 reports/*.json
 config/current_squad.json
+players.txt
 !data/.gitkeep
 !reports/.gitkeep
