@@ -39,6 +39,18 @@ Inspect the most recently saved snapshot:
 fpl report
 ```
 
+## Private current-squad file
+
+Copy `config/current_squad.example.json` to `config/current_squad.json`, then replace the placeholder player IDs and purchase prices with your own 15-player squad. The private file is ignored by Git; do not commit it. Prices and bank are stored in tenths of a million (£5.0m is `50`).
+
+After running `fpl update`, validate a proposed transfer using FPL player IDs:
+
+```powershell
+fpl validate-transfers --transfer 123:456
+```
+
+Repeat `--transfer` for a multi-transfer move. The command checks your squad, position, bank, club limit, and transfer-hit impact without changing your saved state.
+
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
 ## Current scope

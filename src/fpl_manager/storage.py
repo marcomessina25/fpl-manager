@@ -2,9 +2,12 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from .models import Player, Position
 
 
 def utc_timestamp() -> str:
@@ -17,7 +20,7 @@ class SnapshotStore:
 
     def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -57,7 +60,7 @@ class SnapshotStore:
 
     def save_snapshot(self, bootstrap: dict[str, Any], fixtures: list[dict[str, Any]], fetched_at: str) -> int:
         self.initialize()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             cursor = connection.execute("INSERT INTO snapshots (fetched_at) VALUES (?)", (fetched_at,))
             snapshot_id = int(cursor.lastrowid)
             connection.executemany(
@@ -99,7 +102,7 @@ class SnapshotStore:
 
     def latest_summary(self) -> dict[str, Any] | None:
         self.initialize()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             snapshot = connection.execute(
                 "SELECT id, fetched_at FROM snapshots ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -110,6 +113,19 @@ class SnapshotStore:
             teams = connection.execute("SELECT COUNT(*) FROM teams WHERE snapshot_id = ?", (snapshot_id,)).fetchone()[0]
             fixtures = connection.execute("SELECT COUNT(*) FROM fixtures WHERE snapshot_id = ?", (snapshot_id,)).fetchone()[0]
         return {"snapshot_id": snapshot_id, "fetched_at": fetched_at, "players": players, "teams": teams, "fixtures": fixtures}
+
+    def latest_players(self) -> list[Player]:
+        """Return players from the newest persisted snapshot."""
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            if snapshot is None:
+                raise RuntimeError("No FPL data found. Run `fpl update` first.")
+            rows = connection.execute(
+                "SELECT player_id, web_name, position_id, team_id, price_tenths FROM players WHERE snapshot_id = ?",
+                (snapshot[0],),
+            ).fetchall()
+        return [Player(player_id, name, Position(position_id), team_id, price) for player_id, name, position_id, team_id, price in rows]
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)

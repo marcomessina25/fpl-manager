@@ -33,7 +33,7 @@ class ValidationResult:
         return not self.errors
 
 
-def validate_squad(players: Iterable[Player], budget_tenths: int = MAX_BUDGET_TENTHS) -> ValidationResult:
+def validate_squad(players: Iterable[Player], budget_tenths: int | None = MAX_BUDGET_TENTHS) -> ValidationResult:
     """Validate a complete 15-player squad against fixed FPL constraints."""
     squad = tuple(players)
     errors: list[str] = []
@@ -45,7 +45,7 @@ def validate_squad(players: Iterable[Player], budget_tenths: int = MAX_BUDGET_TE
         errors.append("A squad cannot contain the same player more than once.")
 
     total_cost = sum(player.price_tenths for player in squad)
-    if total_cost > budget_tenths:
+    if budget_tenths is not None and total_cost > budget_tenths:
         errors.append(
             f"Squad costs £{total_cost / 10:.1f}m, exceeding the £{budget_tenths / 10:.1f}m budget."
         )

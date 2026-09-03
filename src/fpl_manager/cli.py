@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 
 from .api import fetch_current_data
+from .squad_state import load_current_squad
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
+from .transfers import Transfer, validate_transfers
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +15,7 @@ DATA_DIRECTORY = PROJECT_ROOT / "data"
 RAW_DIRECTORY = DATA_DIRECTORY / "raw"
 DATABASE_PATH = DATA_DIRECTORY / "fpl.sqlite3"
 REPORT_PATH = PROJECT_ROOT / "reports" / "current_state.json"
+DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
 
 
 def update() -> dict[str, object]:
@@ -34,15 +37,41 @@ def report() -> dict[str, object]:
     return summary
 
 
+def validate_transfer_set(squad_path: Path, transfers: list[str]) -> dict[str, object]:
+    parsed_transfers: list[Transfer] = []
+    for value in transfers:
+        try:
+            outgoing, incoming = value.split(":", maxsplit=1)
+            parsed_transfers.append(Transfer(int(outgoing), int(incoming)))
+        except ValueError as error:
+            raise RuntimeError(f"Invalid transfer '{value}'. Use OUTGOING_ID:INCOMING_ID.") from error
+    state = load_current_squad(squad_path)
+    result = validate_transfers(state, SnapshotStore(DATABASE_PATH).latest_players(), parsed_transfers)
+    return {
+        "is_valid": result.is_valid,
+        "errors": list(result.errors),
+        "bank_after_tenths": result.bank_after_tenths,
+        "transfer_hits": result.transfer_hits,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="fpl", description="Local-first FPL decision engine")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("update", help="Download and persist the latest official FPL data")
     subcommands.add_parser("report", help="Write a machine-readable summary of the latest snapshot")
+    validate_parser = subcommands.add_parser("validate-transfers", help="Validate proposed transfers against the local squad state")
+    validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
+    validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING_ID:INCOMING_ID; repeat for multiple moves")
     arguments = parser.parse_args()
 
     try:
-        result = update() if arguments.command == "update" else report()
+        if arguments.command == "update":
+            result = update()
+        elif arguments.command == "report":
+            result = report()
+        else:
+            result = validate_transfer_set(arguments.squad, arguments.transfer)
     except RuntimeError as error:
         parser.error(str(error))
     print(json.dumps(result, indent=2))

@@ -23,13 +23,17 @@ Completed:
 - Local SQLite snapshot store and raw-data archive.
 - Deterministic squad and starting-lineup rule validation.
 - Initial rule tests.
+- Private, Git-ignored current-squad JSON format and committed example template.
+- Deterministic transfer validation, including position, bank, club-limit, and transfer-hit checks.
+- CLI command for validating proposed transfers against the latest saved FPL snapshot.
+- SQLite persistence test coverage.
 
 Remaining before V0.1 is complete:
 
-- Represent the user's actual current squad and state (bank, free transfers, purchase/selling prices, chips).
-- Transfer validator based on that state.
-- Expand automated test coverage for edge cases and API storage.
-- Commit the initial repository state.
+- Populate the user's private `config/current_squad.json` with the actual squad and state.
+- Run a real transfer-validation smoke test against that private configuration.
+
+Implementation note: the initial foundation is under review in PR #1. Current-squad state and transfer validation are implemented on a separate branch, ready to follow it.
 
 ### V0.2 — decision-support basics
 
