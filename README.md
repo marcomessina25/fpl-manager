@@ -43,6 +43,15 @@ fpl report
 
 Copy `config/current_squad.example.json` to `config/current_squad.json`, then replace the placeholder player IDs and purchase prices with your own 15-player squad. The private file is ignored by Git; do not commit it. Prices and bank are stored in tenths of a million (£5.0m is `50`).
 
+Use the latest official snapshot to find each player ID, for example:
+
+```powershell
+fpl update
+fpl players --search "Salah"
+```
+
+Enter the returned `id` for each member of your squad. Use the current price as the purchase price only when you bought the player at that price; otherwise enter the price you actually paid.
+
 After running `fpl update`, validate a proposed transfer using FPL player IDs:
 
 ```powershell

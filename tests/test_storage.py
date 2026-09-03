@@ -16,3 +16,4 @@ def test_persists_and_loads_latest_snapshot() -> None:
         assert store.latest_summary() == {"snapshot_id": 1, "fetched_at": "2026-09-03T00:00:00+00:00", "players": 1, "teams": 1, "fixtures": 1}
         player = store.latest_players()[0]
         assert (player.id, player.price_tenths) == (10, 75)
+        assert store.search_latest_players("pla") == [{"id": 10, "name": "Player", "team": "EXA", "price_tenths": 75}]

@@ -60,6 +60,8 @@ def main() -> None:
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("update", help="Download and persist the latest official FPL data")
     subcommands.add_parser("report", help="Write a machine-readable summary of the latest snapshot")
+    players_parser = subcommands.add_parser("players", help="Find player IDs in the latest FPL snapshot")
+    players_parser.add_argument("--search", required=True, help="Part of a player's displayed name")
     validate_parser = subcommands.add_parser("validate-transfers", help="Validate proposed transfers against the local squad state")
     validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
     validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING_ID:INCOMING_ID; repeat for multiple moves")
@@ -70,6 +72,8 @@ def main() -> None:
             result = update()
         elif arguments.command == "report":
             result = report()
+        elif arguments.command == "players":
+            result = {"players": SnapshotStore(DATABASE_PATH).search_latest_players(arguments.search)}
         else:
             result = validate_transfer_set(arguments.squad, arguments.transfer)
     except RuntimeError as error:

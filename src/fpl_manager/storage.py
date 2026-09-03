@@ -127,6 +127,28 @@ class SnapshotStore:
             ).fetchall()
         return [Player(player_id, name, Position(position_id), team_id, price) for player_id, name, position_id, team_id, price in rows]
 
+    def search_latest_players(self, query: str) -> list[dict[str, Any]]:
+        """Find players by name in the newest snapshot for manual configuration."""
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            if snapshot is None:
+                raise RuntimeError("No FPL data found. Run `fpl update` first.")
+            rows = connection.execute(
+                """
+                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths
+                FROM players JOIN teams
+                  ON teams.snapshot_id = players.snapshot_id AND teams.team_id = players.team_id
+                WHERE players.snapshot_id = ? AND LOWER(players.web_name) LIKE ?
+                ORDER BY players.web_name
+                """,
+                (snapshot[0], f"%{query.lower()}%"),
+            ).fetchall()
+        return [
+            {"id": player_id, "name": name, "team": team, "price_tenths": price}
+            for player_id, name, team, price in rows
+        ]
+
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
 
