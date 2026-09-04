@@ -7,9 +7,12 @@ import pytest
 from fpl_manager.chip_strategy import (
     analyze_fixture_calendar,
     evaluate_chip_candidates,
+    get_used_chips_for_segment,
     recommend_chip_strategy,
+    resolve_segment_range,
 )
-from fpl_manager.cli import format_chip_strategy_concise
+from fpl_manager.cli import format_chip_strategy_concise, main
+from fpl_manager.decision_log import record_gameweek_decision
 from fpl_manager.storage import SnapshotStore, utc_timestamp
 
 
@@ -69,6 +72,28 @@ def chip_planner_env(tmp_path: Path) -> tuple[Path, Path]:
         {"id": 9, "event": 5, "team_h": 1, "team_a": 3, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-09-17T15:00:00Z", "finished": False},
         {"id": 10, "event": 5, "team_h": 2, "team_a": 4, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-09-17T17:30:00Z", "finished": False},
     ]
+
+    for gw in range(6, 39):
+        fixtures.append({
+            "id": 100 + gw * 2,
+            "event": gw,
+            "team_h": 1,
+            "team_a": 2,
+            "team_h_difficulty": 3,
+            "team_a_difficulty": 3,
+            "kickoff_time": "2027-01-01T15:00:00Z",
+            "finished": False,
+        })
+        fixtures.append({
+            "id": 101 + gw * 2,
+            "event": gw,
+            "team_h": 3,
+            "team_a": 4,
+            "team_h_difficulty": 3,
+            "team_a_difficulty": 3,
+            "kickoff_time": "2027-01-01T17:30:00Z",
+            "finished": False,
+        })
 
     store.save_snapshot(bootstrap, fixtures, utc_timestamp())
 
@@ -187,3 +212,136 @@ def test_format_chip_strategy_concise(chip_planner_env: tuple[Path, Path]) -> No
     assert "Available Chips:" in concise
     assert "Recommended Deployment Schedule:" in concise
     assert "Top Candidate Gameweeks by Chip:" in concise
+
+
+def test_resolve_segment_range() -> None:
+    # Segment 1 (GW 1-19)
+    assert resolve_segment_range(1, None) == (1, 19, "1-19")
+    assert resolve_segment_range(2, 38) == (2, 19, "1-19")  # Clamped to 19!
+    assert resolve_segment_range(10, 25) == (10, 19, "1-19") # Clamped to 19!
+    assert resolve_segment_range(10, 15) == (10, 15, "1-19")
+
+    # Segment 2 (GW 20-38)
+    assert resolve_segment_range(20, None) == (20, 38, "20-38")
+    assert resolve_segment_range(20, 38) == (20, 38, "20-38")
+    assert resolve_segment_range(24, 30) == (24, 30, "20-38")
+    assert resolve_segment_range(24, 10) == (24, 38, "20-38") # Below 20 resets to 38
+
+
+def test_chip_strategy_segment_1_limits(chip_planner_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = chip_planner_env
+
+    # When start_gw=2 and no end_gw, planning limits strictly to gameweeks 1-19
+    res = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=2,
+    )
+    assert res["segment"] == "1-19"
+    assert res["start_gw"] == 2
+    assert res["end_gw"] == 19
+    assert res["chips_reset_after_gw"] == 19
+
+    # All scheduled chips must be <= 19
+    for rec in res["recommended_schedule"]:
+        assert rec["gameweek"] <= 19
+
+
+def test_chip_strategy_segment_2_limits(chip_planner_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = chip_planner_env
+
+    # When start_gw=20, planning limits to gameweeks 20-38
+    res = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=20,
+    )
+    assert res["segment"] == "20-38"
+    assert res["start_gw"] == 20
+    assert res["end_gw"] == 38
+
+    # All scheduled chips must be >= 20 and <= 38
+    for rec in res["recommended_schedule"]:
+        assert 20 <= rec["gameweek"] <= 38
+
+
+def test_chips_reset_after_gameweek_19(chip_planner_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = chip_planner_env
+    squad_ids = list(range(1, 16))
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 15]
+
+    # 1. Log a decision in Gameweek 2 with triplecaptain played
+    record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="triplecaptain",
+        database_path=db_path,
+    )
+
+    # 2. In GW3 (Segment 1), triplecaptain is marked as used
+    res_gw3 = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=3,
+    )
+    assert "triplecaptain" in res_gw3["used_chips"]
+    assert "triplecaptain" not in res_gw3["available_chips"]
+
+    # 3. In GW20 (Segment 2), chips are RESET after Gameweek 19!
+    # Even though triplecaptain was played in GW2, it is available again in Segment 2
+    res_gw20 = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=20,
+    )
+    assert "triplecaptain" not in res_gw20["used_chips"]
+    assert "triplecaptain" in res_gw20["available_chips"]
+    assert set(res_gw20["available_chips"]) == {"wildcard", "freehit", "benchboost", "triplecaptain"}
+
+    # 4. If a chip is played in Segment 2 (e.g. freehit in GW 21)
+    record_gameweek_decision(
+        gameweek=21,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="freehit",
+        database_path=db_path,
+    )
+
+    # In GW22 (Segment 2), freehit is used, but other chips remain available
+    res_gw22 = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=22,
+    )
+    assert "freehit" in res_gw22["used_chips"]
+    assert "freehit" not in res_gw22["available_chips"]
+    assert "triplecaptain" in res_gw22["available_chips"]
+
+
+def test_cli_chip_strategy_segments(
+    chip_planner_env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    db_path, squad_path = chip_planner_env
+    monkeypatch.setattr("fpl_manager.cli.DATABASE_PATH", db_path)
+
+    # CLI call in Segment 1 (default / GW2)
+    main(["chip-strategy", "--squad", str(squad_path), "--start-gw", "2"])
+    out1 = capsys.readouterr().out
+    assert "Gameweeks 1-19 (First Half)" in out1
+    assert "Chips reset after GW19" in out1
+
+    # CLI call in Segment 2 (GW20)
+    main(["chip-strategy", "--squad", str(squad_path), "--start-gw", "20"])
+    out2 = capsys.readouterr().out
+    assert "Gameweeks 20-38 (Second Half)" in out2
+    assert "Second Half Active" in out2

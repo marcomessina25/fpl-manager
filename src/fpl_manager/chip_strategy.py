@@ -24,20 +24,107 @@ DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
 CHIP_STRATEGY_REPORT_PATH = PROJECT_ROOT / "reports" / "chip_strategy.json"
 
 AVAILABLE_CHIPS = ("wildcard", "freehit", "benchboost", "triplecaptain")
+CHIP_ALIASES = {
+    "wildcard": "wildcard",
+    "wildcard_1": "wildcard",
+    "wildcard_2": "wildcard",
+    "freehit": "freehit",
+    "free_hit": "freehit",
+    "benchboost": "benchboost",
+    "bench_boost": "benchboost",
+    "triplecaptain": "triplecaptain",
+    "triple_captain": "triplecaptain",
+}
+
+
+def resolve_segment_range(
+    start_gw: int,
+    end_gw: int | None = None,
+) -> tuple[int, int, str]:
+    """Determine active season segment and clamp planning range.
+
+    Season segments:
+    - Segment 1: Gameweeks 1 to 19 (First Half)
+    - Segment 2: Gameweeks 20 to 38 (Second Half)
+
+    Chips reset after the end of Gameweek 19.
+    Returns (clamped_start_gw, clamped_end_gw, segment_name).
+    """
+    if start_gw <= 19:
+        segment_name = "1-19"
+        max_seg_gw = 19
+        clamped_start = max(1, start_gw)
+        if end_gw is None or end_gw > max_seg_gw:
+            clamped_end = max_seg_gw
+        else:
+            clamped_end = max(clamped_start, min(end_gw, max_seg_gw))
+    else:
+        segment_name = "20-38"
+        max_seg_gw = 38
+        clamped_start = max(20, start_gw)
+        if end_gw is None or end_gw > max_seg_gw:
+            clamped_end = max_seg_gw
+        elif end_gw < 20:
+            clamped_end = max_seg_gw
+        else:
+            clamped_end = max(clamped_start, min(end_gw, max_seg_gw))
+
+    return clamped_start, clamped_end, segment_name
+
+
+def get_used_chips_for_segment(
+    start_gw: int,
+    database_path: Path = DATABASE_PATH,
+) -> list[str]:
+    """Query logged decisions to find chips already used in the active segment.
+
+    Chips reset after the end of Gameweek 19:
+    - When in Gameweeks 1-19, only chips logged in GW 1..19 (prior to start_gw) are used.
+    - When in Gameweeks 20-38, chips logged in GW 1..19 are reset and ignored; only chips logged
+      in GW 20..38 (prior to start_gw) are used.
+    """
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    if start_gw <= 19:
+        seg_start = 1
+        seg_end = 19
+    else:
+        seg_start = 20
+        seg_end = 38
+
+    with closing(store._connect()) as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT chip_played FROM decisions
+            WHERE gameweek >= ? AND gameweek <= ? AND gameweek < ?
+              AND chip_played IS NOT NULL AND chip_played != ''
+            """,
+            (seg_start, seg_end, start_gw),
+        ).fetchall()
+
+    used: list[str] = []
+    for (cp,) in rows:
+        norm = CHIP_ALIASES.get(cp.lower().strip(), cp.lower().strip())
+        if norm in AVAILABLE_CHIPS and norm not in used:
+            used.append(norm)
+    return used
 
 
 def analyze_fixture_calendar(
     start_gw: int | None = None,
-    end_gw: int = 38,
+    end_gw: int | None = None,
     squad_path: Path | None = None,
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
-    """Scan upcoming calendar events to identify Blank and Double Gameweeks."""
+    """Scan upcoming calendar events to identify Blank and Double Gameweeks within active segment."""
     store = SnapshotStore(database_path)
     store.initialize()
 
     if start_gw is None:
         start_gw = get_current_gameweek(store)
+
+    start_gw, end_gw, segment_name = resolve_segment_range(start_gw, end_gw)
 
     squad_player_ids: set[int] = set()
     squad_team_counts: dict[int, int] = {}
@@ -151,8 +238,12 @@ def analyze_fixture_calendar(
         })
 
     return {
+        "segment": segment_name,
+        "segment_start": 1 if start_gw <= 19 else 20,
+        "segment_end": 19 if start_gw <= 19 else 38,
         "start_gw": start_gw,
         "end_gw": end_gw,
+        "chips_reset_after_gw": 19,
         "has_confirmed_blank_gameweeks": has_bgw,
         "has_confirmed_double_gameweeks": has_dgw,
         "calendar": calendar_gws,
@@ -161,11 +252,11 @@ def analyze_fixture_calendar(
 
 def evaluate_chip_candidates(
     start_gw: int | None = None,
-    end_gw: int = 38,
+    end_gw: int | None = None,
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Evaluate expected value and timing quality for each chip across upcoming gameweeks."""
+    """Evaluate expected value and timing quality for each chip across upcoming gameweeks in active segment."""
     calendar_info = analyze_fixture_calendar(
         start_gw=start_gw,
         end_gw=end_gw,
@@ -173,6 +264,7 @@ def evaluate_chip_candidates(
         database_path=database_path,
     )
     start_gw = calendar_info["start_gw"]
+    end_gw = calendar_info["end_gw"]
     calendar = calendar_info["calendar"]
 
     tc_candidates = []
@@ -196,7 +288,6 @@ def evaluate_chip_candidates(
             continue
 
         # 1. Triple Captain Candidate Evaluation
-        # Top captain pick in the gameweek
         top_cap = max(projections, key=lambda p: p.expected_points)
         tc_expected_boost = round(top_cap.expected_points, 1)
         tc_rating = round(tc_expected_boost * (1.3 if gw_type in ("DOUBLE", "BLANK_AND_DOUBLE") else 1.0), 1)
@@ -218,7 +309,6 @@ def evaluate_chip_candidates(
         })
 
         # 2. Free Hit Candidate Evaluation
-        # High value when squad has multiple blanks or when a massive DGW occurs
         fh_urgency = (squad_blanks * 4.0) + (10.0 if gw_type == "BLANK" else 0.0) + (15.0 if gw_type == "DOUBLE" and squad_doubles == 0 else 0.0)
         fh_expected_gain = round(squad_blanks * 3.5 + (8.0 if gw_type in ("BLANK", "DOUBLE") else 0.0), 1)
 
@@ -236,7 +326,6 @@ def evaluate_chip_candidates(
         })
 
         # 3. Bench Boost Candidate Evaluation
-        # Evaluates bench strength; high in DGWs especially with doubling bench players
         try:
             lineup_res = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gw)
             bench_xp = round(sum(p.get("expected_points", 0.0) for p in lineup_res.get("bench", [])), 1)
@@ -260,7 +349,6 @@ def evaluate_chip_candidates(
         })
 
         # 4. Wildcard Candidate Evaluation
-        # Strategic value peaks right before a DGW (to prep BB) or during major fixture runs
         wc_rating = 10.0
         wc_reason = "Mid-season squad overhaul"
         if gw_type in ("DOUBLE", "BLANK_AND_DOUBLE"):
@@ -277,7 +365,6 @@ def evaluate_chip_candidates(
             "reasoning": wc_reason,
         })
 
-    # Sort each category by rating descending
     tc_candidates.sort(key=lambda x: x["rating"], reverse=True)
     fh_candidates.sort(key=lambda x: x["rating"], reverse=True)
     bb_candidates.sort(key=lambda x: x["rating"], reverse=True)
@@ -295,16 +382,41 @@ def recommend_chip_strategy(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
     start_gw: int | None = None,
-    end_gw: int = 38,
+    end_gw: int | None = None,
     used_chips: list[str] | None = None,
     report_path: Path = CHIP_STRATEGY_REPORT_PATH,
 ) -> dict[str, Any]:
-    """Generate an optimal conflict-free multi-gameweek chip deployment roadmap."""
+    """Generate an optimal conflict-free multi-gameweek chip deployment roadmap.
+
+    Limits planning to Gameweeks 1-19 when in Segment 1, and Gameweeks 20-38 when in Segment 2.
+    Chips reset after the end of Gameweek 19.
+    """
     store = SnapshotStore(database_path)
+    store.initialize()
+
     if start_gw is None:
         start_gw = get_current_gameweek(store)
 
-    used_set = set(c.lower().strip() for c in (used_chips or []))
+    start_gw, end_gw, segment_name = resolve_segment_range(start_gw, end_gw)
+
+    # Detect chips already used in this specific segment from persistent decision logs
+    logged_used = get_used_chips_for_segment(start_gw, database_path=database_path)
+
+    # Process explicit caller-supplied used chips
+    explicit_used: list[str] = []
+    if used_chips:
+        for c in used_chips:
+            raw_c = c.lower().strip()
+            # Handle segment-specific wildcards
+            if start_gw <= 19 and raw_c in ("wildcard_2", "wildcard2"):
+                continue  # Wildcard 2 applies to segment 2
+            if start_gw >= 20 and raw_c in ("wildcard_1", "wildcard1"):
+                continue  # Wildcard 1 belongs to segment 1; reset!
+            norm = CHIP_ALIASES.get(raw_c, raw_c)
+            if norm in AVAILABLE_CHIPS and norm not in explicit_used:
+                explicit_used.append(norm)
+
+    used_set = set(logged_used) | set(explicit_used)
     available = [c for c in AVAILABLE_CHIPS if c not in used_set]
 
     calendar_info = analyze_fixture_calendar(
@@ -320,13 +432,10 @@ def recommend_chip_strategy(
         database_path=database_path,
     )
 
-    # Assign chips greedily based on highest ratings without gameweek collision
     assigned_gws: set[int] = set()
     recommendations: list[dict[str, Any]] = []
 
-    # Priority order for assignment: Free Hit (if acute BGW), then TC, then BB, then WC
     chip_priority = ["freehit", "triplecaptain", "benchboost", "wildcard"]
-    # Sort available according to priority
     sorted_available = [c for c in chip_priority if c in available]
 
     for chip in sorted_available:
@@ -345,14 +454,17 @@ def recommend_chip_strategy(
                 })
                 break
 
-    # Sort recommendations chronologically
     recommendations.sort(key=lambda x: x["gameweek"])
 
     result = {
+        "segment": segment_name,
+        "segment_start": 1 if start_gw <= 19 else 20,
+        "segment_end": 19 if start_gw <= 19 else 38,
         "start_gw": start_gw,
         "end_gw": end_gw,
+        "chips_reset_after_gw": 19,
         "available_chips": available,
-        "used_chips": list(used_set),
+        "used_chips": sorted(list(used_set)),
         "has_confirmed_blank_gameweeks": calendar_info["has_confirmed_blank_gameweeks"],
         "has_confirmed_double_gameweeks": calendar_info["has_confirmed_double_gameweeks"],
         "recommended_schedule": recommendations,

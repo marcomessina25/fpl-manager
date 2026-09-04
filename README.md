@@ -133,10 +133,11 @@ fpl risk
 fpl ownership --league --top 15
 ```
 
-Plan Blank and Double Gameweek chip deployment roadmap (Wildcard, Free Hit, Bench Boost, Triple Captain):
+Plan Blank and Double Gameweek chip deployment roadmap (Wildcard, Free Hit, Bench Boost, Triple Captain). Automatically segments the season into Gameweeks 1-19 (First Half) and 20-38 (Second Half); all chips reset after Gameweek 19:
 
 ```powershell
 fpl chip-strategy
+fpl chip-strategy --start-gw 20
 fpl chip-strategy --used-chips "wildcard,freehit"
 ```
 

@@ -100,10 +100,13 @@ Completed:
   - Calculates manager's Net Rank Exposure per player: $+60\%$ to $+100\%$ positive rank leverage when starting/captaining, and negative exposure (rank drag) for non-owned template threats.
   - Integrated into matchday lineup report (`fpl lineup`), displaying strategic category and EO next to every starter.
 - **Chip Strategy & Blank / Double Gameweek Planner (`src/fpl_manager/chip_strategy.py` / `fpl chip-strategy`)**:
+  - Automatically segments the season into Gameweeks 1-19 (First Half) and Gameweeks 20-38 (Second Half), constraining planning horizons strictly within the active segment.
+  - Automatically resets all chips (`wildcard`, `freehit`, `benchboost`, `triplecaptain`) after Gameweek 19, ignoring any chips used in the first half when evaluating the second half.
+  - Detects chips used in the active segment from persistent decision logs (`decisions` table in SQLite) with manual override via `--used-chips`.
   - Scans upcoming calendar events to automatically identify Blank Gameweeks (`BLANK`), Double Gameweeks (`DOUBLE`), and combined events (`BLANK_AND_DOUBLE`).
   - Quantifies squad impact: counts blanking and doubling assets in the manager's current 15-player squad.
   - Models empirical chip valuations across remaining gameweeks for Wildcard, Free Hit, Bench Boost, and Triple Captain.
-  - Generates conflict-free multi-gameweek deployment schedules respecting manager's consumed chips (`--used-chips`) and writes `reports/chip_strategy.json`.
+  - Generates conflict-free multi-gameweek deployment schedules and writes `reports/chip_strategy.json`.
 
 Remaining:
 

@@ -582,12 +582,19 @@ def format_ownership_concise(result: dict[str, Any]) -> str:
 
 
 def format_chip_strategy_concise(result: dict[str, Any]) -> str:
+    start_gw = result.get("start_gw")
+    end_gw = result.get("end_gw")
+    segment = result.get("segment", "1-19")
+    seg_label = "Gameweeks 1-19 (First Half)" if segment == "1-19" else "Gameweeks 20-38 (Second Half)"
+    reset_note = "Chips reset after GW19" if segment == "1-19" else "Chips reset after GW19 (Second Half Active)"
+
     lines = [
-        f"=== Chip Strategy & BGW/DGW Roadmap (GW{result.get('start_gw')} - GW{result.get('end_gw')}) ===",
+        f"=== Chip Strategy & BGW/DGW Roadmap (GW{start_gw} - GW{end_gw}) ===",
+        f"Season Segment: {seg_label} [{reset_note}]",
         f"Available Chips: {', '.join(result.get('available_chips', [])) or 'None'}",
     ]
     if result.get("used_chips"):
-        lines.append(f"Used Chips: {', '.join(result.get('used_chips', []))}")
+        lines.append(f"Used Chips ({segment}): {', '.join(result.get('used_chips', []))}")
 
     has_bgw = result.get("has_confirmed_blank_gameweeks")
     has_dgw = result.get("has_confirmed_double_gameweeks")
@@ -748,7 +755,7 @@ def main(argv: list[str] | None = None) -> None:
         chip_p = subcommands.add_parser(chip_cmd, help=chip_help)
         chip_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
         chip_p.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: upcoming GW)")
-        chip_p.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        chip_p.add_argument("--end-gw", type=int, default=None, help="Ending gameweek (default: 19 for segment 1-19, 38 for segment 20-38)")
         chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
         chip_p.add_argument("--output", type=Path, default=CHIP_STRATEGY_REPORT_PATH, help="Output path for JSON plan")
 
@@ -914,7 +921,7 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_ownership_concise(result))
         elif arguments.command in ("chip-strategy", "chips", "bgw-dgw"):
             squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
-            used_list = [c.strip() for c in arguments.used_chips.split(",")] if arguments.used_chips else []
+            used_list = [c.strip() for c in arguments.used_chips.split(",")] if arguments.used_chips else None
             result = recommend_chip_strategy(
                 squad_path=squad_path,
                 database_path=DATABASE_PATH,
