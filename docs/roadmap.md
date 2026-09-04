@@ -66,18 +66,49 @@ Remaining:
 
 - None. Ready for V0.4.
 
-### V0.4 — evaluation and research
+### V0.4 — evaluation, research, and strategic risk
 
-- Historical snapshots and backtesting that use only information available at each historical point.
-- Decision logging and model evaluation.
-- Analysis of quantitative, LLM, and human overrides.
-- Chip strategy, blank/double gameweek planning, and ownership/rank-aware risk.
+Status: **V0.4 completed on 2026-09-04.**
 
-### V0.5 — optional LLM integration
+Completed:
+
+- **Pre-Deadline Decision Logging & Audit Trail (`src/fpl_manager/decision_log.py`)**:
+  - Persistent, immutable record of manager choices before every deadline (`fpl log-decision`, `fpl decisions`).
+  - Stores chosen Starting XI, primary captain (C), vice-captain (VC), ordered bench, chips played, transfer moves, and transfer hits.
+  - Automatically captures point-in-time baseline model recommendations (`decision_recommendations` table) alongside manager choices to track human vs model divergences.
+  - Pre-validates complete squad legality and formation rules before persistence.
+  - Allows recording post-matchday actual points scored (`--actual-points`) to evaluate decision quality over time.
+- **Model Backtesting & Accuracy Evaluation Engine (`src/fpl_manager/evaluation.py` / `fpl evaluate`)**:
+  - Point-in-time historical backtesting comparing predicted expected points (xP) vs actual points scored.
+  - Statistical metrics: Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and Spearman Rank Correlation ($\rho$) with tied-rank handling.
+  - Uncertainty interval calibration: evaluates the empirical coverage percentage of players falling inside predicted $[xP_{\text{floor}}, xP_{\text{ceiling}}]$ confidence bounds.
+  - Manager Regret Analysis: calculates Captaincy Regret (points lost compared to optimal captain in Starting XI) and Bench Regret (points stranded on bench compared to lowest-scoring starter).
+  - Human vs Model Divergence Analysis: evaluates actual lineup score delta between manager's chosen XI and the model's recommended XI.
+  - Multi-Gameweek & Season Evaluation: aggregated accuracy report (`reports/evaluation_summary.json`) tracking systematic model bias (over-/under-prediction).
+- **Effective Ownership (EO) & Strategic Risk Index (`src/fpl_manager/ownership.py` / `fpl ownership` / `fpl risk`)**:
+  - Models competitive captaincy distribution across the player pool and computes Effective Ownership ($EO = \text{Ownership} + \text{Captaincy}$).
+  - Classifies assets into strategic roles:
+    - `SHIELD`: High EO ($\ge 40\%$) template preservation assets protecting rank against common hauls.
+    - `SWORD`: Low EO ($< 15\%$) differential assets with high xP or ceiling potential providing massive rank acceleration.
+    - `CORE`: Balanced mid-ownership assets ($15\% \le EO < 40\%$).
+  - Calculates manager's Net Rank Exposure per player: $+60\%$ to $+100\%$ positive rank leverage when starting/captaining, and negative exposure (rank drag) for non-owned template threats.
+  - Integrated into matchday lineup report (`fpl lineup`), displaying strategic category and EO next to every starter.
+- **Chip Strategy & Blank / Double Gameweek Planner (`src/fpl_manager/chip_strategy.py` / `fpl chip-strategy`)**:
+  - Scans upcoming calendar events to automatically identify Blank Gameweeks (`BLANK`), Double Gameweeks (`DOUBLE`), and combined events (`BLANK_AND_DOUBLE`).
+  - Quantifies squad impact: counts blanking and doubling assets in the manager's current 15-player squad.
+  - Models empirical chip valuations across remaining gameweeks for Wildcard, Free Hit, Bench Boost, and Triple Captain.
+  - Generates conflict-free multi-gameweek deployment schedules respecting manager's consumed chips (`--used-chips`) and writes `reports/chip_strategy.json`.
+
+Remaining:
+
+- None. Ready for V0.5.
+
+### V0.5 — optional LLM integration & live matchday analytics
 
 - Generate structured analytical packages from deterministic data and reports.
-- Start with human + ChatGPT/Codex review of those artifacts.
-- Consider API-based LLM analysis only after the underlying data, validation, and model outputs are trusted.
+- Start with human + LLM review of those artifacts.
+- API-based LLM analysis advisory layer evaluating narrative sentiment, injury press conferences, and tactical setups.
+- Real-time live matchday points and rank simulation tracker.
 - All LLM suggestions remain advisory and must be validated before presentation.
 
 ## Working conventions
