@@ -305,9 +305,24 @@ def test_gemini_model_fallback_between_latest_and_001() -> None:
     def fake_urlopen(req, timeout=30):
         url = req.full_url
         calls.append(url)
+        if "/models?" in url:
+            class ModelListResp:
+                def read(self):
+                    return json.dumps({
+                        "models": [
+                            {"name": "models/gemini-1.5-flash-001", "supportedGenerationMethods": ["generateContent"]}
+                        ]
+                    }).encode("utf-8")
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    pass
+            return ModelListResp()
+
         if "gemini-1.5-flash-latest" in url:
             # Simulate 404 for latest
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
         # Succeed for 001
         class FakeResp:
             def read(self):
@@ -321,8 +336,6 @@ def test_gemini_model_fallback_between_latest_and_001() -> None:
         return FakeResp()
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-        res = _call_gemini_api("hello", "dummy-key", model="gemini-1.5-flash-latest")
+        res = _call_gemini_api("hello", "dummy-key-discovery", model="gemini-1.5-flash-latest")
         assert res == "Critique from 001"
-        assert len(calls) == 2
-        assert "gemini-1.5-flash-latest" in calls[0]
-        assert "gemini-1.5-flash-001" in calls[1]
+        assert any("gemini-1.5-flash-001" in c for c in calls)

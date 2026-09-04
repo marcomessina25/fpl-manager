@@ -51,18 +51,74 @@ PERSONA_PROMPTS = {
 }
 
 
-def _call_gemini_api(prompt: str, api_key: str, model: str = "gemini-1.5-flash-latest") -> str:
-    """Call Google Gemini REST API with support for gemini-1.5-flash-latest and gemini-1.5-flash-001."""
+_GEMINI_MODEL_CACHE: dict[str, list[str]] = {}
+
+
+def _get_supported_gemini_models(api_key: str) -> list[str]:
+    """Query Google ModelService to discover models supporting generateContent for this API key."""
     clean_key = api_key.strip()
-    primary_model = (model or "gemini-1.5-flash-latest").strip()
+    if clean_key in _GEMINI_MODEL_CACHE:
+        return _GEMINI_MODEL_CACHE[clean_key]
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
+    req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            supported = []
+            for m in data.get("models", []):
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    name = m.get("name", "")
+                    if name.startswith("models/"):
+                        name = name[len("models/"):]
+                    supported.append(name)
+            if supported:
+                _GEMINI_MODEL_CACHE[clean_key] = supported
+            return supported
+    except Exception:
+        return []
+
+
+def _call_gemini_api(prompt: str, api_key: str, model: str | None = None) -> str:
+    """Call Google Gemini REST API with dynamic model discovery and fallback."""
+    clean_key = api_key.strip()
+    primary_model = (model or "").strip()
     if primary_model == "gemini-1.5-flash":
         primary_model = "gemini-1.5-flash-latest"
 
-    models_to_try = [primary_model]
-    if primary_model == "gemini-1.5-flash-latest":
-        models_to_try.append("gemini-1.5-flash-001")
-    elif primary_model == "gemini-1.5-flash-001":
-        models_to_try.append("gemini-1.5-flash-latest")
+    # 1. Query available models for this specific API key
+    available = _get_supported_gemini_models(clean_key)
+
+    models_to_try: list[str] = []
+    if primary_model:
+        models_to_try.append(primary_model)
+
+    if available:
+        # Prioritize flash models, then pro, then other generation models
+        flash_models = [m for m in available if "flash" in m.lower()]
+        pro_models = [m for m in available if "pro" in m.lower() and "flash" not in m.lower()]
+        other_models = [m for m in available if m not in flash_models and m not in pro_models]
+        flash_models.sort(reverse=True)
+        pro_models.sort(reverse=True)
+        for m in flash_models + pro_models + other_models:
+            if m not in models_to_try:
+                models_to_try.append(m)
+    else:
+        # Static candidates if ModelService was unreachable
+        static_candidates = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-001",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-001",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro-latest",
+            "gemini-pro",
+        ]
+        for m in static_candidates:
+            if m not in models_to_try:
+                models_to_try.append(m)
 
     last_error = None
     for candidate_model in models_to_try:
