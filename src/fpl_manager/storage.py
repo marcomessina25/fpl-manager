@@ -112,6 +112,45 @@ class SnapshotStore:
                     finished INTEGER NOT NULL,
                     PRIMARY KEY (snapshot_id, fixture_id)
                 );
+                CREATE TABLE IF NOT EXISTS decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season TEXT NOT NULL,
+                    gameweek INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    chip_played TEXT,
+                    transfer_hits INTEGER NOT NULL DEFAULT 0,
+                    transfers_json TEXT NOT NULL DEFAULT '[]',
+                    starting_ids_json TEXT NOT NULL,
+                    bench_ids_json TEXT NOT NULL,
+                    captain_id INTEGER NOT NULL,
+                    vice_captain_id INTEGER NOT NULL,
+                    predicted_lineup_xp REAL,
+                    predicted_floor_xp REAL,
+                    predicted_ceiling_xp REAL,
+                    actual_points INTEGER,
+                    notes TEXT,
+                    UNIQUE(season, gameweek)
+                );
+                CREATE TABLE IF NOT EXISTS decision_recommendations (
+                    decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
+                    recommended_lineup_json TEXT,
+                    recommended_transfers_json TEXT,
+                    recommended_plan_json TEXT
+                );
+                CREATE TABLE IF NOT EXISTS player_gameweek_scores (
+                    event_id INTEGER NOT NULL,
+                    player_id INTEGER NOT NULL,
+                    total_points INTEGER NOT NULL,
+                    minutes INTEGER NOT NULL DEFAULT 0,
+                    goals_scored INTEGER NOT NULL DEFAULT 0,
+                    assists INTEGER NOT NULL DEFAULT 0,
+                    clean_sheets INTEGER NOT NULL DEFAULT 0,
+                    goals_conceded INTEGER NOT NULL DEFAULT 0,
+                    bonus INTEGER NOT NULL DEFAULT 0,
+                    bps INTEGER NOT NULL DEFAULT 0,
+                    fetched_at TEXT NOT NULL,
+                    PRIMARY KEY (event_id, player_id)
+                );
                 """
             )
             # Fixtures migration check
@@ -344,6 +383,50 @@ class SnapshotStore:
             for row in rows
         ]
 
+
+    def save_gameweek_scores(self, event_id: int, live_data: dict[str, Any], fetched_at: str) -> int:
+        """Save live matchday player scores for a gameweek into persistent SQLite table."""
+        self.initialize()
+        elements = live_data.get("elements", [])
+        records = []
+        for el in elements:
+            pid = el["id"]
+            stats = el.get("stats", {})
+            records.append((
+                event_id,
+                pid,
+                _safe_int(stats.get("total_points"), 0),
+                _safe_int(stats.get("minutes"), 0),
+                _safe_int(stats.get("goals_scored"), 0),
+                _safe_int(stats.get("assists"), 0),
+                _safe_int(stats.get("clean_sheets"), 0),
+                _safe_int(stats.get("goals_conceded"), 0),
+                _safe_int(stats.get("bonus"), 0),
+                _safe_int(stats.get("bps"), 0),
+                fetched_at,
+            ))
+
+        with closing(self._connect()) as connection, connection:
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO player_gameweek_scores (
+                    event_id, player_id, total_points, minutes, goals_scored, assists,
+                    clean_sheets, goals_conceded, bonus, bps, fetched_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                records,
+            )
+        return len(records)
+
+    def get_gameweek_scores(self, event_id: int) -> dict[int, float]:
+        """Retrieve cached gameweek player scores from SQLite as {player_id: total_points}."""
+        self.initialize()
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT player_id, total_points FROM player_gameweek_scores WHERE event_id = ?",
+                (event_id,),
+            ).fetchall()
+        return {r[0]: float(r[1]) for r in rows}
 
     def search_latest_players(self, query: str) -> list[dict[str, Any]]:
         """Find players by name in the newest snapshot for manual configuration."""

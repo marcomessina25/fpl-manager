@@ -95,6 +95,55 @@ fpl lineup --gameweek 3
 
 Aliases `fpl starting-xi` and `fpl captain` can also be used. See [`docs/expected_points.md`](docs/expected_points.md) for full documentation of the underlying expected points baseline model.
 
+Log and lock in your pre-deadline decision in the persistent audit trail:
+
+```powershell
+# Log a decision for the current gameweek (automatically updates current_squad.json: players, purchase prices, bank, and free transfers):
+fpl log-decision --gameweek 3 -t "Amad:Tielemans" -c "Haaland" --vc "Salah"
+
+# Log a decision for a past gameweek (e.g. GW2 when current squad is GW3) for audit and evaluation:
+# Allows specifying players who were on the team at that time without requiring them in current_squad.json; leaves current_squad.json untouched:
+fpl log-decision --gameweek 2 -t "Gabriel:Saliba" -c "Haaland" --vc "Salah" --starters "Raya,Saliba,Alexander-Arnold,Konsa,Palmer,Saka,Mbeumo,Rogers,Haaland,Wood,Watkins"
+fpl log-decision --gameweek 1 --squad-players "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
+```
+
+Review past gameweek decisions and audit trail:
+
+```powershell
+fpl decisions
+fpl decisions --gameweek 2
+```
+
+Fetch and cache official live matchday player scores from the FPL API:
+
+```powershell
+fpl update-scores --gameweek 2
+```
+
+Evaluate model prediction accuracy and manager decision quality (MAE, RMSE, Spearman rank correlation, confidence interval calibration, captaincy/bench regret, human vs model divergence). If `--scores` is omitted, official scores are fetched automatically:
+
+```powershell
+fpl evaluate
+fpl evaluate --gameweek 2
+fpl evaluate --gameweek 2 --scores "1:6,4:2,13:14"
+```
+
+Analyze Effective Ownership (EO), Template Shields vs Differential Swords, and squad net rank exposure:
+
+```powershell
+fpl ownership
+fpl risk
+fpl ownership --league --top 15
+```
+
+Plan Blank and Double Gameweek chip deployment roadmap (Wildcard, Free Hit, Bench Boost, Triple Captain). Automatically segments the season into Gameweeks 1-19 (First Half) and 20-38 (Second Half); all chips reset after Gameweek 19:
+
+```powershell
+fpl chip-strategy
+fpl chip-strategy --start-gw 20
+fpl chip-strategy --used-chips "wildcard,freehit"
+```
+
 ## Private current-squad file
 
 Copy `config/current_squad.example.json` to `config/current_squad.json`, then replace the placeholder player IDs and purchase prices with your own 15-player squad. The private file is ignored by Git; do not commit it. Prices and bank are stored in tenths of a million (£5.0m is `50`).
@@ -142,7 +191,7 @@ Repeat `--transfer` for a multi-transfer move. The command checks your squad, po
 
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
-## Current scope (V0.3 Completed)
+## Current scope (V0.4 Completed)
 
 - Official FPL API ingestion (`bootstrap-static` and `fixtures`)
 - Timestamped raw API snapshots and normalized SQLite tables with automated schema migration
@@ -151,12 +200,20 @@ The database is saved at `data/fpl.sqlite3`; downloaded source payloads are time
 - Multi-gameweek fixture difficulty rating (FDR) analysis and squad tickers (`fpl fixtures`)
 - Component-based expected points ($xP$) model with Opta per-90 metrics and expected minutes ($xM$)
 - Uncertainty distributions ($xP_{\text{floor}}$, $xP_{\text{ceiling}}$, $\sigma$) and risk profiles (`neutral`, `floor`, `ceiling`)
-- Matchday Starting-XI, captaincy, and bench optimization (`fpl lineup`)
+- Matchday Starting-XI, captaincy, and bench optimization with strategic asset tags (`fpl lineup`)
 - Fast branch-and-bound combinatorial optimizer for 1 to 5 transfers (`fpl suggest-transfers`)
 - Multi-stage 15-player Wildcard and Free-Hit squad optimization (`fpl wildcard` / `fpl free-hit`)
 - Rolling multi-gameweek transfer planning roadmap over 3 to 6 gameweeks (`fpl plan`)
+- Pre-deadline decision audit trail logging and human vs model recommendation snapshot (`fpl log-decision`, `fpl decisions`)
+- Backtesting and prediction accuracy evaluation engine with MAE, RMSE, Spearman rank $\rho$, calibration, and regret metrics (`fpl evaluate`)
+- Effective Ownership (EO) and Strategic Risk Index with Template Shield vs Differential Sword categorization (`fpl ownership` / `fpl risk`)
+- Blank and Double Gameweek calendar analyzer and multi-gameweek chip deployment planner (`fpl chip-strategy`)
 - Transfer set validation by player ID or fuzzy name resolution (`fpl validate-transfers`)
 
 ## Roadmap
 
 The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md).
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. You are free to use, modify, and reproduce this software with attribution to Marco Messina.

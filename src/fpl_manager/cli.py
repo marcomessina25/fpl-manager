@@ -18,6 +18,29 @@ from .squad_report import SQUAD_REPORT_PATH, generate_squad_report
 from .squad_state import load_current_squad
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
 from .suggest_transfers import TRANSFERS_REPORT_PATH, WILDCARD_REPORT_PATH, suggest_transfers, suggest_wildcard
+from .decision_log import (
+    get_gameweek_decision,
+    list_decisions,
+    log_decision_from_current_squad,
+    record_actual_gameweek_score,
+)
+from .evaluation import (
+    EVALUATION_REPORT_PATH,
+    evaluate_gameweek_decision,
+    evaluate_predictions,
+    evaluate_season_decisions,
+)
+from .ownership import (
+    OWNERSHIP_REPORT_PATH,
+    analyze_gameweek_ownership,
+    analyze_squad_risk_profile,
+)
+from .chip_strategy import (
+    CHIP_STRATEGY_REPORT_PATH,
+    analyze_fixture_calendar,
+    recommend_chip_strategy,
+)
+from .scores import update_gameweek_scores
 from .transfers import Transfer, validate_transfers
 
 
@@ -118,7 +141,12 @@ def format_lineup_concise(result: dict[str, Any]) -> str:
     for p in starters:
         badge = " [C]" if p.get("role") == "CAPTAIN" else (" [VC]" if p.get("role") == "VICE_CAPTAIN" else "")
         pos = p.get("pos_abbr", "MID")
-        by_pos.setdefault(pos, []).append(f"{p.get('name')}{badge} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP")
+        eo_str = ""
+        if "effective_ownership_pct" in p:
+            cat = p.get("strategic_category", "CORE")
+            eo_val = p.get("effective_ownership_pct", 0.0)
+            eo_str = f" [{cat} {eo_val:.0f}% EO]"
+        by_pos.setdefault(pos, []).append(f"{p.get('name')}{badge} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP{eo_str}")
 
     for pos in ("GKP", "DEF", "MID", "FWD"):
         if pos in by_pos:
@@ -354,10 +382,270 @@ def format_report_concise(result: dict[str, Any]) -> str:
     )
 
 
+
+def format_decision_concise(result: dict[str, Any]) -> str:
+    gw = result.get("gameweek")
+    season = result.get("season", "2026/27")
+    cap = result.get("captain_name", "Unknown")
+    vc = result.get("vice_captain_name", "Unknown")
+    xp = result.get("predicted_lineup_xp", 0.0)
+    floor = result.get("predicted_floor_xp", 0.0)
+    ceil = result.get("predicted_ceiling_xp", 0.0)
+    chip = result.get("chip_played") or "None"
+    hits = result.get("transfer_hits", 0)
+    actual = result.get("actual_points")
+    actual_str = str(actual) if actual is not None else "Pending"
+    notes = result.get("notes") or "None"
+
+    tx_list = result.get("transfers", [])
+    if tx_list:
+        tx_strs = [f"{t.get('outgoing_name', t.get('outgoing_id'))} -> {t.get('incoming_name', t.get('incoming_id'))}" for t in tx_list]
+        tx_str = ", ".join(tx_strs)
+    else:
+        tx_str = "None"
+
+    status_line = ""
+    if "current_squad_updated" in result:
+        if result["current_squad_updated"]:
+            status_line = "\n  Squad State: Updated current_squad.json"
+        else:
+            status_line = "\n  Squad State: Past gameweek (audit & evaluation only, squad preserved)"
+
+    return (
+        f"Gameweek {gw} ({season}) Decision Log (ID #{result.get('decision_id')}):\n"
+        f"  Captain: {cap} (C), Vice: {vc} (VC)\n"
+        f"  Projected xP: {xp:.1f} (Floor: {floor:.1f}, Ceiling: {ceil:.1f})\n"
+        f"  Chip: {chip} | Hits: {hits} (-{hits * 4} pts)\n"
+        f"  Transfers: {tx_str}\n"
+        f"  Actual Score: {actual_str}\n"
+        f"  Notes: {notes}"
+        f"{status_line}"
+    )
+
+
+
+def format_decisions_list_concise(results: list[dict[str, Any]]) -> str:
+    if not results:
+        return "No decisions logged yet."
+    lines = [
+        f"{'GW':<5} | {'Chip':<10} | {'Hits':<5} | {'Captain':<15} | {'Pred xP':<8} | {'Actual':<8} | {'Date':<10}",
+        "-" * 72,
+    ]
+    for r in results:
+        gw_str = f"GW{r.get('gameweek')}"
+        chip_str = r.get("chip_played") or "-"
+        hits_str = str(r.get("transfer_hits", 0))
+        cap_str = (r.get("captain_name") or f"ID {r.get('captain_id')}")[:15]
+        xp_str = f"{r.get('predicted_lineup_xp', 0.0):.1f}"
+        actual = r.get("actual_points")
+        act_str = str(actual) if actual is not None else "-"
+        date_str = (r.get("timestamp") or "")[:10]
+        lines.append(f"{gw_str:<5} | {chip_str:<10} | {hits_str:<5} | {cap_str:<15} | {xp_str:<8} | {act_str:<8} | {date_str:<10}")
+    return "\n".join(lines)
+
+
+def _parse_scores_argument(val: str | None) -> dict[int, float] | None:
+    if not val:
+        return None
+    val = val.strip()
+    path = Path(val)
+    if path.exists() and path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {int(k): float(v) for k, v in data.items()}
+    if val.startswith("{"):
+        data = json.loads(val)
+        return {int(k): float(v) for k, v in data.items()}
+    scores = {}
+    for part in val.split(","):
+        if ":" in part:
+            k, v = part.split(":", maxsplit=1)
+            scores[int(k.strip())] = float(v.strip())
+    return scores if scores else None
+
+
+def format_evaluation_concise(result: dict[str, Any]) -> str:
+    if "finalized_gameweeks" in result:
+        season = result.get("season", "2026/27")
+        fgw = result.get("finalized_gameweeks", 0)
+        if fgw == 0:
+            return f"No finalized gameweek decisions found for {season}."
+        lines = [
+            f"=== Season {season} Accuracy & Decision Evaluation ({fgw} GWs) ===",
+            f"  Total Predicted xP: {result.get('total_predicted_xp'):.1f} | Total Actual Points: {result.get('total_actual_points'):.1f}",
+            f"  Lineup MAE: {result.get('lineup_mae'):.2f} pts/GW | Lineup RMSE: {result.get('lineup_rmse'):.2f} pts/GW",
+            f"  Mean Bias: {result.get('mean_prediction_bias', 0.0):+0.2f} ({result.get('bias_interpretation')})",
+            f"  Total Transfer Hits: {result.get('total_transfer_hits', 0)} (-{result.get('total_transfer_hits', 0) * 4} pts)",
+            "",
+            f"{'GW':<5} | {'Captain':<15} | {'Pred xP':<8} | {'Actual':<8} | {'Delta':<8} | {'Chip':<6}",
+            "-" * 60,
+        ]
+        for gw in result.get("gameweeks", []):
+            gw_str = f"GW{gw['gameweek']}"
+            cap_str = (gw.get("captain_name") or "-")[:15]
+            xp_str = f"{gw['predicted_xp']:.1f}"
+            act_str = f"{gw['actual_points']:.1f}"
+            delta_str = f"{gw['delta']:+0.1f}"
+            chip_str = gw.get("chip_played") or "-"
+            lines.append(f"{gw_str:<5} | {cap_str:<15} | {xp_str:<8} | {act_str:<8} | {delta_str:<8} | {chip_str:<6}")
+        return "\n".join(lines)
+
+    gw = result.get("gameweek")
+    season = result.get("season", "2026/27")
+    pred_acc = result.get("prediction_accuracy", {})
+    lines = [f"=== Gameweek {gw} ({season}) Model & Decision Evaluation ==="]
+
+    if pred_acc and pred_acc.get("players_evaluated", 0) > 0:
+        calib = pred_acc.get("calibration", {})
+        lines.extend([
+            f"Prediction Accuracy ({pred_acc.get('players_evaluated', 0)} players evaluated):",
+            f"  MAE: {pred_acc.get('mae', 0.0):.2f} pts | RMSE: {pred_acc.get('rmse', 0.0):.2f} pts | Spearman Rank ρ: {pred_acc.get('spearman_rank_correlation', 0.0):.3f}",
+            f"  Calibration Coverage: {calib.get('coverage_percent', 0.0)}% within [floor, ceil] (Below: {calib.get('below_floor_percent', 0.0)}%, Above: {calib.get('above_ceiling_percent', 0.0)}%)",
+        ])
+
+    if result.get("decision_logged"):
+        lines.append("")
+        lines.append("Manager Decision Audit:")
+        xp = result.get("predicted_lineup_xp", 0.0)
+        act = result.get("actual_lineup_score", 0.0)
+        delta = result.get("prediction_error_delta", 0.0)
+        lines.append(f"  Lineup: Pred xP {xp:.1f} | Actual Score: {act:.1f} (Delta: {delta:+0.1f})")
+
+        cap = result.get("captaincy", {})
+        if cap:
+            lines.append(
+                f"  Captain: {cap.get('captain_name')} ({cap.get('captain_actual_points')} pts) | "
+                f"Optimal: {cap.get('optimal_captain_name')} ({cap.get('optimal_captain_actual_points')} pts) "
+                f"-> Regret: {cap.get('captaincy_regret_points')} pts"
+            )
+
+        bench = result.get("bench", {})
+        if bench:
+            lines.append(
+                f"  Bench: {bench.get('total_bench_points')} pts left unplayed | "
+                f"Highest: {bench.get('highest_bench_player_name')} ({bench.get('highest_bench_points')} pts) "
+                f"-> Regret: {bench.get('bench_regret_points')} pts"
+            )
+
+        hvm = result.get("human_vs_model")
+        if hvm and hvm.get("delta_points") is not None:
+            lines.append(
+                f"  Human vs Model Lineup: {hvm.get('delta_verdict')} "
+                f"(Human {hvm.get('human_actual_total')} pts vs Model {hvm.get('model_actual_total')} pts, Delta: {hvm.get('delta_points'):+0.1f})"
+            )
+
+    return "\n".join(lines)
+
+
+def format_ownership_concise(result: dict[str, Any]) -> str:
+    gw = result.get("gameweek")
+    if "template_alignment_score" in result:
+        lines = [
+            f"=== Squad Strategic Risk Profile (GW{gw}) ===",
+            f"Verdict: {result.get('strategic_verdict')}",
+            f"Template Alignment: {result.get('template_alignment_score', 0.0):.1f}% | Shields in XI: {result.get('shield_count_in_xi', 0)} | Swords in XI: {result.get('sword_count_in_xi', 0)}",
+            "",
+            "Starting XI Net Exposure:",
+        ]
+        for p in result.get("starters", []):
+            role_tag = f" [{p.get('lineup_role')[:3]}]" if p.get("lineup_role") in ("CAPTAIN", "VICE_CAPTAIN") else ""
+            cat = p.get("strategic_category", "CORE")
+            eo = p.get("effective_ownership_pct", 0.0)
+            net = p.get("net_exposure_pct", 0.0)
+            lines.append(
+                f"  [{cat:<6}] {p.get('name')}{role_tag} ({p.get('position')}, {p.get('team')}) - "
+                f"{p.get('expected_points', 0.0):.1f} xP | {eo:5.1f}% EO | Net Exp: {net:+6.1f}% ({p.get('rank_leverage_verdict')})"
+            )
+
+        threats = result.get("top_non_owned_rank_threats", [])
+        if threats:
+            lines.append("")
+            lines.append("Top Non-Owned League Rank Threats:")
+            for idx, t in enumerate(threats, 1):
+                lines.append(
+                    f"  {idx}. {t.get('name')} ({t.get('team')}) - {t.get('expected_points', 0.0):.1f} xP | "
+                    f"{t.get('effective_ownership_pct', 0.0):.1f}% EO | Net Exp: {t.get('net_exposure_pct', 0.0):+0.1f}% "
+                    f"(Rank Drag: {t.get('rank_threat_drag', 0.0):.1f} pts)"
+                )
+        return "\n".join(lines)
+
+    lines = [
+        f"=== League Effective Ownership & Strategic Assets (GW{gw}) ===",
+        "",
+        "Top Effective Ownership:",
+    ]
+    for p in result.get("top_effective_ownership", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}, {p.get('position')}): {p.get('effective_ownership_pct', 0.0):.1f}% EO ({p.get('ownership_pct', 0.0):.1f}% own, {p.get('captaincy_pct', 0.0):.1f}% cap)")
+
+    lines.append("")
+    lines.append("Top Template Shields (Protection):")
+    for p in result.get("top_shields", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}): {p.get('expected_points', 0.0):.1f} xP | {p.get('effective_ownership_pct', 0.0):.1f}% EO | Shield Score: {p.get('shield_score', 0.0):.2f}")
+
+    lines.append("")
+    lines.append("Top Differential Swords (Upside Attack):")
+    for p in result.get("top_swords", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}): {p.get('expected_points', 0.0):.1f} xP (Ceil: {p.get('xp_ceiling', 0.0):.1f}) | {p.get('effective_ownership_pct', 0.0):.1f}% EO | Sword Score: {p.get('sword_score', 0.0):.2f}")
+
+    return "\n".join(lines)
+
+
+def format_chip_strategy_concise(result: dict[str, Any]) -> str:
+    start_gw = result.get("start_gw")
+    end_gw = result.get("end_gw")
+    segment = result.get("segment", "1-19")
+    seg_label = "Gameweeks 1-19 (First Half)" if segment == "1-19" else "Gameweeks 20-38 (Second Half)"
+    reset_note = "Chips reset after GW19" if segment == "1-19" else "Chips reset after GW19 (Second Half Active)"
+
+    lines = [
+        f"=== Chip Strategy & BGW/DGW Roadmap (GW{start_gw} - GW{end_gw}) ===",
+        f"Season Segment: {seg_label} [{reset_note}]",
+        f"Available Chips: {', '.join(result.get('available_chips', [])) or 'None'}",
+    ]
+    if result.get("used_chips"):
+        lines.append(f"Used Chips ({segment}): {', '.join(result.get('used_chips', []))}")
+
+    has_bgw = result.get("has_confirmed_blank_gameweeks")
+    has_dgw = result.get("has_confirmed_double_gameweeks")
+    status_str = []
+    if has_dgw:
+        status_str.append("Double Gameweeks Confirmed")
+    if has_bgw:
+        status_str.append("Blank Gameweeks Confirmed")
+    if not status_str:
+        status_str.append("All Upcoming Gameweeks Standard (Postponements Pending)")
+    lines.append(f"Calendar Status: {'; '.join(status_str)}")
+    lines.append("")
+
+    lines.append("Recommended Deployment Schedule:")
+    sched = result.get("recommended_schedule", [])
+    if not sched:
+        lines.append("  No chips recommended for deployment in target horizon.")
+    else:
+        for item in sched:
+            chip_name = item["chip"].upper()
+            gw = item["gameweek"]
+            gw_type = item["gw_type"]
+            reason = item["reasoning"]
+            lines.append(f"  GW{gw:02d} [{gw_type:8s}]: {chip_name:<15} | {reason}")
+
+    lines.append("")
+    lines.append("Top Candidate Gameweeks by Chip:")
+    rankings = result.get("candidate_rankings", {})
+    for chip, cands in rankings.items():
+        if cands:
+            top_cand = cands[0]
+            lines.append(f"  {chip.upper():<15}: Best GW{top_cand['gameweek']} ({top_cand['gw_type']}) - Rating: {top_cand['rating']} ({top_cand['reasoning']})")
+
+    return "\n".join(lines)
+
+
+
+
+
 import sys
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -430,7 +718,57 @@ def main() -> None:
     validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
     validate_parser.add_argument("-n", "--by-name", action="store_true", help="Resolve transfers by player name queries instead of integer IDs")
     validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING:INCOMING; repeat for multiple moves")
-    arguments = parser.parse_args()
+    log_dec_parser = subcommands.add_parser("log-decision", help="Record and freeze gameweek lineup and transfer decisions in audit trail")
+    log_dec_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    log_dec_parser.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current gameweek)")
+    log_dec_parser.add_argument("--squad-players", type=str, default=None, help="Comma-separated player names or IDs for the full 15-player squad")
+    log_dec_parser.add_argument("--chip", choices=["wildcard", "freehit", "benchboost", "triplecaptain"], default=None, help="Chip played this gameweek")
+    log_dec_parser.add_argument("--hits", type=int, default=None, help="Number of transfer hits taken (default: calculated automatically from transfers)")
+    log_dec_parser.add_argument("--transfer", "-t", action="append", default=None, help="Transfer as OUTGOING:INCOMING (name or ID); repeat for multiple moves")
+    log_dec_parser.add_argument("--starters", type=str, default=None, help="Comma-separated player names or IDs for the 11 starting players")
+    log_dec_parser.add_argument("--bench", type=str, default=None, help="Comma-separated player names or IDs for the 4 bench players in order")
+    log_dec_parser.add_argument("--captain", "-c", type=str, default=None, help="Player name or ID for Captain")
+    log_dec_parser.add_argument("--vice-captain", "--vc", type=str, default=None, help="Player name or ID for Vice-Captain")
+    log_dec_parser.add_argument("--notes", type=str, default="", help="Optional manager reasoning/decision notes")
+    log_dec_parser.add_argument("--actual-points", type=int, default=None, help="Actual points scored (for post-matchday finalization)")
+    log_dec_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing decision log for this gameweek")
+
+    decisions_parser = subcommands.add_parser("decisions", help="Review past gameweek decisions and audit trail")
+    decisions_parser.add_argument("--gameweek", type=int, default=None, help="View specific gameweek decision")
+    decisions_parser.add_argument("--season", type=str, default="2026/27", help="Filter by season (default: 2026/27)")
+
+    eval_parser = subcommands.add_parser("evaluate", help="Evaluate prediction calibration, model accuracy, and decision regret")
+    eval_parser.add_argument("--gameweek", type=int, default=None, help="Evaluate specific gameweek (default: all finalized gameweeks)")
+    eval_parser.add_argument("--season", type=str, default="2026/27", help="Season to evaluate (default: 2026/27)")
+    eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS' (default: auto-retrieved from FPL)")
+    eval_parser.add_argument("--decisions", action="store_true", help="Evaluate all logged decisions across the season")
+
+    scores_parser = subcommands.add_parser("update-scores", help="Fetch and cache official live matchday player scores from FPL")
+    scores_parser.add_argument("--gameweek", type=int, default=None, help="Gameweek to fetch scores for (default: current gameweek)")
+
+    for own_cmd, own_help in (
+        ("ownership", "Analyze effective ownership, template shields, differential swords, and squad rank exposure"),
+        ("risk", "Alias for `fpl ownership` command"),
+    ):
+        own_p = subcommands.add_parser(own_cmd, help=own_help)
+        own_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        own_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
+        own_p.add_argument("--league", action="store_true", help="Analyze entire league instead of current squad")
+        own_p.add_argument("--top", type=int, default=10, help="Number of top assets to show for league analysis (default: 10)")
+
+    for chip_cmd, chip_help in (
+        ("chip-strategy", "Evaluate Blank/Double Gameweeks and generate optimal chip deployment strategy"),
+        ("chips", "Alias for `fpl chip-strategy` command"),
+        ("bgw-dgw", "Alias for `fpl chip-strategy` command"),
+    ):
+        chip_p = subcommands.add_parser(chip_cmd, help=chip_help)
+        chip_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        chip_p.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: upcoming GW)")
+        chip_p.add_argument("--end-gw", type=int, default=None, help="Ending gameweek (default: 19 for segment 1-19, 38 for segment 20-38)")
+        chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
+        chip_p.add_argument("--output", type=Path, default=CHIP_STRATEGY_REPORT_PATH, help="Output path for JSON plan")
+
+    arguments = parser.parse_args(argv)
 
     try:
         if arguments.command == "update":
@@ -508,9 +846,107 @@ def main() -> None:
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_players_concise(result))
         elif arguments.command == "import-squad":
             import_squad_from_file(players_path=arguments.players, squad_path=arguments.squad)
-        else:
+        elif arguments.command == "log-decision":
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            if arguments.actual_points is not None:
+                gw = arguments.gameweek
+                if gw is None:
+                    from .fixtures import get_current_gameweek
+                    gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+                existing = get_gameweek_decision(gw, database_path=DATABASE_PATH)
+                if existing is not None and not arguments.overwrite:
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+                else:
+                    log_decision_from_current_squad(
+                        gameweek=gw,
+                        squad_path=squad_path,
+                        database_path=DATABASE_PATH,
+                        squad_player_ids=getattr(arguments, "squad_players", None),
+                        starting_player_ids=arguments.starters,
+                        bench_player_ids=arguments.bench,
+                        captain_id=arguments.captain,
+                        vice_captain_id=arguments.vice_captain,
+                        chip_played=arguments.chip,
+                        transfer_hits=arguments.hits,
+                        transfers=arguments.transfer,
+                        notes=arguments.notes,
+                        overwrite=arguments.overwrite,
+                    )
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+            else:
+                result = log_decision_from_current_squad(
+                    gameweek=arguments.gameweek,
+                    squad_path=squad_path,
+                    database_path=DATABASE_PATH,
+                    squad_player_ids=getattr(arguments, "squad_players", None),
+                    starting_player_ids=arguments.starters,
+                    bench_player_ids=arguments.bench,
+                    captain_id=arguments.captain,
+                    vice_captain_id=arguments.vice_captain,
+                    chip_played=arguments.chip,
+                    transfer_hits=arguments.hits,
+                    transfers=arguments.transfer,
+                    notes=arguments.notes,
+                    overwrite=arguments.overwrite,
+                )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
+        elif arguments.command == "decisions":
+            if arguments.gameweek is not None:
+                result = get_gameweek_decision(arguments.gameweek, season=arguments.season, database_path=DATABASE_PATH)
+                if result is None:
+                    print(f"No decision logged for {arguments.season} GW{arguments.gameweek}.")
+                else:
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
+            else:
+                decisions_list = list_decisions(season=arguments.season, database_path=DATABASE_PATH)
+                print(json.dumps({"decisions": decisions_list}, indent=2, ensure_ascii=False) if arguments.verbose else format_decisions_list_concise(decisions_list))
+        elif arguments.command == "evaluate":
+            scores = _parse_scores_argument(arguments.scores)
+            if arguments.gameweek is not None:
+                result = evaluate_gameweek_decision(
+                    gameweek=arguments.gameweek,
+                    actual_scores=scores,
+                    season=arguments.season,
+                    database_path=DATABASE_PATH,
+                )
+            else:
+                result = evaluate_season_decisions(season=arguments.season, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_evaluation_concise(result))
+        elif arguments.command == "update-scores":
+            gw = arguments.gameweek
+            if gw is None:
+                from .fixtures import get_current_gameweek
+                gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+            result = update_gameweek_scores(gameweek=gw, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else f"Updated matchday scores for Gameweek {gw} ({result['players_updated']} players saved).")
+        elif arguments.command in ("ownership", "risk"):
+            gw = arguments.gameweek
+            if arguments.league:
+                if gw is None:
+                    from .fixtures import get_current_gameweek
+                    gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+                result = analyze_gameweek_ownership(gameweek=gw, database_path=DATABASE_PATH, top_n=arguments.top)
+            else:
+                squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+                result = analyze_squad_risk_profile(squad_path=squad_path, gameweek=gw, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_ownership_concise(result))
+        elif arguments.command in ("chip-strategy", "chips", "bgw-dgw"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            used_list = [c.strip() for c in arguments.used_chips.split(",")] if arguments.used_chips else None
+            result = recommend_chip_strategy(
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                used_chips=used_list,
+                report_path=getattr(arguments, "output", CHIP_STRATEGY_REPORT_PATH),
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_chip_strategy_concise(result))
+        elif arguments.command == "validate-transfers":
             result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
+        else:
+            parser.print_help()
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
 

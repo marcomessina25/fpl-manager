@@ -142,7 +142,32 @@ def select_starting_lineup(
     total_floor = round(sum(p.xp_floor for p in best_starters) + captain.xp_floor, 2)
     total_ceiling = round(sum(p.xp_ceiling for p in best_starters) + captain.xp_ceiling, 2)
 
+    try:
+        from .ownership import (
+            categorize_strategic_asset,
+            compute_effective_ownership,
+            estimate_captaincy_shares,
+            get_player_ownership_map,
+        )
+        ownership_map = get_player_ownership_map(database_path)
+        all_league_projs = project_gameweek(gameweek=gameweek, database_path=database_path)
+        cap_map = estimate_captaincy_shares(all_league_projs, ownership_map)
+    except Exception:
+        ownership_map = {}
+        cap_map = {}
+
     def serialize_player(proj: ExpectedPointsProjection, role: str) -> dict[str, Any]:
+        own = ownership_map.get(proj.player_id, 0.0)
+        cap_pct = cap_map.get(proj.player_id, 0.0)
+        eo = round(own + cap_pct, 1)
+        cat = "CORE"
+        if eo >= 40.0 or own >= 35.0:
+            cat = "SHIELD"
+        elif (eo < 15.0 or own < 10.0) and (proj.expected_points >= 4.0 or proj.xp_ceiling >= 7.0):
+            cat = "SWORD"
+        personal_weight = 200.0 if role == "CAPTAIN" else (100.0 if role in ("STARTER", "VICE_CAPTAIN") else 0.0)
+        net_exposure = round(personal_weight - eo, 1)
+
         return {
             "id": proj.player_id,
             "name": proj.web_name,
@@ -157,6 +182,10 @@ def select_starting_lineup(
             "expected_points": proj.expected_points,
             "xp_floor": proj.xp_floor,
             "xp_ceiling": proj.xp_ceiling,
+            "ownership_pct": own,
+            "effective_ownership_pct": eo,
+            "strategic_category": cat,
+            "net_exposure_pct": net_exposure,
             "fixtures_summary": _format_fixture_summary(proj),
             "role": role,
         }
