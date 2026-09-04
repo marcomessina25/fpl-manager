@@ -27,6 +27,7 @@ from ..scores import update_gameweek_scores
 from ..squad_report import generate_squad_report
 from ..storage import SnapshotStore
 from ..suggest_transfers import suggest_transfers, suggest_wildcard
+from ..transfers import execute_transfers
 from ..teams import (
     create_team,
     delete_team,
@@ -249,8 +250,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(rep)
             elif path == "/api/players":
                 search = get_arg("search", "")
+                all_flag = str(get_arg("all", "false")).lower() in ("true", "1", "yes")
                 store = SnapshotStore(self.database_path)
-                matches = store.search_latest_players(search) if search else []
+                matches = store.search_latest_players("" if all_flag else search) if (search or all_flag) else []
                 self._send_json({"players": matches})
             else:
                 # Static file serving fallback
@@ -294,12 +296,26 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     raise ValueError("Field 'team_id' is required.")
                 result = delete_team(tid, self.config_dir)
                 self._send_json(result)
+            elif path == "/api/transfers/execute":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                tx_list = body.get("transfers", [])
+                if not tx_list:
+                    raise ValueError("Field 'transfers' is required.")
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                gw_val = body.get("gameweek")
+                result = execute_transfers(
+                    squad_path=squad_path,
+                    transfers=tx_list,
+                    database_path=self.database_path,
+                    gameweek=int(gw_val) if gw_val is not None else None,
+                )
+                self._send_json(result)
             elif path == "/api/decisions":
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 gw = int(body["gameweek"])
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 actual_points = body.get("actual_points")
-                overwrite = body.get("overwrite", False)
+                overwrite = body.get("overwrite", True)
 
                 if actual_points is not None:
                     existing = get_gameweek_decision(gw, team_id=tid, database_path=self.database_path)

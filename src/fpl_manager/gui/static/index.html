@@ -82,10 +82,26 @@
             <div id="lineup-meta" class="lineup-meta-info">Formation: 3-5-2 | Projected: 0.0 xP</div>
           </div>
           <div class="pitch-controls">
-            <label for="lineup-gw-select">Gameweek:</label>
-            <input type="number" id="lineup-gw-select" min="1" max="38" value="" class="input-sm" style="width: 70px;">
-            <button id="btn-refresh-lineup" class="btn btn-secondary btn-sm">Optimize XI</button>
+            <label for="lineup-gw-select">GW:</label>
+            <input type="number" id="lineup-gw-select" min="1" max="38" value="" class="input-sm" style="width: 55px;">
+            <button id="btn-refresh-lineup" class="btn btn-secondary btn-sm" title="Recompute model recommended starting 11">Optimize XI</button>
+            <select id="pitch-chip-select" class="input-sm" style="width: 120px;" title="Chip played for this gameweek">
+              <option value="">No Chip</option>
+              <option value="wildcard">Wildcard</option>
+              <option value="freehit">Free Hit</option>
+              <option value="benchboost">Bench Boost</option>
+              <option value="triplecaptain">Triple Captain</option>
+            </select>
+            <button id="btn-save-pitch-lineup" class="btn btn-primary btn-sm" title="Lock in and save this starting XI & captaincy">💾 Save Lineup</button>
           </div>
+        </div>
+
+        <!-- Substitution Mode Active Bar -->
+        <div id="sub-mode-banner" class="sub-mode-bar hidden">
+          <div class="sub-bar-text">
+            <span>🔄 Swapping <strong id="sub-source-name">-</strong>. Click any eligible player to complete substitution.</span>
+          </div>
+          <button id="btn-cancel-sub" class="btn btn-secondary btn-sm">Cancel</button>
         </div>
 
         <!-- Gameweek Navigation Pills Bar -->
@@ -214,71 +230,103 @@
     <!-- TAB 2: DECISION LOGGER -->
     <section id="tab-decisions" class="tab-pane">
       <div class="two-col-layout">
-        <div class="panel card">
-          <div class="panel-header">
-            <h2>Log Pre-Deadline Decision</h2>
-            <span class="badge badge-info">Persistent Audit Trail</span>
-          </div>
-          <div class="panel-body">
-            <form id="form-log-decision">
+        <div class="decisions-left-col">
+          <!-- Step 1: Executed Transfers / Trades -->
+          <div class="panel card">
+            <div class="panel-header">
+              <h2>1. Executed Transfers & Trades</h2>
+              <span class="badge badge-info">Logged Beforehand</span>
+            </div>
+            <div class="panel-body">
+              <p class="text-muted" style="margin-bottom: 0.8rem; font-size: 0.82rem;">
+                Execute trades beforehand to update your squad, bank, and free transfers before picking your lineup and captain.
+              </p>
               <div class="form-row">
-                <div class="form-group">
-                  <label for="dec-gw">Target Gameweek *</label>
-                  <input type="number" id="dec-gw" required min="1" max="38" class="form-control">
-                  <small class="form-hint" id="dec-gw-hint">Logging for past gameweek evaluates models without altering current squad.</small>
-                </div>
-                <div class="form-group">
-                  <label for="dec-chip">Chip Played</label>
-                  <select id="dec-chip" class="form-control">
-                    <option value="">None (Standard)</option>
-                    <option value="wildcard">Wildcard</option>
-                    <option value="freehit">Free Hit</option>
-                    <option value="benchboost">Bench Boost</option>
-                    <option value="triplecaptain">Triple Captain</option>
+                <div class="form-group" style="flex: 1;">
+                  <label for="tx-exec-out">Player OUT (From Current Squad):</label>
+                  <select id="tx-exec-out" class="form-control form-select">
+                    <option value="">-- Select player to sell --</option>
                   </select>
                 </div>
-              </div>
-
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="dec-captain">Captain *</label>
-                  <input type="text" id="dec-captain" required placeholder="Player name or ID" class="form-control">
-                </div>
-                <div class="form-group">
-                  <label for="dec-vc">Vice-Captain *</label>
-                  <input type="text" id="dec-vc" required placeholder="Player name or ID" class="form-control">
+                <div class="form-group" style="flex: 1;">
+                  <label for="tx-exec-in">Player IN (Search All League):</label>
+                  <input type="text" id="tx-exec-in" list="available-players-datalist" class="form-control" placeholder="Type player name (e.g. Palmer, Saka, Rogers)..." autocomplete="off" />
+                  <datalist id="available-players-datalist"></datalist>
                 </div>
               </div>
-
-              <div class="form-group">
-                <label for="dec-transfers">Executed Transfers (OUT:IN)</label>
-                <input type="text" id="dec-transfers" placeholder="e.g. Amad:Tielemans, Watkins:Haaland" class="form-control">
-                <small class="form-hint">Comma-separated OUTGOING:INCOMING player names or IDs.</small>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <div id="tx-exec-summary" class="text-muted" style="font-size: 0.82rem;"></div>
+                <button id="btn-execute-trade" type="button" class="btn btn-primary btn-sm">Execute Transfer</button>
               </div>
+              <div id="tx-executed-box" class="tx-executed-box hidden" style="margin-top: 0.8rem;">
+                <div class="tx-executed-title">Executed Transfers for this Gameweek:</div>
+                <div id="tx-executed-list"></div>
+              </div>
+            </div>
+          </div>
 
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="dec-hits">Transfer Hits Taken</label>
-                  <input type="number" id="dec-hits" min="0" placeholder="Auto-calculated if blank" class="form-control">
+          <!-- Step 2: Lineup Decision & Captaincy -->
+          <div class="panel card">
+            <div class="panel-header">
+              <h2>2. Matchday Decision & Captaincy</h2>
+              <span class="badge badge-success">Always Overwrites</span>
+            </div>
+            <div class="panel-body">
+              <form id="form-log-decision">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="dec-gw">Target Gameweek *</label>
+                    <input type="number" id="dec-gw" required min="1" max="38" class="form-control">
+                    <small class="form-hint" id="dec-gw-hint">Logging for past gameweek evaluates models without altering current squad.</small>
+                  </div>
+                  <div class="form-group">
+                    <label for="dec-chip">Chip Played</label>
+                    <select id="dec-chip" class="form-control">
+                      <option value="">None (Standard)</option>
+                      <option value="wildcard">Wildcard</option>
+                      <option value="freehit">Free Hit</option>
+                      <option value="benchboost">Bench Boost</option>
+                      <option value="triplecaptain">Triple Captain</option>
+                    </select>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="dec-actual-pts">Actual Matchday Points</label>
-                  <input type="number" id="dec-actual-pts" placeholder="Optional final score" class="form-control">
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="dec-captain">Captain * (from squad)</label>
+                    <select id="dec-captain" required class="form-control form-select">
+                      <option value="">-- Select Captain --</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="dec-vc">Vice-Captain * (from squad)</label>
+                    <select id="dec-vc" required class="form-control form-select">
+                      <option value="">-- Select Vice-Captain --</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
 
-              <div class="form-group">
-                <label for="dec-notes">Manager Notes & Strategic Rationale</label>
-                <textarea id="dec-notes" rows="2" placeholder="Explain why you made these moves and picked this captain..." class="form-control"></textarea>
-              </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="dec-hits">Transfer Hits Taken</label>
+                    <input type="number" id="dec-hits" min="0" placeholder="Auto-calculated if blank" class="form-control">
+                  </div>
+                  <div class="form-group">
+                    <label for="dec-actual-pts">Actual Matchday Points</label>
+                    <input type="number" id="dec-actual-pts" placeholder="Optional final score" class="form-control">
+                  </div>
+                </div>
 
-              <div class="form-actions">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="dec-overwrite"> Overwrite existing log for this GW
-                </label>
-                <button type="submit" class="btn btn-primary">Save & Freeze Decision</button>
-              </div>
-            </form>
+                <div class="form-group">
+                  <label for="dec-notes">Manager Notes & Strategic Rationale</label>
+                  <textarea id="dec-notes" rows="2" placeholder="Explain why you made these moves and picked this captain..." class="form-control"></textarea>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save Decision (Overwrites Log)</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
 

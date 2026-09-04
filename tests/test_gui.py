@@ -248,6 +248,35 @@ def test_api_players_search(gui_test_server: str) -> None:
         assert len(res["players"]) >= 1
 
 
+def test_api_players_all(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/players?all=true") as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert len(res["players"]) == 17
+        sample = res["players"][0]
+        assert "price_fmt" in sample
+        assert "position" in sample
+
+
+def test_api_execute_transfers(gui_test_server: str) -> None:
+    body = {
+        "transfers": [{"outgoing_id": 15, "incoming_id": 16}],
+        "gameweek": 2,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/transfers/execute",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["success"] is True
+        assert res["free_transfers"] == 0
+        assert 16 in res["new_player_ids"]
+        assert 15 not in res["new_player_ids"]
+
+
 def test_api_historical_logged_lineup(gui_test_server: str) -> None:
     # 1. Log a custom past gameweek decision for GW2
     dec_body = {

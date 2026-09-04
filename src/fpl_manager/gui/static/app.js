@@ -8,6 +8,8 @@ const state = {
   activeGameweek: 1,
   selectedGameweek: null,
   lineupMode: "auto",
+  subbingPlayer: null,
+  allLeaguePlayers: [],
 };
 
 // Toast notification helper
@@ -57,7 +59,13 @@ function initTabs() {
       if (targetPane) targetPane.classList.add("active");
 
       // Lazy load tab contents when switching
-      if (target === "decisions") loadDecisions();
+      if (target === "decisions") {
+        loadDecisions();
+        loadAllLeaguePlayers();
+        if (state.currentSquad && state.currentSquad.players) {
+          populateDecisionLoggerSquad(state.currentSquad.players);
+        }
+      }
       if (target === "chips") loadChipStrategy();
       if (target === "evaluation") loadEvaluation();
     });
@@ -172,7 +180,15 @@ async function loadSquadHUD() {
     document.getElementById("hud-bank").textContent = fin.bank_fmt || `£${((fin.bank_tenths || 0) / 10).toFixed(1)}m`;
     document.getElementById("hud-value").textContent = fin.total_team_value_fmt || "£0.0m";
     document.getElementById("hud-ft").textContent = st.free_transfers !== undefined ? st.free_transfers : 1;
-    document.getElementById("hud-chips").textContent = st.chips_remaining ? st.chips_remaining.length : 0;
+    
+    // Normalize chips (e.g. 4 unique chips: wildcard, free_hit, bench_boost, triple_captain)
+    const rawChips = st.chips_remaining || [];
+    const uniqueChips = new Set(rawChips.map(c => c.replace(/_\d+$/, "").replace(/_/g, "")));
+    document.getElementById("hud-chips").textContent = uniqueChips.size;
+
+    if (data.players) {
+      populateDecisionLoggerSquad(data.players);
+    }
 
     // Prefill Gameweek in decision logger, lineup, chips, and evaluation
     const decGw = document.getElementById("dec-gw");
@@ -395,9 +411,223 @@ function renderPitch(lineup) {
   }
 }
 
+function getFormation(starters) {
+  const def = starters.filter(p => p.pos_abbr === "DEF" || p.position === "DEF").length;
+  const mid = starters.filter(p => p.pos_abbr === "MID" || p.position === "MID").length;
+  const fwd = starters.filter(p => p.pos_abbr === "FWD" || p.position === "FWD").length;
+  return `${def}-${mid}-${fwd}`;
+}
+
+function isLegalFormation(starters) {
+  const gkp = starters.filter(p => p.pos_abbr === "GKP" || p.position === "GKP").length;
+  const def = starters.filter(p => p.pos_abbr === "DEF" || p.position === "DEF").length;
+  const mid = starters.filter(p => p.pos_abbr === "MID" || p.position === "MID").length;
+  const fwd = starters.filter(p => p.pos_abbr === "FWD" || p.position === "FWD").length;
+  return gkp === 1 && def >= 3 && def <= 5 && mid >= 2 && mid <= 5 && fwd >= 1 && fwd <= 3 && (gkp + def + mid + fwd === 11);
+}
+
+function canSwapPlayers(p1, p2, starters, bench) {
+  if (!p1 || !p2 || p1.id === p2.id) return false;
+  const isP1Starter = starters.some(p => p.id === p1.id);
+  const isP2Starter = starters.some(p => p.id === p2.id);
+
+  if (isP1Starter === isP2Starter) {
+    if (p1.pos_abbr === "GKP" || p2.pos_abbr === "GKP") {
+      return p1.pos_abbr === "GKP" && p2.pos_abbr === "GKP";
+    }
+    return true;
+  }
+
+  const starter = isP1Starter ? p1 : p2;
+  const benchP = isP1Starter ? p2 : p1;
+
+  if (starter.pos_abbr === "GKP" || benchP.pos_abbr === "GKP") {
+    return starter.pos_abbr === "GKP" && benchP.pos_abbr === "GKP";
+  }
+
+  const testStarters = starters.map(p => (p.id === starter.id ? benchP : p));
+  return isLegalFormation(testStarters);
+}
+
+function setPitchCaptain(playerId) {
+  if (!state.currentLineup) return;
+  const starters = state.currentLineup.starters || [];
+  const bench = state.currentLineup.bench || [];
+  const target = starters.find(p => p.id === playerId);
+  if (!target) {
+    const isBench = bench.find(p => p.id === playerId);
+    if (isBench) {
+      showToast("Cannot make a bench player Captain. Substitute them onto the pitch first!", true);
+      return;
+    }
+    return;
+  }
+
+  starters.forEach(p => {
+    if (p.role === "CAPTAIN") p.role = null;
+  });
+
+  if (target.role === "VICE_CAPTAIN") {
+    target.role = null;
+    state.currentLineup.vice_captain = null;
+  }
+
+  target.role = "CAPTAIN";
+  state.currentLineup.captain = target;
+
+  const decCap = document.getElementById("dec-captain");
+  if (decCap) decCap.value = target.name;
+
+  showToast(`Captain set to ${target.name}`);
+  renderPitch(state.currentLineup);
+}
+
+function setPitchViceCaptain(playerId) {
+  if (!state.currentLineup) return;
+  const starters = state.currentLineup.starters || [];
+  const bench = state.currentLineup.bench || [];
+  const target = starters.find(p => p.id === playerId);
+  if (!target) {
+    const isBench = bench.find(p => p.id === playerId);
+    if (isBench) {
+      showToast("Cannot make a bench player Vice-Captain. Substitute them onto the pitch first!", true);
+      return;
+    }
+    return;
+  }
+
+  if (target.role === "CAPTAIN") {
+    showToast("A player cannot be both Captain and Vice-Captain!", true);
+    return;
+  }
+
+  starters.forEach(p => {
+    if (p.role === "VICE_CAPTAIN") p.role = null;
+  });
+
+  target.role = "VICE_CAPTAIN";
+  state.currentLineup.vice_captain = target;
+
+  const decVc = document.getElementById("dec-vc");
+  if (decVc) decVc.value = target.name;
+
+  showToast(`Vice-Captain set to ${target.name}`);
+  renderPitch(state.currentLineup);
+}
+
+function startSubstitution(player) {
+  state.subbingPlayer = player;
+  const banner = document.getElementById("sub-mode-banner");
+  const nameEl = document.getElementById("sub-source-name");
+  if (banner) banner.classList.remove("hidden");
+  if (nameEl) nameEl.textContent = `${player.name} (${player.pos_abbr || player.position})`;
+  renderPitch(state.currentLineup);
+}
+
+function cancelSubstitution() {
+  state.subbingPlayer = null;
+  const banner = document.getElementById("sub-mode-banner");
+  if (banner) banner.classList.add("hidden");
+  renderPitch(state.currentLineup);
+}
+
+function executeSubstitution(sourcePlayer, targetPlayer) {
+  if (!state.currentLineup) return;
+  if (sourcePlayer.id === targetPlayer.id) {
+    cancelSubstitution();
+    return;
+  }
+
+  const starters = state.currentLineup.starters || [];
+  const bench = state.currentLineup.bench || [];
+
+  const sourceInStarters = starters.findIndex(p => p.id === sourcePlayer.id);
+  const targetInStarters = starters.findIndex(p => p.id === targetPlayer.id);
+  const sourceInBench = bench.findIndex(p => p.id === sourcePlayer.id);
+  const targetInBench = bench.findIndex(p => p.id === targetPlayer.id);
+
+  if (sourceInStarters !== -1 && targetInStarters !== -1) {
+    cancelSubstitution();
+    return;
+  }
+
+  if (sourceInBench !== -1 && targetInBench !== -1) {
+    if (sourcePlayer.pos_abbr === "GKP" || targetPlayer.pos_abbr === "GKP") {
+      showToast("Cannot swap goalkeeper with outfield player on bench.", true);
+      cancelSubstitution();
+      return;
+    }
+    const temp = bench[sourceInBench];
+    bench[sourceInBench] = bench[targetInBench];
+    bench[targetInBench] = temp;
+    cancelSubstitution();
+    showToast(`Bench order updated: ${sourcePlayer.name} swapped with ${targetPlayer.name}.`);
+    return;
+  }
+
+  const starterIdx = sourceInStarters !== -1 ? sourceInStarters : targetInStarters;
+  const benchIdx = sourceInBench !== -1 ? sourceInBench : targetInBench;
+  const starterP = starters[starterIdx];
+  const benchP = bench[benchIdx];
+
+  if (starterP.pos_abbr === "GKP" || benchP.pos_abbr === "GKP") {
+    if (starterP.pos_abbr !== "GKP" || benchP.pos_abbr !== "GKP") {
+      showToast("Goalkeepers can only be swapped with the backup goalkeeper.", true);
+      cancelSubstitution();
+      return;
+    }
+  }
+
+  const testStarters = [...starters];
+  testStarters[starterIdx] = benchP;
+
+  if (!isLegalFormation(testStarters)) {
+    showToast("Invalid substitution: Formation must have 3-5 DEF, 2-5 MID, 1-3 FWD, and 1 GKP.", true);
+    cancelSubstitution();
+    return;
+  }
+
+  starters[starterIdx] = benchP;
+  bench[benchIdx] = starterP;
+
+  if (starterP.role === "CAPTAIN") {
+    starterP.role = null;
+    benchP.role = "CAPTAIN";
+    state.currentLineup.captain = benchP;
+    const decCap = document.getElementById("dec-captain");
+    if (decCap) decCap.value = benchP.name;
+    showToast(`Armband passed to ${benchP.name}`);
+  } else if (starterP.role === "VICE_CAPTAIN") {
+    starterP.role = null;
+    benchP.role = "VICE_CAPTAIN";
+    state.currentLineup.vice_captain = benchP;
+    const decVc = document.getElementById("dec-vc");
+    if (decVc) decVc.value = benchP.name;
+  }
+
+  const newFormation = getFormation(starters);
+  state.currentLineup.formation = newFormation;
+
+  const startersXp = starters.reduce((acc, p) => acc + (p.expected_points || 0), 0);
+  const capBonus = state.currentLineup.captain ? (state.currentLineup.captain.expected_points || 0) : 0;
+  state.currentLineup.projected_points.starters_xp = startersXp;
+  state.currentLineup.projected_points.total_xp = startersXp + capBonus;
+
+  cancelSubstitution();
+  showToast(`Substituted ${starterP.name} ➔ ${benchP.name} (Formation: ${newFormation})`);
+}
+
 function createPlayerCard(p, isBench = false, benchIdx = 0) {
   const card = document.createElement("div");
   card.className = "player-card";
+
+  if (state.subbingPlayer) {
+    if (state.subbingPlayer.id === p.id) {
+      card.classList.add("sub-source");
+    } else if (state.currentLineup && canSwapPlayers(state.subbingPlayer, p, state.currentLineup.starters, state.currentLineup.bench)) {
+      card.classList.add("sub-target");
+    }
+  }
 
   // Role Badge (Captain / Vice)
   let badgeHtml = "";
@@ -443,16 +673,110 @@ function createPlayerCard(p, isBench = false, benchIdx = 0) {
     ${eoHtml}
   `;
 
-  // Quick action: click to populate decision logger
+  // Quick Action Buttons
+  const actions = document.createElement("div");
+  actions.className = "card-quick-actions";
+
+  const isCap = p.role === "CAPTAIN";
+  const isVc = p.role === "VICE_CAPTAIN";
+
+  if (!isBench) {
+    const capBtn = document.createElement("button");
+    capBtn.type = "button";
+    capBtn.className = `quick-btn btn-cap ${isCap ? 'active-role' : ''}`;
+    capBtn.title = isCap ? "Current Captain" : "Make Captain";
+    capBtn.textContent = "C";
+    capBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setPitchCaptain(p.id);
+    });
+    actions.appendChild(capBtn);
+
+    const vcBtn = document.createElement("button");
+    vcBtn.type = "button";
+    vcBtn.className = `quick-btn btn-vc ${isVc ? 'active-role' : ''}`;
+    vcBtn.title = isVc ? "Current Vice-Captain" : "Make Vice-Captain";
+    vcBtn.textContent = "V";
+    vcBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setPitchViceCaptain(p.id);
+    });
+    actions.appendChild(vcBtn);
+  }
+
+  const subBtn = document.createElement("button");
+  subBtn.type = "button";
+  subBtn.className = "quick-btn btn-sub";
+  subBtn.title = "Substitute player";
+  subBtn.textContent = "⇄";
+  subBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (state.subbingPlayer && state.subbingPlayer.id === p.id) {
+      cancelSubstitution();
+    } else {
+      startSubstitution(p);
+    }
+  });
+  actions.appendChild(subBtn);
+
+  card.appendChild(actions);
+
   card.addEventListener("click", () => {
-    const decCap = document.getElementById("dec-captain");
-    if (decCap && !decCap.value) {
-      decCap.value = p.name;
-      showToast(`Selected ${p.name} as Captain in Decision Logger`);
+    if (state.subbingPlayer) {
+      if (state.subbingPlayer.id === p.id) {
+        cancelSubstitution();
+      } else {
+        executeSubstitution(state.subbingPlayer, p);
+      }
+    } else {
+      const decCap = document.getElementById("dec-captain");
+      if (decCap && !isBench) {
+        decCap.value = p.name;
+        showToast(`Selected ${p.name} as Captain in Decision Logger`);
+      }
     }
   });
 
   return card;
+}
+
+// Save Lineup directly from Pitch
+async function savePitchLineup() {
+  if (!state.currentLineup || !state.currentLineup.starters) {
+    showToast("No active lineup to save.", true);
+    return;
+  }
+  const gw = parseInt(document.getElementById("lineup-gw-select").value) || state.selectedGameweek || state.activeGameweek;
+  const chip = document.getElementById("pitch-chip-select").value || null;
+
+  const starters = state.currentLineup.starters.map(p => p.id);
+  const bench = (state.currentLineup.bench || []).map(p => p.id);
+  const capId = state.currentLineup.captain ? state.currentLineup.captain.id : starters[0];
+  const vcId = state.currentLineup.vice_captain ? state.currentLineup.vice_captain.id : (starters[1] || starters[0]);
+
+  try {
+    const payload = {
+      team_id: state.activeTeamId,
+      gameweek: gw,
+      starters: starters,
+      bench: bench,
+      captain: capId,
+      vice_captain: vcId,
+      chip: chip,
+      overwrite: true,
+    };
+
+    const res = await api("/api/decisions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    showToast(`Lineup & Captain saved for GW${gw}! (Pred: ${res.predicted_lineup_xp ? res.predicted_lineup_xp.toFixed(1) + ' xP' : ''})`);
+    await refreshActiveTeamData();
+    await loadDecisions();
+  } catch (err) {
+    showToast(`Error saving lineup: ${err.message}`, true);
+  }
 }
 
 // Decision Logger
@@ -462,13 +786,10 @@ async function handleDecisionSubmit(e) {
   const chip = document.getElementById("dec-chip").value || null;
   const captain = document.getElementById("dec-captain").value.trim();
   const vc = document.getElementById("dec-vc").value.trim();
-  const transfersRaw = document.getElementById("dec-transfers").value.trim();
   const hitsRaw = document.getElementById("dec-hits").value;
   const actualRaw = document.getElementById("dec-actual-pts").value;
   const notes = document.getElementById("dec-notes").value.trim();
-  const overwrite = document.getElementById("dec-overwrite").checked;
 
-  const transfers = transfersRaw ? transfersRaw.split(",").map(t => t.trim()).filter(Boolean) : null;
   const hits = hitsRaw ? parseInt(hitsRaw) : null;
   const actual_points = actualRaw ? parseInt(actualRaw) : null;
 
@@ -479,12 +800,16 @@ async function handleDecisionSubmit(e) {
       captain: captain,
       vice_captain: vc,
       chip: chip,
-      transfers: transfers,
       hits: hits,
       actual_points: actual_points,
       notes: notes,
-      overwrite: overwrite,
+      overwrite: true,
     };
+
+    if (state.currentLineup && state.currentLineup.starters) {
+      payload.starters = state.currentLineup.starters.map(p => p.id);
+      payload.bench = (state.currentLineup.bench || []).map(p => p.id);
+    }
 
     const res = await api("/api/decisions", {
       method: "POST",
@@ -531,9 +856,194 @@ async function loadDecisions() {
       `;
       container.appendChild(el);
     });
+
+    const targetGw = parseInt(document.getElementById("dec-gw").value) || state.activeGameweek;
+    const curDec = list.find(d => d.gameweek === targetGw);
+    renderExecutedTransfersBox(curDec && curDec.transfers ? curDec.transfers : []);
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Failed to load decisions: ${err.message}</p>`;
   }
+}
+
+function populateDecisionLoggerSquad(players) {
+  const capSelect = document.getElementById("dec-captain");
+  const vcSelect = document.getElementById("dec-vc");
+  const outSelect = document.getElementById("tx-exec-out");
+  if (!players || !players.length) return;
+
+  const curCap = capSelect ? capSelect.value : "";
+  const curVc = vcSelect ? vcSelect.value : "";
+  const curOut = outSelect ? outSelect.value : "";
+
+  if (capSelect) {
+    capSelect.innerHTML = '<option value="">-- Select Captain --</option>';
+    players.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = `${p.name} (${p.pos_abbr || p.position} · ${p.team})`;
+      if (curCap === p.name || (!curCap && p.role === "CAPTAIN")) opt.selected = true;
+      capSelect.appendChild(opt);
+    });
+  }
+
+  if (vcSelect) {
+    vcSelect.innerHTML = '<option value="">-- Select Vice-Captain --</option>';
+    players.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = `${p.name} (${p.pos_abbr || p.position} · ${p.team})`;
+      if (curVc === p.name || (!curVc && p.role === "VICE_CAPTAIN")) opt.selected = true;
+      vcSelect.appendChild(opt);
+    });
+  }
+
+  if (outSelect) {
+    outSelect.innerHTML = '<option value="">-- Select player to sell --</option>';
+    players.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      const priceText = p.selling_price_fmt || p.price_fmt || `£${(p.price_tenths / 10).toFixed(1)}m`;
+      opt.textContent = `${p.name} (${p.pos_abbr || p.position} · ${p.team} · ${priceText})`;
+      if (String(curOut) === String(p.id)) opt.selected = true;
+      outSelect.appendChild(opt);
+    });
+  }
+}
+
+async function loadAllLeaguePlayers() {
+  if (state.allLeaguePlayers && state.allLeaguePlayers.length > 0) return;
+  try {
+    const data = await api("/api/players?all=true");
+    state.allLeaguePlayers = data.players || [];
+    populateAvailablePlayersDatalist();
+  } catch (err) {
+    console.error("Failed to load league players:", err);
+  }
+}
+
+function populateAvailablePlayersDatalist() {
+  const datalist = document.getElementById("available-players-datalist");
+  if (!datalist || !state.allLeaguePlayers) return;
+  const squadIds = new Set(state.currentSquad && state.currentSquad.players ? state.currentSquad.players.map(p => p.id) : []);
+
+  datalist.innerHTML = "";
+  state.allLeaguePlayers.forEach(p => {
+    if (!squadIds.has(p.id)) {
+      const opt = document.createElement("option");
+      opt.value = `${p.name} (${p.team} · ${p.position} · ${p.price_fmt})`;
+      opt.setAttribute("data-id", p.id);
+      datalist.appendChild(opt);
+    }
+  });
+}
+
+function resolveIncomingPlayer(inputText) {
+  if (!inputText || !state.allLeaguePlayers) return null;
+  const txt = inputText.trim().toLowerCase();
+  const directMatch = state.allLeaguePlayers.find(p => {
+    const formatted = `${p.name} (${p.team} · ${p.position} · ${p.price_fmt})`.toLowerCase();
+    return formatted === txt || p.name.toLowerCase() === txt;
+  });
+  if (directMatch) return directMatch;
+
+  return (
+    state.allLeaguePlayers.find(p => p.name.toLowerCase().startsWith(txt)) ||
+    state.allLeaguePlayers.find(p => p.name.toLowerCase().includes(txt)) ||
+    null
+  );
+}
+
+function updateTradeSummary() {
+  const summaryEl = document.getElementById("tx-exec-summary");
+  if (!summaryEl) return;
+  const outSelect = document.getElementById("tx-exec-out");
+  const inInput = document.getElementById("tx-exec-in");
+  const outId = parseInt(outSelect.value);
+  const inPlayer = resolveIncomingPlayer(inInput.value);
+
+  if (!outId && !inPlayer) {
+    summaryEl.textContent = "";
+    return;
+  }
+
+  const outPlayer = state.currentSquad && state.currentSquad.players ? state.currentSquad.players.find(p => p.id === outId) : null;
+
+  if (outPlayer && inPlayer) {
+    const outSell = outPlayer.selling_price_tenths !== undefined ? outPlayer.selling_price_tenths : outPlayer.price_tenths;
+    const inCost = inPlayer.price_tenths;
+    const diff = (outSell - inCost) / 10;
+    const sign = diff >= 0 ? "+" : "";
+    summaryEl.innerHTML = `Selling <strong>${outPlayer.name}</strong> (£${(outSell / 10).toFixed(1)}m) ➔ Buying <strong>${inPlayer.name}</strong> (${inPlayer.price_fmt}). Net Bank Impact: <strong>${sign}£${diff.toFixed(1)}m</strong>`;
+  } else if (outPlayer) {
+    const priceText = outPlayer.selling_price_fmt || outPlayer.price_fmt || `£${(outPlayer.price_tenths / 10).toFixed(1)}m`;
+    summaryEl.innerHTML = `Selling <strong>${outPlayer.name}</strong> (${priceText})`;
+  } else if (inPlayer) {
+    summaryEl.innerHTML = `Buying <strong>${inPlayer.name}</strong> (${inPlayer.team} · ${inPlayer.position} · ${inPlayer.price_fmt})`;
+  }
+}
+
+async function handleExecuteTrade() {
+  const outSelect = document.getElementById("tx-exec-out");
+  const inInput = document.getElementById("tx-exec-in");
+  const outId = parseInt(outSelect.value);
+  if (!outId) {
+    showToast("Please select a player to sell (OUT)", true);
+    return;
+  }
+  const inPlayer = resolveIncomingPlayer(inInput.value);
+  if (!inPlayer) {
+    showToast("Please select a valid player to buy (IN)", true);
+    return;
+  }
+  const outPlayer = state.currentSquad && state.currentSquad.players ? state.currentSquad.players.find(p => p.id === outId) : null;
+  const outName = outPlayer ? outPlayer.name : `Player ${outId}`;
+
+  const gw = parseInt(document.getElementById("dec-gw").value) || state.activeGameweek;
+
+  try {
+    const res = await api("/api/transfers/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        team_id: state.activeTeamId,
+        gameweek: gw,
+        transfers: [{ outgoing_id: outId, incoming_id: inPlayer.id }],
+      }),
+    });
+
+    showToast(`Transfer executed: ${outName} ➔ ${inPlayer.name}! Bank: ${res.bank_fmt}, FT: ${res.free_transfers}`);
+    inInput.value = "";
+    outSelect.value = "";
+    document.getElementById("tx-exec-summary").textContent = "";
+
+    renderExecutedTransfersBox(res.transfers);
+
+    await refreshActiveTeamData();
+    populateAvailablePlayersDatalist();
+    await loadDecisions();
+  } catch (err) {
+    showToast(`Transfer failed: ${err.message}`, true);
+  }
+}
+
+function renderExecutedTransfersBox(transfers) {
+  const box = document.getElementById("tx-executed-box");
+  const list = document.getElementById("tx-executed-list");
+  if (!box || !list) return;
+  if (!transfers || transfers.length === 0) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  list.innerHTML = transfers
+    .map(
+      t => `
+    <div class="tx-executed-item" style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem; border-bottom: 1px solid var(--border-color);">
+      <span><strong>${t.outgoing_name}</strong> ➔ <strong style="color: var(--accent-gold);">${t.incoming_name}</strong></span>
+      <span class="text-muted">Sold £${(t.selling_price_tenths / 10).toFixed(1)}m · Bought £${(t.purchase_price_tenths / 10).toFixed(1)}m</span>
+    </div>
+  `,
+    )
+    .join("");
 }
 
 // Transfers Optimizer View
@@ -855,6 +1365,38 @@ function initEventListeners() {
   document.getElementById("form-log-decision").addEventListener("submit", handleDecisionSubmit);
   document.getElementById("btn-refresh-decisions").addEventListener("click", loadDecisions);
 
+  // Pitch Save and Cancel Sub
+  const btnSavePitch = document.getElementById("btn-save-pitch-lineup");
+  if (btnSavePitch) btnSavePitch.addEventListener("click", savePitchLineup);
+
+  const btnCancelSub = document.getElementById("btn-cancel-sub");
+  if (btnCancelSub) btnCancelSub.addEventListener("click", cancelSubstitution);
+
+  // Executed Transfers Handlers
+  const btnExecTrade = document.getElementById("btn-execute-trade");
+  if (btnExecTrade) btnExecTrade.addEventListener("click", handleExecuteTrade);
+
+  const txOut = document.getElementById("tx-exec-out");
+  if (txOut) txOut.addEventListener("change", updateTradeSummary);
+
+  const txIn = document.getElementById("tx-exec-in");
+  if (txIn) txIn.addEventListener("input", updateTradeSummary);
+
+  const decGwInput = document.getElementById("dec-gw");
+  if (decGwInput) {
+    decGwInput.addEventListener("change", async e => {
+      const gw = parseInt(e.target.value);
+      if (gw) {
+        try {
+          const decData = await api(`/api/decisions?team=${state.activeTeamId}`);
+          const list = decData.decisions || [];
+          const dec = list.find(d => d.gameweek === gw);
+          renderExecutedTransfersBox(dec && dec.transfers ? dec.transfers : []);
+        } catch (err) {}
+      }
+    });
+  }
+
   // Transfers & Studio Buttons
   document.getElementById("btn-run-suggest-tx").addEventListener("click", runSuggestTransfers);
   document.getElementById("btn-run-wildcard").addEventListener("click", runWildcard);
@@ -869,4 +1411,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   initModal();
   initEventListeners();
   await loadTeams();
+  await loadAllLeaguePlayers();
 });

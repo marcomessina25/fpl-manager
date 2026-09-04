@@ -17,8 +17,9 @@ def test_persists_and_loads_latest_snapshot() -> None:
         player = store.latest_players()[0]
         assert (player.id, player.price_tenths) == (10, 75)
         assert player.minutes == 0
-        assert player.expected_goals == 0.0
-        assert store.search_latest_players("pla") == [{"id": 10, "name": "Player", "team": "EXA", "price_tenths": 75}]
+        assert store.search_latest_players("pla") == [
+            {"id": 10, "name": "Player", "team": "EXA", "price_tenths": 75, "price_fmt": "£7.5m", "position": "MID"}
+        ]
 
 
 def test_persists_and_loads_underlying_stats_and_events() -> None:

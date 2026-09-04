@@ -1,11 +1,13 @@
 """Deterministic transfer validation using current prices and saved squad state."""
 
 from dataclasses import dataclass
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable
 
 from .models import Player
 from .rules import ValidationResult, validate_squad
-from .squad_state import CurrentSquadState
+from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
+from .storage import SnapshotStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,3 +84,143 @@ def validate_transfers(
         bank_after_tenths=bank_after,
         transfer_hits=max(0, len(proposed) - state.free_transfers),
     )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATABASE_PATH = PROJECT_ROOT / "data" / "fpl.sqlite3"
+
+
+def execute_transfers(
+    squad_path: Path,
+    transfers: list[Transfer | dict[str, Any] | tuple[int, int]],
+    database_path: Path = DATABASE_PATH,
+    gameweek: int | None = None,
+) -> dict[str, Any]:
+    """Execute and persist proposed transfers directly to the squad state file and decision records."""
+    state = load_current_squad(squad_path)
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    tx_objs: list[Transfer] = []
+    for t in transfers:
+        if isinstance(t, Transfer):
+            tx_objs.append(t)
+        elif isinstance(t, (tuple, list)):
+            tx_objs.append(Transfer(outgoing_id=int(t[0]), incoming_id=int(t[1])))
+        elif isinstance(t, dict):
+            out_id = int(t.get("outgoing_id", t.get("outgoing", 0)))
+            in_id = int(t.get("incoming_id", t.get("incoming", 0)))
+            tx_objs.append(Transfer(outgoing_id=out_id, incoming_id=in_id))
+
+    all_players = store.latest_players()
+    val_res = validate_transfers(state, all_players, tx_objs)
+    if not val_res.is_valid:
+        raise ValueError(f"Transfer validation failed: {'; '.join(val_res.errors)}")
+
+    player_map = {p.id: p for p in all_players}
+    new_ids = list(state.player_ids)
+    new_prices = dict(state.purchase_prices_tenths)
+    records = []
+
+    for tx in tx_objs:
+        out_p = player_map[tx.outgoing_id]
+        in_p = player_map[tx.incoming_id]
+
+        out_purchase = state.purchase_price(tx.outgoing_id)
+        sell_p = selling_price(out_purchase, out_p.price_tenths)
+
+        new_ids.remove(tx.outgoing_id)
+        new_ids.append(tx.incoming_id)
+
+        new_prices.pop(tx.outgoing_id, None)
+        new_prices[tx.incoming_id] = in_p.price_tenths
+
+        records.append({
+            "outgoing_id": tx.outgoing_id,
+            "outgoing_name": out_p.name,
+            "outgoing_team": out_p.team_id,
+            "incoming_id": tx.incoming_id,
+            "incoming_name": in_p.name,
+            "incoming_team": in_p.team_id,
+            "selling_price_tenths": sell_p,
+            "purchase_price_tenths": in_p.price_tenths,
+        })
+
+    num_tx = len(tx_objs)
+    new_bank = val_res.bank_after_tenths if val_res.bank_after_tenths is not None else state.bank_tenths
+    new_ft = max(0, state.free_transfers - num_tx)
+
+    updated_state = CurrentSquadState(
+        player_ids=tuple(new_ids),
+        purchase_prices_tenths=new_prices,
+        bank_tenths=new_bank,
+        free_transfers=new_ft,
+        chips_remaining=state.chips_remaining,
+        season=state.season,
+        gameweek=state.gameweek,
+    )
+    save_current_squad(squad_path, updated_state)
+
+    team_id = "default"
+    try:
+        from .teams import get_team_id_from_squad_path
+        team_id = get_team_id_from_squad_path(squad_path)
+    except Exception:
+        pass
+
+    target_gw = gameweek or state.gameweek
+    if target_gw is not None:
+        try:
+            from .decision_log import get_gameweek_decision, record_gameweek_decision
+            existing_dec = get_gameweek_decision(target_gw, season=state.season, team_id=team_id, database_path=database_path)
+            if existing_dec is not None:
+                existing_tx = existing_dec.get("transfers", [])
+                merged_tx = existing_tx + records
+
+                cur_starters = list(existing_dec.get("starting_player_ids", []))
+                cur_bench = list(existing_dec.get("bench_player_ids", []))
+                cur_cap = existing_dec.get("captain_id")
+                cur_vc = existing_dec.get("vice_captain_id")
+
+                for tx in tx_objs:
+                    if tx.outgoing_id in cur_starters:
+                        idx = cur_starters.index(tx.outgoing_id)
+                        cur_starters[idx] = tx.incoming_id
+                    elif tx.outgoing_id in cur_bench:
+                        idx = cur_bench.index(tx.outgoing_id)
+                        cur_bench[idx] = tx.incoming_id
+                    if cur_cap == tx.outgoing_id:
+                        cur_cap = tx.incoming_id
+                    if cur_vc == tx.outgoing_id:
+                        cur_vc = tx.incoming_id
+
+                record_gameweek_decision(
+                    gameweek=target_gw,
+                    season=state.season,
+                    team_id=team_id,
+                    squad_player_ids=new_ids,
+                    starting_player_ids=cur_starters,
+                    bench_player_ids=cur_bench,
+                    captain_id=cur_cap,
+                    vice_captain_id=cur_vc,
+                    transfers=merged_tx,
+                    transfer_hits=max(0, len(merged_tx) - state.free_transfers),
+                    chip_played=existing_dec.get("chip_played"),
+                    notes=existing_dec.get("notes", ""),
+                    database_path=database_path,
+                    overwrite=True,
+                )
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "team_id": team_id,
+        "gameweek": target_gw,
+        "transfers": records,
+        "bank_tenths": new_bank,
+        "bank_fmt": f"£{new_bank / 10:.1f}m",
+        "free_transfers": new_ft,
+        "transfer_hits": val_res.transfer_hits,
+        "new_player_ids": new_ids,
+    }

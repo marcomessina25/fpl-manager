@@ -42,7 +42,7 @@ def record_gameweek_decision(
     notes: str = "",
     database_path: Path = DATABASE_PATH,
     capture_recommendations: bool = True,
-    overwrite: bool = False,
+    overwrite: bool = True,
 ) -> dict[str, Any]:
     """Record and lock in a gameweek decision in the persistent audit database."""
     if len(squad_player_ids) != 15:
@@ -467,7 +467,7 @@ def log_decision_from_current_squad(
     transfers: list[str] | list[dict[str, Any]] | None = None,
     notes: str = "",
     team_id: str | None = None,
-    overwrite: bool = False,
+    overwrite: bool = True,
 ) -> dict[str, Any]:
     """Log decision using current squad, custom trades, and custom or optimized lineup.
 
@@ -630,20 +630,46 @@ def log_decision_from_current_squad(
     if captain_id is not None:
         cap_id = resolve_player_id(store, captain_id)
         if cap_id not in starters_ids:
-            with closing(store._connect()) as conn:
-                row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (cap_id,)).fetchone()
-            name = row[0] if row else f"ID {cap_id}"
-            raise ValueError(f"Captain {name} (ID {cap_id}) must be in the starting XI.")
+            if starting_player_ids is None and cap_id in squad_ids:
+                cap_proj = proj_map.get(cap_id)
+                if cap_proj:
+                    same_pos = [pid for pid in starters_ids if proj_map.get(pid) and proj_map[pid].position == cap_proj.position]
+                    if same_pos:
+                        same_pos.sort(key=lambda pid: proj_map[pid].expected_points)
+                        swap_out = same_pos[0]
+                        starters_ids.remove(swap_out)
+                        starters_ids.append(cap_id)
+                        if cap_id in bench_ids:
+                            bench_ids.remove(cap_id)
+                        bench_ids.append(swap_out)
+            if cap_id not in starters_ids:
+                with closing(store._connect()) as conn:
+                    row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (cap_id,)).fetchone()
+                name = row[0] if row else f"ID {cap_id}"
+                raise ValueError(f"Captain {name} (ID {cap_id}) must be in the starting XI.")
     else:
         cap_id = starters_ranked[0].player_id if starters_ranked else starters_ids[0]
 
     if vice_captain_id is not None:
         vc_id = resolve_player_id(store, vice_captain_id)
         if vc_id not in starters_ids:
-            with closing(store._connect()) as conn:
-                row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (vc_id,)).fetchone()
-            name = row[0] if row else f"ID {vc_id}"
-            raise ValueError(f"Vice-Captain {name} (ID {vc_id}) must be in the starting XI.")
+            if starting_player_ids is None and vc_id in squad_ids:
+                vc_proj = proj_map.get(vc_id)
+                if vc_proj:
+                    same_pos = [pid for pid in starters_ids if proj_map.get(pid) and proj_map[pid].position == vc_proj.position and pid != cap_id]
+                    if same_pos:
+                        same_pos.sort(key=lambda pid: proj_map[pid].expected_points)
+                        swap_out = same_pos[0]
+                        starters_ids.remove(swap_out)
+                        starters_ids.append(vc_id)
+                        if vc_id in bench_ids:
+                            bench_ids.remove(vc_id)
+                        bench_ids.append(swap_out)
+            if vc_id not in starters_ids:
+                with closing(store._connect()) as conn:
+                    row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (vc_id,)).fetchone()
+                name = row[0] if row else f"ID {vc_id}"
+                raise ValueError(f"Vice-Captain {name} (ID {vc_id}) must be in the starting XI.")
     else:
         eligible_vcs = [p for p in starters_ranked if p.player_id != cap_id]
         vc_id = eligible_vcs[0].player_id if eligible_vcs else ([pid for pid in starters_ids if pid != cap_id][0])

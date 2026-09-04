@@ -481,7 +481,7 @@ class SnapshotStore:
                 raise RuntimeError("No FPL data found. Run `fpl update` first.")
             rows = connection.execute(
                 """
-                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths
+                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths, players.position_id
                 FROM players JOIN teams
                   ON teams.snapshot_id = players.snapshot_id AND teams.team_id = players.team_id
                 WHERE players.snapshot_id = ? AND LOWER(players.web_name) LIKE ?
@@ -489,9 +489,17 @@ class SnapshotStore:
                 """,
                 (snapshot[0], f"%{query.lower()}%"),
             ).fetchall()
+        pos_names = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
         return [
-            {"id": player_id, "name": name, "team": team, "price_tenths": price}
-            for player_id, name, team, price in rows
+            {
+                "id": player_id,
+                "name": name,
+                "team": team,
+                "price_tenths": price,
+                "price_fmt": f"£{price / 10:.1f}m",
+                "position": pos_names.get(pos_id, "MID"),
+            }
+            for player_id, name, team, price, pos_id in rows
         ]
 
     def _connect(self) -> sqlite3.Connection:
