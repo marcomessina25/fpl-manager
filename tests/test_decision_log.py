@@ -451,3 +451,188 @@ def test_cli_log_decision_custom_options(
     captured_tx = capsys.readouterr().out
     assert "Player_15 -> Player_16" in captured_tx
 
+
+def test_past_gameweek_decision_allows_players_not_in_current_squad(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = decision_test_env
+
+    # Configure current squad as Gameweek 3
+    # Player 15 (Amad equivalent) is NOT in current squad (was sold), Player 16 (Tielemans equivalent) is in squad
+    gw3_players = list(range(1, 15)) + [16]
+    squad_data = {
+        "season": "2026/27",
+        "gameweek": 3,
+        "free_transfers": 2,
+        "bank_tenths": 20,
+        "player_ids": gw3_players,
+        "purchase_prices_tenths": {str(i): 50 for i in gw3_players},
+    }
+    squad_path.write_text(json.dumps(squad_data, indent=2), encoding="utf-8")
+    before_content = squad_path.read_text(encoding="utf-8")
+
+    # 1. Log decision for past Gameweek 1 (where Player 15 was still in the starting lineup!)
+    res_gw1 = log_decision_from_current_squad(
+        gameweek=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15],
+        bench_player_ids=[2, 6, 7, 14],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+    assert res_gw1["gameweek"] == 1
+    assert res_gw1["is_past_gameweek"] is True
+    assert res_gw1["current_squad_updated"] is False
+    assert 15 in res_gw1["starting_player_ids"]
+
+    # 2. Log decision for past Gameweek 2 (2 < 3)
+    # Outgoing transfer is Player 15 (who is NOT in current squad) -> Player 16
+    res_gw2 = log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 16],
+        bench_player_ids=[2, 6, 7, 14],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    assert res_gw2["gameweek"] == 2
+    assert res_gw2["is_past_gameweek"] is True
+    assert res_gw2["current_squad_updated"] is False
+    assert 16 in res_gw2["starting_player_ids"]
+    assert res_gw2["transfers"][0]["outgoing_name"] == "Player_15"
+    assert res_gw2["transfers"][0]["incoming_name"] == "Player_16"
+
+    # Verify current_squad.json is untouched
+    after_content = squad_path.read_text(encoding="utf-8")
+    assert before_content == after_content
+
+    # Verify decisions are persisted in database
+    db_dec1 = get_gameweek_decision(1, database_path=db_path)
+    assert db_dec1 is not None
+    assert 15 in db_dec1["starting_player_ids"]
+
+    db_dec2 = get_gameweek_decision(2, database_path=db_path)
+    assert db_dec2 is not None
+    assert 16 in db_dec2["starting_player_ids"]
+
+
+def test_current_gameweek_decision_updates_current_squad(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = decision_test_env
+
+    # Squad at GW3
+    gw3_players = list(range(1, 16))
+    squad_data = {
+        "season": "2026/27",
+        "gameweek": 3,
+        "free_transfers": 1,
+        "bank_tenths": 10,
+        "player_ids": gw3_players,
+        "purchase_prices_tenths": {str(i): 50 for i in gw3_players},
+    }
+    squad_path.write_text(json.dumps(squad_data, indent=2), encoding="utf-8")
+
+    # Log decision for GW3 (current gameweek)
+    res = log_decision_from_current_squad(
+        gameweek=3,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    assert res["gameweek"] == 3
+    assert res["is_past_gameweek"] is False
+    assert res["current_squad_updated"] is True
+
+    # Check updated squad file on disk
+    updated_raw = json.loads(squad_path.read_text(encoding="utf-8"))
+    assert 15 not in updated_raw["player_ids"]
+    assert 16 in updated_raw["player_ids"]
+    assert "16" in updated_raw["purchase_prices_tenths"]
+    assert "15" not in updated_raw["purchase_prices_tenths"]
+    assert updated_raw["gameweek"] == 3
+
+
+def test_cli_past_gameweek_and_squad_players(
+    decision_test_env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    db_path, squad_path = decision_test_env
+    monkeypatch.setattr("fpl_manager.cli.DATABASE_PATH", db_path)
+
+    squad_data = {
+        "season": "2026/27",
+        "gameweek": 3,
+        "free_transfers": 1,
+        "bank_tenths": 10,
+        "player_ids": list(range(1, 15)) + [16],
+        "purchase_prices_tenths": {str(i): 50 for i in list(range(1, 15)) + [16]},
+    }
+    squad_path.write_text(json.dumps(squad_data, indent=2), encoding="utf-8")
+
+    # Squad at GW1 had player 15 instead of 16
+    custom_squad = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
+    args = [
+        "log-decision",
+        "--squad", str(squad_path),
+        "--gameweek", "1",
+        "--squad-players", custom_squad,
+        "--captain", "Player_13",
+        "--vice-captain", "Player_8",
+        "--overwrite",
+    ]
+    main(args)
+    captured = capsys.readouterr().out
+    assert "Gameweek 1" in captured
+    assert "Past gameweek (audit & evaluation only" in captured
+
+
+def test_evaluate_past_logged_decision(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.evaluation import evaluate_gameweek_decision
+
+    db_path, squad_path = decision_test_env
+
+    # Squad at GW3
+    squad_data = {
+        "season": "2026/27",
+        "gameweek": 3,
+        "free_transfers": 1,
+        "bank_tenths": 10,
+        "player_ids": list(range(1, 16)),
+        "purchase_prices_tenths": {str(i): 50 for i in range(1, 16)},
+    }
+    squad_path.write_text(json.dumps(squad_data, indent=2), encoding="utf-8")
+
+    # Log decision for past GW2 with custom starters including Player 16
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 16],
+        bench_player_ids=[2, 6, 7, 14],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # Actual scores for players in GW2
+    # Player 13 (C) scores 10 pts -> 20 pts (effective)
+    # Other 10 starters score 4 pts each -> 40 pts
+    # Total = 60 pts
+    actual_scores = {13: 10, 8: 4, 16: 4, 1: 4, 3: 4, 4: 4, 5: 4, 9: 4, 10: 4, 11: 4, 12: 4}
+    eval_res = evaluate_gameweek_decision(gameweek=2, actual_scores=actual_scores, database_path=db_path)
+
+    assert eval_res["gameweek"] == 2
+    assert eval_res["actual_lineup_score"] == 60
+    assert eval_res["captaincy"]["captain_actual_points"] == 10
+
+
+

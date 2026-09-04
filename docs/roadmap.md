@@ -74,6 +74,12 @@ Completed:
 
 - **Pre-Deadline Decision Logging & Audit Trail (`src/fpl_manager/decision_log.py`)**:
   - Persistent, immutable record of manager choices before every deadline (`fpl log-decision`, `fpl decisions`).
+  - Gameweek-linked squad state: `current_squad.json` includes an explicit `gameweek` field linking team validity to the manager's active gameweek.
+  - Differentiates past gameweek logging (`gameweek < current_squad.gameweek`) from current decisions:
+    - When logging decisions for a past gameweek, managers can enter players who were on the team at that time without requiring them to be in `current_squad.json` (e.g. trading Amad for Tielemans in GW2 when `current_squad.json` is at GW3).
+    - Past gameweek logging records the decision in SQLite for auditing and evaluation with `fpl evaluate` while preserving `current_squad.json` untouched.
+    - Explicit full 15-player squad input supported via `--squad-players`.
+    - Current gameweek logging applies transfers directly and updates `current_squad.json` (player IDs, purchase prices, bank value, remaining chips, free transfers, and active gameweek).
   - Supports custom Starting XI (`--starters`), ordered bench (`--bench`), captain (`--captain` / `-c`), and vice-captain (`--vice-captain` / `--vc`) with fuzzy name resolution, or defaults to the model's optimized selection.
   - Supports recording executed transfers (`--transfer` / `-t OUT:IN`), updating squad membership dynamically and automatically calculating transfer hits.
   - Automatically captures point-in-time baseline model recommendations (`decision_recommendations` table) alongside manager choices to track human vs model divergences.

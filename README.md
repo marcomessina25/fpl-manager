@@ -98,10 +98,13 @@ Aliases `fpl starting-xi` and `fpl captain` can also be used. See [`docs/expecte
 Log and lock in your pre-deadline decision in the persistent audit trail:
 
 ```powershell
-fpl log-decision --gameweek 2
-fpl log-decision --gameweek 2 --chip triplecaptain --notes "Aggressive DGW punt"
-# Specify custom lineup, captaincy, and trades:
+# Log a decision for the current gameweek (automatically updates current_squad.json: players, purchase prices, bank, and free transfers):
+fpl log-decision --gameweek 3 -t "Amad:Tielemans" -c "Haaland" --vc "Salah"
+
+# Log a decision for a past gameweek (e.g. GW2 when current squad is GW3) for audit and evaluation:
+# Allows specifying players who were on the team at that time without requiring them in current_squad.json; leaves current_squad.json untouched:
 fpl log-decision --gameweek 2 -t "Gabriel:Saliba" -c "Haaland" --vc "Salah" --starters "Raya,Saliba,Alexander-Arnold,Konsa,Palmer,Saka,Mbeumo,Rogers,Haaland,Wood,Watkins"
+fpl log-decision --gameweek 1 --squad-players "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
 ```
 
 Review past gameweek decisions and audit trail:

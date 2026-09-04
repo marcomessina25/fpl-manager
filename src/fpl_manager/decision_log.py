@@ -393,6 +393,7 @@ def parse_and_apply_transfers(
     store: SnapshotStore,
     current_player_ids: list[int],
     transfers_input: list[str] | list[dict[str, Any]] | None,
+    allow_past_outgoing: bool = False,
 ) -> tuple[list[int], list[dict[str, Any]]]:
     """Parse transfer inputs (e.g. 'OUT:IN' or dicts), apply them to player IDs, and return new IDs and records."""
     if not transfers_input:
@@ -418,12 +419,19 @@ def parse_and_apply_transfers(
         else:
             continue
 
-        if out_id not in squad_ids:
+        if out_id in squad_ids:
+            squad_ids.remove(out_id)
+            if in_id not in squad_ids:
+                squad_ids.append(in_id)
+        elif allow_past_outgoing:
+            # When logging a past gameweek:
+            # If in_id is already in squad_ids (e.g. from current squad or post-transfer lineup),
+            # squad_ids already reflects the post-transfer squad.
+            if in_id not in squad_ids and len(squad_ids) < 15:
+                squad_ids.append(in_id)
+        else:
             out_name = p_names.get(out_id, f"ID {out_id}")
             raise ValueError(f"Outgoing player {out_name} (ID {out_id}) is not in your current squad.")
-
-        squad_ids.remove(out_id)
-        squad_ids.append(in_id)
 
         transfer_records.append({
             "outgoing_id": out_id,
@@ -439,6 +447,7 @@ def log_decision_from_current_squad(
     gameweek: int | None = None,
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
+    squad_player_ids: list[int | str] | str | None = None,
     starting_player_ids: list[int | str] | str | None = None,
     bench_player_ids: list[int | str] | str | None = None,
     captain_id: int | str | None = None,
@@ -449,18 +458,43 @@ def log_decision_from_current_squad(
     notes: str = "",
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Log decision using current squad, custom trades, and custom or optimized lineup."""
+    """Log decision using current squad, custom trades, and custom or optimized lineup.
+
+    If gameweek is in the past (gameweek < current_squad.gameweek), permits entering players
+    who were on the team at that time without requiring them to be in the current squad, and
+    records the decision for evaluation without mutating current_squad.json.
+    If gameweek is current, applies trades directly and updates current_squad.json.
+    """
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     store.initialize()
 
+    squad_gw = getattr(state, "gameweek", 1)
     if gameweek is None:
-        gameweek = get_current_gameweek(store)
+        gameweek = squad_gw
 
-    # 1. Parse and apply any trades (transfers)
-    squad_ids, parsed_transfers = parse_and_apply_transfers(store, list(state.player_ids), transfers)
+    is_past = (gameweek < squad_gw)
 
-    # 2. Compute transfer hits if not explicitly provided
+    # 1. Determine base squad for this gameweek
+    if squad_player_ids is not None:
+        base_squad = resolve_player_ids_list(store, squad_player_ids)
+        if len(base_squad) != 15:
+            raise ValueError(f"Explicit squad must have exactly 15 players; received {len(base_squad)}.")
+    elif is_past:
+        prev_dec = get_gameweek_decision(gameweek - 1, database_path=database_path)
+        if prev_dec:
+            base_squad = list(prev_dec.get("squad_player_ids") or (prev_dec["starting_player_ids"] + prev_dec["bench_player_ids"]))
+        else:
+            base_squad = list(state.player_ids)
+    else:
+        base_squad = list(state.player_ids)
+
+    # 2. Parse and apply any trades (transfers)
+    squad_ids, parsed_transfers = parse_and_apply_transfers(
+        store, base_squad, transfers, allow_past_outgoing=is_past
+    )
+
+    # 3. Compute transfer hits if not explicitly provided
     if transfer_hits is None:
         if parsed_transfers:
             from .transfers import Transfer, validate_transfers
@@ -472,45 +506,67 @@ def log_decision_from_current_squad(
     else:
         computed_hits = transfer_hits
 
-    # 3. Get projections for the squad players for gameweek
-    projections = project_gameweek(gameweek=gameweek, player_ids=squad_ids, database_path=database_path)
-    proj_map = {p.player_id: p for p in projections}
-
-    # 4. Resolve Starting XI and Bench
+    # 4. Integrate any starters entered for a past gameweek into squad_ids if needed
     if starting_player_ids is not None:
         starters_ids = resolve_player_ids_list(store, starting_player_ids)
         if len(starters_ids) != 11:
             raise ValueError(f"Starting XI must have exactly 11 players; received {len(starters_ids)}.")
-        for pid in starters_ids:
-            if pid not in squad_ids:
+
+        missing_starters = [pid for pid in starters_ids if pid not in squad_ids]
+        if missing_starters:
+            if is_past:
                 with closing(store._connect()) as conn:
-                    row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (pid,)).fetchone()
-                name = row[0] if row else f"ID {pid}"
-                raise ValueError(f"Selected starter {name} (ID {pid}) is not in the squad.")
+                    snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+                    snap_id = snap[0] if snap else 1
+                    for m_id in missing_starters:
+                        m_row = conn.execute("SELECT position_id FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, m_id)).fetchone()
+                        pos_id = m_row[0] if m_row else None
+                        cands = [p for p in squad_ids if p not in starters_ids]
+                        replaced = False
+                        for c_id in cands:
+                            c_row = conn.execute("SELECT position_id FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, c_id)).fetchone()
+                            if c_row and c_row[0] == pos_id:
+                                squad_ids.remove(c_id)
+                                squad_ids.append(m_id)
+                                replaced = True
+                                break
+                        if not replaced and cands:
+                            squad_ids.remove(cands[0])
+                            squad_ids.append(m_id)
+            else:
+                with closing(store._connect()) as conn:
+                    row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (missing_starters[0],)).fetchone()
+                name = row[0] if row else f"ID {missing_starters[0]}"
+                raise ValueError(f"Selected starter {name} (ID {missing_starters[0]}) is not in the squad.")
 
         if bench_player_ids is not None:
             bench_ids = resolve_player_ids_list(store, bench_player_ids)
             if len(bench_ids) != 4:
                 raise ValueError(f"Bench must have exactly 4 players; received {len(bench_ids)}.")
-        else:
+            if is_past:
+                squad_ids = starters_ids + [pid for pid in bench_ids if pid not in starters_ids]
+            else:
+                missing_bench = [pid for pid in bench_ids if pid not in squad_ids]
+                if missing_bench:
+                    with closing(store._connect()) as conn:
+                        row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (missing_bench[0],)).fetchone()
+                    name = row[0] if row else f"ID {missing_bench[0]}"
+                    raise ValueError(f"Selected bench player {name} (ID {missing_bench[0]}) is not in the squad.")
+
+        projections = project_gameweek(gameweek=gameweek, player_ids=squad_ids, database_path=database_path)
+        proj_map = {p.player_id: p for p in projections}
+
+        if bench_player_ids is None:
             remaining = [pid for pid in squad_ids if pid not in starters_ids]
             gkps = [pid for pid in remaining if proj_map.get(pid) and proj_map[pid].position == Position.GOALKEEPER]
             outfield = [pid for pid in remaining if pid not in gkps]
             outfield.sort(key=lambda pid: proj_map[pid].expected_points if pid in proj_map else 0.0, reverse=True)
             bench_ids = gkps + outfield
     else:
-        from .lineup import LEGAL_FORMATIONS
-        from .models import Player
-        with closing(store._connect()) as conn:
-            snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
-            snap_id = snap[0]
-            ph = ",".join("?" for _ in squad_ids)
-            rows = conn.execute(
-                f"SELECT player_id, web_name, position_id, team_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({ph})",
-                (snap_id, *squad_ids),
-            ).fetchall()
-        rules_squad = [Player(r[0], r[1], Position(r[2]), r[3], r[4]) for r in rows]
+        projections = project_gameweek(gameweek=gameweek, player_ids=squad_ids, database_path=database_path)
+        proj_map = {p.player_id: p for p in projections}
 
+        from .lineup import LEGAL_FORMATIONS
         gkps = [p for p in projections if p.position == Position.GOALKEEPER]
         defs = [p for p in projections if p.position == Position.DEFENDER]
         mids = [p for p in projections if p.position == Position.MIDFIELDER]
@@ -541,7 +597,6 @@ def log_decision_from_current_squad(
         starters_ids = [p.player_id for p in best_starters]
         bench_ids = [p.player_id for p in best_bench]
 
-    # 5. Resolve Captain and Vice-Captain
     starters_projs = [proj_map[pid] for pid in starters_ids if pid in proj_map]
     starters_ranked = sorted(starters_projs, key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
 
@@ -566,7 +621,7 @@ def log_decision_from_current_squad(
         eligible_vcs = [p for p in starters_ranked if p.player_id != cap_id]
         vc_id = eligible_vcs[0].player_id if eligible_vcs else ([pid for pid in starters_ids if pid != cap_id][0])
 
-    return record_gameweek_decision(
+    decision = record_gameweek_decision(
         gameweek=gameweek,
         season=state.season,
         squad_player_ids=squad_ids,
@@ -581,4 +636,61 @@ def log_decision_from_current_squad(
         database_path=database_path,
         overwrite=overwrite,
     )
+
+    decision["is_past_gameweek"] = is_past
+    decision["current_squad_updated"] = not is_past
+
+    # 5. If logging NOW (not in the past), impact and update current_squad.json!
+    if not is_past:
+        from .squad_state import save_current_squad
+        new_player_ids = tuple(squad_ids)
+        new_prices = dict(state.purchase_prices_tenths)
+        new_bank = state.bank_tenths
+
+        with closing(store._connect()) as conn:
+            snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            snap_id = snap[0] if snap else 1
+
+            for tx in parsed_transfers:
+                out_id = tx["outgoing_id"]
+                in_id = tx["incoming_id"]
+
+                out_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, out_id)).fetchone()
+                in_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, in_id)).fetchone()
+
+                out_current_cost = out_row[0] if out_row else new_prices.get(out_id, 50)
+                in_current_cost = in_row[0] if in_row else 50
+                out_purchase = new_prices.get(out_id, out_current_cost)
+
+                gain = max(0, (out_current_cost - out_purchase) // 2)
+                selling_price = out_purchase + gain
+
+                new_prices.pop(out_id, None)
+                new_prices[in_id] = in_current_cost
+                new_bank += (selling_price - in_current_cost)
+
+        new_chips = list(state.chips_remaining)
+        if chip_played and chip_played in new_chips:
+            new_chips.remove(chip_played)
+
+        num_tx = len(parsed_transfers)
+        if num_tx > 0:
+            new_ft = max(1, min(5, state.free_transfers - num_tx + 1))
+        else:
+            new_ft = min(5, state.free_transfers + 1)
+
+        new_gw = max(squad_gw, gameweek)
+
+        updated_state = CurrentSquadState(
+            player_ids=new_player_ids,
+            purchase_prices_tenths=new_prices,
+            bank_tenths=max(0, new_bank),
+            free_transfers=new_ft,
+            chips_remaining=tuple(new_chips),
+            season=state.season,
+            gameweek=new_gw,
+        )
+        save_current_squad(squad_path, updated_state)
+
+    return decision
 

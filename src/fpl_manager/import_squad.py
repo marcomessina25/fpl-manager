@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .fixtures import get_current_gameweek
 from .storage import SnapshotStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +78,11 @@ def import_squad_from_file(
 
     squad_data["player_ids"] = [p["id"] for p in imported_players]
     squad_data["purchase_prices_tenths"] = {str(p["id"]): p["price_tenths"] for p in imported_players}
+    if "gameweek" not in squad_data:
+        try:
+            squad_data["gameweek"] = get_current_gameweek(store)
+        except Exception:
+            squad_data["gameweek"] = 1
 
     squad_path.parent.mkdir(parents=True, exist_ok=True)
     squad_path.write_text(json.dumps(squad_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -404,6 +404,13 @@ def format_decision_concise(result: dict[str, Any]) -> str:
     else:
         tx_str = "None"
 
+    status_line = ""
+    if "current_squad_updated" in result:
+        if result["current_squad_updated"]:
+            status_line = "\n  Squad State: Updated current_squad.json"
+        else:
+            status_line = "\n  Squad State: Past gameweek (audit & evaluation only, squad preserved)"
+
     return (
         f"Gameweek {gw} ({season}) Decision Log (ID #{result.get('decision_id')}):\n"
         f"  Captain: {cap} (C), Vice: {vc} (VC)\n"
@@ -412,6 +419,7 @@ def format_decision_concise(result: dict[str, Any]) -> str:
         f"  Transfers: {tx_str}\n"
         f"  Actual Score: {actual_str}\n"
         f"  Notes: {notes}"
+        f"{status_line}"
     )
 
 
@@ -713,6 +721,7 @@ def main(argv: list[str] | None = None) -> None:
     log_dec_parser = subcommands.add_parser("log-decision", help="Record and freeze gameweek lineup and transfer decisions in audit trail")
     log_dec_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     log_dec_parser.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current gameweek)")
+    log_dec_parser.add_argument("--squad-players", type=str, default=None, help="Comma-separated player names or IDs for the full 15-player squad")
     log_dec_parser.add_argument("--chip", choices=["wildcard", "freehit", "benchboost", "triplecaptain"], default=None, help="Chip played this gameweek")
     log_dec_parser.add_argument("--hits", type=int, default=None, help="Number of transfer hits taken (default: calculated automatically from transfers)")
     log_dec_parser.add_argument("--transfer", "-t", action="append", default=None, help="Transfer as OUTGOING:INCOMING (name or ID); repeat for multiple moves")
@@ -852,6 +861,7 @@ def main(argv: list[str] | None = None) -> None:
                         gameweek=gw,
                         squad_path=squad_path,
                         database_path=DATABASE_PATH,
+                        squad_player_ids=getattr(arguments, "squad_players", None),
                         starting_player_ids=arguments.starters,
                         bench_player_ids=arguments.bench,
                         captain_id=arguments.captain,
@@ -868,6 +878,7 @@ def main(argv: list[str] | None = None) -> None:
                     gameweek=arguments.gameweek,
                     squad_path=squad_path,
                     database_path=DATABASE_PATH,
+                    squad_player_ids=getattr(arguments, "squad_players", None),
                     starting_player_ids=arguments.starters,
                     bench_player_ids=arguments.bench,
                     captain_id=arguments.captain,
