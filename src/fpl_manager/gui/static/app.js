@@ -2205,9 +2205,18 @@ async function runAdvisor() {
     renderAdvisorResults(data);
     showToast("AI Strategic Advisory Generated!");
   } catch (err) {
+    let extraTip = "";
+    if (err.message && err.message.includes("Ollama")) {
+      extraTip = `
+        <div style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
+          💡 <em>Ollama is a local AI daemon for running open-source models offline. To use it, install from <a href="https://ollama.com" target="_blank" style="color: var(--accent-blue); text-decoration: underline;">ollama.com</a> and start it with <code>ollama run llama3.2</code>. Alternatively, switch to <strong>Google Gemini</strong> (with API key) or <strong>Heuristic Engine (Local)</strong> which requires zero installation.</em>
+        </div>
+      `;
+    }
     container.innerHTML = `
       <div class="alert alert-danger" style="margin-top: 1rem;">
         <strong>Advisor Error:</strong> ${escapeHtml(err.message)}
+        ${extraTip}
       </div>
     `;
     showToast(err.message, true);
