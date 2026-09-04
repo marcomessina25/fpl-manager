@@ -24,6 +24,12 @@ from .decision_log import (
     log_decision_from_current_squad,
     record_actual_gameweek_score,
 )
+from .evaluation import (
+    EVALUATION_REPORT_PATH,
+    evaluate_gameweek_decision,
+    evaluate_predictions,
+    evaluate_season_decisions,
+)
 from .transfers import Transfer, validate_transfers
 
 
@@ -405,6 +411,98 @@ def format_decisions_list_concise(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _parse_scores_argument(val: str | None) -> dict[int, float] | None:
+    if not val:
+        return None
+    val = val.strip()
+    path = Path(val)
+    if path.exists() and path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {int(k): float(v) for k, v in data.items()}
+    if val.startswith("{"):
+        data = json.loads(val)
+        return {int(k): float(v) for k, v in data.items()}
+    scores = {}
+    for part in val.split(","):
+        if ":" in part:
+            k, v = part.split(":", maxsplit=1)
+            scores[int(k.strip())] = float(v.strip())
+    return scores if scores else None
+
+
+def format_evaluation_concise(result: dict[str, Any]) -> str:
+    if "finalized_gameweeks" in result:
+        season = result.get("season", "2026/27")
+        fgw = result.get("finalized_gameweeks", 0)
+        if fgw == 0:
+            return f"No finalized gameweek decisions found for {season}."
+        lines = [
+            f"=== Season {season} Accuracy & Decision Evaluation ({fgw} GWs) ===",
+            f"  Total Predicted xP: {result.get('total_predicted_xp'):.1f} | Total Actual Points: {result.get('total_actual_points'):.1f}",
+            f"  Lineup MAE: {result.get('lineup_mae'):.2f} pts/GW | Lineup RMSE: {result.get('lineup_rmse'):.2f} pts/GW",
+            f"  Mean Bias: {result.get('mean_prediction_bias', 0.0):+0.2f} ({result.get('bias_interpretation')})",
+            f"  Total Transfer Hits: {result.get('total_transfer_hits', 0)} (-{result.get('total_transfer_hits', 0) * 4} pts)",
+            "",
+            f"{'GW':<5} | {'Captain':<15} | {'Pred xP':<8} | {'Actual':<8} | {'Delta':<8} | {'Chip':<6}",
+            "-" * 60,
+        ]
+        for gw in result.get("gameweeks", []):
+            gw_str = f"GW{gw['gameweek']}"
+            cap_str = (gw.get("captain_name") or "-")[:15]
+            xp_str = f"{gw['predicted_xp']:.1f}"
+            act_str = f"{gw['actual_points']:.1f}"
+            delta_str = f"{gw['delta']:+0.1f}"
+            chip_str = gw.get("chip_played") or "-"
+            lines.append(f"{gw_str:<5} | {cap_str:<15} | {xp_str:<8} | {act_str:<8} | {delta_str:<8} | {chip_str:<6}")
+        return "\n".join(lines)
+
+    gw = result.get("gameweek")
+    season = result.get("season", "2026/27")
+    pred_acc = result.get("prediction_accuracy", {})
+    lines = [f"=== Gameweek {gw} ({season}) Model & Decision Evaluation ==="]
+
+    if pred_acc and pred_acc.get("players_evaluated", 0) > 0:
+        calib = pred_acc.get("calibration", {})
+        lines.extend([
+            f"Prediction Accuracy ({pred_acc.get('players_evaluated', 0)} players evaluated):",
+            f"  MAE: {pred_acc.get('mae', 0.0):.2f} pts | RMSE: {pred_acc.get('rmse', 0.0):.2f} pts | Spearman Rank ρ: {pred_acc.get('spearman_rank_correlation', 0.0):.3f}",
+            f"  Calibration Coverage: {calib.get('coverage_percent', 0.0)}% within [floor, ceil] (Below: {calib.get('below_floor_percent', 0.0)}%, Above: {calib.get('above_ceiling_percent', 0.0)}%)",
+        ])
+
+    if result.get("decision_logged"):
+        lines.append("")
+        lines.append("Manager Decision Audit:")
+        xp = result.get("predicted_lineup_xp", 0.0)
+        act = result.get("actual_lineup_score", 0.0)
+        delta = result.get("prediction_error_delta", 0.0)
+        lines.append(f"  Lineup: Pred xP {xp:.1f} | Actual Score: {act:.1f} (Delta: {delta:+0.1f})")
+
+        cap = result.get("captaincy", {})
+        if cap:
+            lines.append(
+                f"  Captain: {cap.get('captain_name')} ({cap.get('captain_actual_points')} pts) | "
+                f"Optimal: {cap.get('optimal_captain_name')} ({cap.get('optimal_captain_actual_points')} pts) "
+                f"-> Regret: {cap.get('captaincy_regret_points')} pts"
+            )
+
+        bench = result.get("bench", {})
+        if bench:
+            lines.append(
+                f"  Bench: {bench.get('total_bench_points')} pts left unplayed | "
+                f"Highest: {bench.get('highest_bench_player_name')} ({bench.get('highest_bench_points')} pts) "
+                f"-> Regret: {bench.get('bench_regret_points')} pts"
+            )
+
+        hvm = result.get("human_vs_model")
+        if hvm and hvm.get("delta_points") is not None:
+            lines.append(
+                f"  Human vs Model Lineup: {hvm.get('delta_verdict')} "
+                f"(Human {hvm.get('human_actual_total')} pts vs Model {hvm.get('model_actual_total')} pts, Delta: {hvm.get('delta_points'):+0.1f})"
+            )
+
+    return "\n".join(lines)
+
+
 
 import sys
 
@@ -494,6 +592,12 @@ def main() -> None:
     decisions_parser = subcommands.add_parser("decisions", help="Review past gameweek decisions and audit trail")
     decisions_parser.add_argument("--gameweek", type=int, default=None, help="View specific gameweek decision")
     decisions_parser.add_argument("--season", type=str, default="2026/27", help="Filter by season (default: 2026/27)")
+
+    eval_parser = subcommands.add_parser("evaluate", help="Evaluate prediction calibration, model accuracy, and decision regret")
+    eval_parser.add_argument("--gameweek", type=int, default=None, help="Evaluate specific gameweek (default: all finalized gameweeks)")
+    eval_parser.add_argument("--season", type=str, default="2026/27", help="Season to evaluate (default: 2026/27)")
+    eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS'")
+    eval_parser.add_argument("--decisions", action="store_true", help="Evaluate all logged decisions across the season")
 
     arguments = parser.parse_args()
 
@@ -615,6 +719,19 @@ def main() -> None:
             else:
                 decisions_list = list_decisions(season=arguments.season, database_path=DATABASE_PATH)
                 print(json.dumps({"decisions": decisions_list}, indent=2, ensure_ascii=False) if arguments.verbose else format_decisions_list_concise(decisions_list))
+        elif arguments.command == "evaluate":
+            scores = _parse_scores_argument(arguments.scores)
+            if arguments.gameweek is not None:
+                actual_scores = scores or {}
+                result = evaluate_gameweek_decision(
+                    gameweek=arguments.gameweek,
+                    actual_scores=actual_scores,
+                    season=arguments.season,
+                    database_path=DATABASE_PATH,
+                )
+            else:
+                result = evaluate_season_decisions(season=arguments.season, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_evaluation_concise(result))
         elif arguments.command == "validate-transfers":
             result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
