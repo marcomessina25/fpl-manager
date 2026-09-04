@@ -101,6 +101,11 @@ async function loadTeams() {
       copySelect.appendChild(copyOpt);
     });
 
+    const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
+    if (activeObj && activeObj.gameweek) {
+      state.activeGameweek = activeObj.gameweek;
+    }
+
     await refreshActiveTeamData();
   } catch (err) {
     showToast(`Failed to load teams: ${err.message}`, true);
@@ -114,6 +119,9 @@ async function switchTeam(teamId) {
       body: JSON.stringify({ team_id: teamId }),
     });
     state.activeTeamId = teamId;
+    if (res.gameweek) {
+      state.activeGameweek = res.gameweek;
+    }
     showToast(`Switched active team to ${res.name}`);
     await refreshActiveTeamData();
   } catch (err) {
@@ -143,14 +151,15 @@ async function deleteActiveTeam() {
 // Refresh all views for current active team
 async function refreshActiveTeamData() {
   await loadSquadHUD();
-  await loadLineup();
+  await loadLineup(state.activeGameweek);
 }
 
 async function loadSquadHUD() {
   try {
     const data = await api(`/api/squad?team=${state.activeTeamId}`);
     state.currentSquad = data;
-    state.activeGameweek = data.gameweek || 1;
+    const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
+    state.activeGameweek = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || 3;
 
     const fin = data.financials || {};
     const st = data.state || {};
@@ -161,11 +170,15 @@ async function loadSquadHUD() {
     document.getElementById("hud-ft").textContent = st.free_transfers !== undefined ? st.free_transfers : 1;
     document.getElementById("hud-chips").textContent = st.chips_remaining ? st.chips_remaining.length : 0;
 
-    // Prefill Gameweek in decision logger
+    // Prefill Gameweek in decision logger, lineup, chips, and evaluation
     const decGw = document.getElementById("dec-gw");
     if (decGw) decGw.value = state.activeGameweek;
     const lineupGw = document.getElementById("lineup-gw-select");
-    if (lineupGw && !lineupGw.value) lineupGw.value = state.activeGameweek;
+    if (lineupGw) lineupGw.value = state.activeGameweek;
+    const chipStartGw = document.getElementById("chip-start-gw");
+    if (chipStartGw) chipStartGw.value = state.activeGameweek;
+    const evalGw = document.getElementById("eval-gw");
+    if (evalGw && !evalGw.value) evalGw.value = state.activeGameweek;
   } catch (err) {
     console.error("Could not load squad HUD:", err);
   }
@@ -174,7 +187,7 @@ async function loadSquadHUD() {
 // Pitch and Lineup Rendering
 async function loadLineup(gw = null) {
   try {
-    const targetGw = gw || state.activeGameweek;
+    const targetGw = gw !== null ? gw : state.activeGameweek;
     const url = `/api/lineup?team=${state.activeTeamId}${targetGw ? `&gameweek=${targetGw}` : ""}`;
     const data = await api(url);
     state.currentLineup = data;

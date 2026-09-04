@@ -20,6 +20,7 @@ from ..decision_log import (
     record_actual_gameweek_score,
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
+from ..fixtures import get_current_gameweek
 from ..lineup import select_starting_lineup
 from ..planner import generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
@@ -121,6 +122,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 rep = generate_squad_report(squad_path=squad_path, database_path=self.database_path)
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
+                if rep.get("gameweek") is None:
+                    rep["gameweek"] = get_current_gameweek(SnapshotStore(self.database_path))
                 self._send_json(rep)
             elif path == "/api/lineup":
                 tid = get_arg("team")

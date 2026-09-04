@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .fixtures import get_current_gameweek
 from .models import Position
 from .rules import validate_squad
 from .squad_state import CurrentSquadState, load_current_squad
@@ -102,9 +103,11 @@ def generate_squad_report(
     validation = validate_squad(squad_players, budget_tenths=None)
 
     total_squad_value_tenths = total_selling_price_tenths + state.bank_tenths
+    gw = state.gameweek if state.gameweek is not None else get_current_gameweek(store)
 
     report = {
         "season": state.season,
+        "gameweek": gw,
         "squad_size": len(players_detail),
         "is_valid": validation.is_valid,
         "validation_errors": list(validation.errors),
@@ -121,6 +124,7 @@ def generate_squad_report(
             "total_team_value_fmt": f"£{total_squad_value_tenths / 10:.1f}m",
         },
         "state": {
+            "gameweek": gw,
             "free_transfers": state.free_transfers,
             "chips_remaining": list(state.chips_remaining),
         },

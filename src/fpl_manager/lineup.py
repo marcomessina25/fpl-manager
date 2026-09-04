@@ -57,7 +57,7 @@ def select_starting_lineup(
     store = SnapshotStore(database_path)
 
     if gameweek is None:
-        gameweek = get_current_gameweek(store)
+        gameweek = state.gameweek or get_current_gameweek(store)
 
     projections = project_gameweek(
         gameweek=gameweek,
