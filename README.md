@@ -160,3 +160,7 @@ The database is saved at `data/fpl.sqlite3`; downloaded source payloads are time
 ## Roadmap
 
 The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md).
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. You are free to use, modify, and reproduce this software with attribution to Marco Messina.

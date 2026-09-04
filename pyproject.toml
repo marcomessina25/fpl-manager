@@ -9,6 +9,7 @@ description = "A deterministic, local-first Fantasy Premier League decision engi
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "marcomessina25" }]
+license = "MIT"
 dependencies = []
 
 [project.optional-dependencies]
