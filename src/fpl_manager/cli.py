@@ -195,7 +195,8 @@ def format_suggest_transfers_concise(result: dict[str, Any]) -> str:
     for idx, opt in enumerate(suggestions, 1):
         out_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["outgoing"])
         in_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["incoming"])
-        hit_str = f" | Hit: -{opt['transfer_hits']}pt" if opt.get("transfer_hits", 0) > 0 else ""
+        hit_pts = opt.get("hit_cost", opt.get("transfer_hits", 0) * 4)
+        hit_str = f" | Hit: -{hit_pts}pt" if hit_pts > 0 else ""
         if "xp_delta" in opt:
             floor_delta = opt.get("floor_delta", 0.0)
             ceil_delta = opt.get("ceiling_delta", 0.0)
@@ -302,7 +303,7 @@ def format_plan_concise(result: dict[str, Any]) -> str:
             action_desc = "ROLL TRANSFER"
         else:
             tx_desc = ", ".join(f"{t['out']['name']} -> {t['in']['name']}" for t in tx_list)
-            hit_suffix = f" (-{hits}pt hit)" if hits > 0 else " (Free)"
+            hit_suffix = f" (-{hits * 4}pt hit)" if hits > 0 else " (Free)"
             action_desc = f"{len(tx_list)} TRANSFER{'S' if len(tx_list) > 1 else ''}{hit_suffix}"
 
         lines.append(f"  GW{gw}: {action_desc}")
@@ -325,10 +326,10 @@ def format_plan_concise(result: dict[str, Any]) -> str:
                 s_gw = s.get("gameweek")
                 n_tx = len(s.get("transfers", []))
                 s_hits = s.get("transfer_hits", 0)
-                hit_note = f" (-{s_hits}pt)" if s_hits > 0 else ""
+                hit_note = f" (-{s_hits * 4}pt)" if s_hits > 0 else ""
                 summary_parts.append(f"GW{s_gw}: {n_tx} FT{hit_note}" if n_tx > 0 else f"GW{s_gw}: Roll")
             traj_str = " -> ".join(summary_parts)
-            lines.append(f"  Plan #{rank}: {alt_net:.1f} Net xP (Hits: -{alt_hits}pt) | {traj_str}")
+            lines.append(f"  Plan #{rank}: {alt_net:.1f} Net xP (Hits: -{alt_hits * 4}pt) | {traj_str}")
 
     return "\n".join(lines)
 
