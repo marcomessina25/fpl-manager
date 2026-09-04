@@ -139,6 +139,8 @@ def select_starting_lineup(
     starters_xp = round(sum(p.expected_points for p in best_starters), 2)
     captain_bonus = captain.expected_points
     total_xp = round(starters_xp + captain_bonus, 2)
+    total_floor = round(sum(p.xp_floor for p in best_starters) + captain.xp_floor, 2)
+    total_ceiling = round(sum(p.xp_ceiling for p in best_starters) + captain.xp_ceiling, 2)
 
     def serialize_player(proj: ExpectedPointsProjection, role: str) -> dict[str, Any]:
         return {
@@ -150,7 +152,11 @@ def select_starting_lineup(
             "price_fmt": f"£{proj.price_tenths / 10:.1f}m",
             "status": proj.status,
             "availability_pct": proj.availability_pct,
+            "expected_minutes": proj.expected_minutes,
+            "start_probability": proj.start_probability,
             "expected_points": proj.expected_points,
+            "xp_floor": proj.xp_floor,
+            "xp_ceiling": proj.xp_ceiling,
             "fixtures_summary": _format_fixture_summary(proj),
             "role": role,
         }
@@ -176,6 +182,8 @@ def select_starting_lineup(
             "starters_xp": starters_xp,
             "captain_bonus_xp": captain_bonus,
             "total_xp": total_xp,
+            "floor_xp": total_floor,
+            "ceiling_xp": total_ceiling,
         },
         "captain": serialize_player(captain, "CAPTAIN"),
         "vice_captain": serialize_player(vice_captain, "VICE_CAPTAIN"),

@@ -13,10 +13,11 @@ from .import_squad import (
     search_player_exact_or_single,
 )
 from .lineup import LINEUP_REPORT_PATH, select_starting_lineup
+from .planner import PLAN_REPORT_PATH, generate_multi_gameweek_plan
 from .squad_report import SQUAD_REPORT_PATH, generate_squad_report
 from .squad_state import load_current_squad
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
-from .suggest_transfers import TRANSFERS_REPORT_PATH, suggest_transfers
+from .suggest_transfers import TRANSFERS_REPORT_PATH, WILDCARD_REPORT_PATH, suggest_transfers, suggest_wildcard
 from .transfers import Transfer, validate_transfers
 
 
@@ -98,9 +99,16 @@ def format_lineup_concise(result: dict[str, Any]) -> str:
     starters = result.get("starters", [])
     bench = result.get("bench", [])
 
+    floor_val = pts.get("floor_xp")
+    ceil_val = pts.get("ceiling_xp")
+    range_str = f" [Floor: {floor_val:.1f}, Ceil: {ceil_val:.1f}]" if floor_val is not None and ceil_val is not None else ""
+    cap_floor = cap.get("xp_floor")
+    cap_ceil = cap.get("xp_ceiling")
+    cap_range = f" [Floor: {cap_floor*2:.1f}, Ceil: {cap_ceil*2:.1f}]" if cap_floor is not None and cap_ceil is not None else ""
+
     lines = [
-        f"Matchday Lineup (GW{gw}) | Formation: {formation} | Projected: {pts.get('total_xp', 0.0):.1f} xP",
-        f"Captain: {cap.get('name')} ({cap.get('team')}, {cap.get('fixtures_summary')}) - {cap.get('expected_points', 0.0):.1f} xP (armband: {cap.get('expected_points', 0.0)*2:.1f} xP)",
+        f"Matchday Lineup (GW{gw}) | Formation: {formation} | Projected: {pts.get('total_xp', 0.0):.1f} xP{range_str}",
+        f"Captain: {cap.get('name')} ({cap.get('team')}, {cap.get('fixtures_summary')}) - {cap.get('expected_points', 0.0):.1f} xP (armband: {cap.get('expected_points', 0.0)*2:.1f} xP){cap_range}",
         f"Vice-Captain: {vc.get('name')} ({vc.get('team')}, {vc.get('fixtures_summary')}) - {vc.get('expected_points', 0.0):.1f} xP",
         "",
         f"Starting XI ({pts.get('starters_xp', 0.0):.1f} xP):",
@@ -127,19 +135,151 @@ def format_lineup_concise(result: dict[str, Any]) -> str:
 
 def format_suggest_transfers_concise(result: dict[str, Any]) -> str:
     num_tx = result.get("num_transfers", 1)
+    risk = result.get("risk_profile", "neutral")
     suggestions = result.get("top_suggestions", [])
     if not suggestions:
         return "No valid transfer options found matching criteria."
 
-    lines = [f"Top {num_tx}-Transfer Options ({result.get('total_options_evaluated', 0)} evaluated):"]
+    risk_label = f" [Risk: {risk}]" if risk != "neutral" else ""
+    lines = [f"Top {num_tx}-Transfer Options ({result.get('total_options_evaluated', 0)} evaluated){risk_label}:"]
     for idx, opt in enumerate(suggestions, 1):
         out_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["outgoing"])
         in_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["incoming"])
         hit_str = f" | Hit: -{opt['transfer_hits']}pt" if opt.get("transfer_hits", 0) > 0 else ""
-        xp_str = f" | xP: {opt['xp_delta']:+.1f} (Net: {opt['score']:+.1f})" if "xp_delta" in opt else f" | Score: {opt['score']:+.1f}"
+        if "xp_delta" in opt:
+            floor_delta = opt.get("floor_delta", 0.0)
+            ceil_delta = opt.get("ceiling_delta", 0.0)
+            range_str = f" [Floor: {floor_delta:+.1f}, Ceil: {ceil_delta:+.1f}]"
+            xp_str = f" | xP: {opt['xp_delta']:+.1f}{range_str} (Score: {opt['score']:+.1f})"
+        else:
+            xp_str = f" | Score: {opt['score']:+.1f}"
         lines.append(
             f"  {idx:2d}. Out: {out_names} -> In: {in_names} | Bank: {opt['bank_after_fmt']}{xp_str} | FDR: {opt['fdr_improvement']:+.1f}{hit_str}"
         )
+    return "\n".join(lines)
+
+
+def format_wildcard_concise(result: dict[str, Any]) -> str:
+    formation = result.get("formation")
+    risk = result.get("risk_profile", "neutral")
+    cost_fmt = result.get("total_cost_fmt", "£0.0m")
+    bank_fmt = result.get("bank_remaining_fmt", "£0.0m")
+    cap = result.get("captain", {})
+    vc = result.get("vice_captain", {})
+    starters = result.get("starters", [])
+    bench = result.get("bench", [])
+
+    tot_xp = result.get("total_lineup_xp", 0.0)
+    st_xp = result.get("lineup_starters_xp", 0.0)
+    floor_val = result.get("lineup_floor", 0.0)
+    ceil_val = result.get("lineup_ceiling", 0.0)
+    squad_xp = result.get("squad_xp", 0.0)
+
+    risk_str = f" [Risk: {risk}]" if risk != "neutral" else ""
+
+    lines = [
+        f"Optimized Wildcard Squad | Formation: {formation}{risk_str} | Cost: {cost_fmt} (Bank: {bank_fmt})",
+        f"Projected Starting XI: {tot_xp:.1f} xP [Floor: {floor_val:.1f}, Ceil: {ceil_val:.1f}] | 15-Man Squad: {squad_xp:.1f} xP",
+        f"Captain: {cap.get('name')} ({cap.get('team')}, {cap.get('price_fmt')}) - {cap.get('expected_points', 0.0):.1f} xP (armband: {cap.get('expected_points', 0.0)*2:.1f} xP)",
+        f"Vice-Captain: {vc.get('name')} ({vc.get('team')}, {vc.get('price_fmt')}) - {vc.get('expected_points', 0.0):.1f} xP",
+        "",
+        f"Starting XI ({st_xp:.1f} xP):",
+    ]
+
+    by_pos: dict[str, list[str]] = {}
+    for p in starters:
+        badge = " [C]" if p.get("role") == "CAPTAIN" else (" [VC]" if p.get("role") == "VICE_CAPTAIN" else "")
+        pos = p.get("pos_abbr", "MID")
+        by_pos.setdefault(pos, []).append(
+            f"{p.get('name')}{badge} ({p.get('team')}, {p.get('price_fmt')}) - {p.get('expected_points', 0.0):.1f} xP"
+        )
+
+    for pos in ("GKP", "DEF", "MID", "FWD"):
+        if pos in by_pos:
+            lines.append(f"  {pos}: " + " | ".join(by_pos[pos]))
+
+    lines.append("")
+    lines.append("Bench:")
+    for idx, p in enumerate(bench, 1):
+        role_label = "GK Sub" if p.get("role") == "GK_SUB" else f"Sub {idx - 1}"
+        lines.append(
+            f"  {idx}. {p.get('name')} ({p.get('team')}, {p.get('price_fmt')}) - {p.get('expected_points', 0.0):.1f} xP [{role_label}]"
+        )
+
+    return "\n".join(lines)
+
+
+def format_plan_concise(result: dict[str, Any]) -> str:
+    horizon = result.get("planning_horizon", 3)
+    target_gws = result.get("target_gameweeks", [])
+    gw_range = f"GW{target_gws[0]} - GW{target_gws[-1]}" if target_gws else f"{horizon} GWs"
+    risk = result.get("risk_profile", "neutral")
+    risk_label = f" [Risk: {risk}]" if risk != "neutral" else ""
+    bank_init = result.get("bank_initial_fmt", "£0.0m")
+    ft_init = result.get("free_transfers_initial", 1)
+
+    best_plan = result.get("best_plan")
+    if not best_plan:
+        return "No viable transfer plan found."
+
+    tot_net = best_plan.get("total_net_xp", 0.0)
+    tot_floor = best_plan.get("total_floor_xp", 0.0)
+    tot_ceil = best_plan.get("total_ceiling_xp", 0.0)
+    tot_hits = best_plan.get("total_hits", 0)
+
+    lines = [
+        f"Multi-Gameweek Transfer Roadmap ({gw_range}){risk_label} | Bank: {bank_init} | FT: {ft_init}",
+        f"Optimal Plan (#1): {tot_net:.1f} Net xP [Floor: {tot_floor:.1f}, Ceil: {tot_ceil:.1f}] | Total Hits: -{tot_hits}pt",
+        "",
+        "Gameweek Schedule:",
+    ]
+
+    for step in best_plan.get("gameweek_steps", []):
+        gw = step.get("gameweek")
+        hits = step.get("transfer_hits", 0)
+        net_xp = step.get("net_xp", 0.0)
+        l_xp = step.get("lineup_xp", 0.0)
+        floor_xp = step.get("lineup_floor", 0.0)
+        ceil_xp = step.get("lineup_ceiling", 0.0)
+        cap = step.get("captain", {})
+        bank_after = step.get("bank_after_fmt", "")
+        ft_after = step.get("free_transfers_after", 1)
+        form = step.get("formation", "3-5-2")
+
+        tx_list = step.get("transfers", [])
+        if not tx_list:
+            tx_desc = "None (Roll free transfer)"
+            action_desc = "ROLL TRANSFER"
+        else:
+            tx_desc = ", ".join(f"{t['out']['name']} -> {t['in']['name']}" for t in tx_list)
+            hit_suffix = f" (-{hits}pt hit)" if hits > 0 else " (Free)"
+            action_desc = f"{len(tx_list)} TRANSFER{'S' if len(tx_list) > 1 else ''}{hit_suffix}"
+
+        lines.append(f"  GW{gw}: {action_desc}")
+        lines.append(f"       Move: {tx_desc}")
+        lines.append(
+            f"       Lineup: {l_xp:.1f} xP [Floor: {floor_xp:.1f}, Ceil: {ceil_xp:.1f}] | Net: {net_xp:.1f} xP | Form: {form} | Cap: {cap.get('name', 'N/A')} ({cap.get('xp', 0.0):.1f} xP)"
+        )
+        lines.append(f"       Bank Remaining: {bank_after} | Free Transfers Banked for next GW: {ft_after}")
+        lines.append("")
+
+    alt_plans = result.get("alternative_plans", [])
+    if alt_plans:
+        lines.append("Alternative Strategic Trajectories:")
+        for p in alt_plans[:3]:
+            rank = p.get("rank")
+            alt_net = p.get("total_net_xp", 0.0)
+            alt_hits = p.get("total_hits", 0)
+            summary_parts = []
+            for s in p.get("gameweek_steps", []):
+                s_gw = s.get("gameweek")
+                n_tx = len(s.get("transfers", []))
+                s_hits = s.get("transfer_hits", 0)
+                hit_note = f" (-{s_hits}pt)" if s_hits > 0 else ""
+                summary_parts.append(f"GW{s_gw}: {n_tx} FT{hit_note}" if n_tx > 0 else f"GW{s_gw}: Roll")
+            traj_str = " -> ".join(summary_parts)
+            lines.append(f"  Plan #{rank}: {alt_net:.1f} Net xP (Hits: -{alt_hits}pt) | {traj_str}")
+
     return "\n".join(lines)
 
 
@@ -239,17 +379,38 @@ def main() -> None:
     fixtures_parser.add_argument("--squad-only", action="store_true", help="Analyze fixtures only for players in your current squad")
     fixtures_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
 
-    suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1-, 2-, or 3-transfer move recommendations")
-    suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3], default=1, help="Number of transfers to evaluate (1, 2, or 3, default: 1; capped at 3 for performance)")
+    suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1- to 5-transfer move recommendations")
+    suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     suggest_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
+    suggest_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
 
     options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
-    options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3], default=1, help="Number of transfers to evaluate (1, 2, or 3, default: 1; capped at 3 for performance)")
+    options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     options_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
+    options_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
+
+    for wc_cmd, wc_help in (
+        ("wildcard", "Generate optimal 15-player squad (Wildcard) under budget and team limits"),
+        ("free-hit", "Generate optimal 15-player squad (Free-Hit) under budget and team limits"),
+    ):
+        wc_p = subcommands.add_parser(wc_cmd, help=wc_help)
+        wc_p.add_argument("--budget", type=float, default=None, help="Squad budget limit in millions (default: current squad value + bank)")
+        wc_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        wc_p.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks to evaluate (default: 5)")
+        wc_p.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
+        wc_p.add_argument("--output", type=Path, default=WILDCARD_REPORT_PATH, help="Output path for JSON report")
+
+    plan_parser = subcommands.add_parser("plan", help="Generate multi-gameweek transfer planning roadmap (3-5 gameweeks)")
+    plan_parser.add_argument("--horizon", type=int, default=3, help="Planning horizon in gameweeks (default: 3, up to 6)")
+    plan_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    plan_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
+    plan_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
+    plan_parser.add_argument("--no-hits", action="store_true", help="Disallow transfer hits (only execute zero-hit moves and rolled transfers)")
+    plan_parser.add_argument("--output", type=Path, default=PLAN_REPORT_PATH, help="Output path for JSON plan artifact")
 
     for cmd_name, cmd_help in (
         ("lineup", "Optimize legal starting 11, captaincy, and bench ordering based on xP"),
@@ -305,9 +466,33 @@ def main() -> None:
                 database_path=DATABASE_PATH,
                 max_results=arguments.max_results,
                 num_gameweeks=arguments.gameweeks,
+                risk_profile=getattr(arguments, "risk", "neutral"),
                 report_path=TRANSFERS_REPORT_PATH,
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_suggest_transfers_concise(result))
+        elif arguments.command in ("wildcard", "free-hit"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            result = suggest_wildcard(
+                budget_millions=getattr(arguments, "budget", None),
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                num_gameweeks=arguments.gameweeks,
+                risk_profile=getattr(arguments, "risk", "neutral"),
+                report_path=getattr(arguments, "output", WILDCARD_REPORT_PATH),
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_wildcard_concise(result))
+        elif arguments.command == "plan":
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            result = generate_multi_gameweek_plan(
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                horizon=arguments.horizon,
+                start_gw=arguments.start_gw,
+                risk_profile=getattr(arguments, "risk", "neutral"),
+                allow_hits=not arguments.no_hits,
+                report_path=getattr(arguments, "output", PLAN_REPORT_PATH),
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_plan_concise(result))
         elif arguments.command in ("lineup", "starting-xi", "captain"):
             squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
             gameweek = getattr(arguments, "gameweek", None)

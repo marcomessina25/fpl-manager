@@ -57,17 +57,31 @@ Or analyze upcoming fixtures specifically for your current squad:
 fpl fixtures --gameweeks 5 --squad-only
 ```
 
-Generate legal 1-, 2-, or 3-transfer move recommendations (ranked by net projected expected points gain $\Delta xP - \text{Hits}$):
+Generate legal 1- to 5-transfer move recommendations (ranked by net projected expected points gain $\Delta xP - \text{Hits}$, powered by pure Python branch-and-bound optimization):
 
 ```powershell
 fpl suggest-transfers --transfers 1
 fpl suggest-transfers --transfers 2
-fpl suggest-transfers --transfers 3
+fpl suggest-transfers --transfers 4 --risk floor
 ```
 
-> **Note on transfer depth:** Transfer suggestions are currently limited to a maximum of 3 transfers for performance reasons (4-transfer search was found to be too slow due to combinatorial explosion). We may revisit 4+ transfer evaluations in the future with an optimized solver (e.g. integer linear programming or branch-and-bound).
+Generate optimal 15-player squad (Wildcard / Free-Hit) under budget and club constraints:
 
-Optimize your matchday starting lineup, captaincy, and bench based on expected points (xP):
+```powershell
+fpl wildcard
+fpl wildcard --budget 100.0 --risk ceiling
+fpl free-hit
+```
+
+Generate multi-gameweek transfer planning roadmap (evaluating rolled transfers vs hits over a rolling horizon):
+
+```powershell
+fpl plan --horizon 3
+fpl plan --horizon 5 --no-hits
+fpl plan --horizon 3 --risk floor
+```
+
+Optimize your matchday starting lineup, captaincy, and bench based on expected points (xP) and uncertainty distributions:
 
 ```powershell
 fpl lineup
@@ -128,16 +142,19 @@ Repeat `--transfer` for a multi-transfer move. The command checks your squad, po
 
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
-## Current scope (V0.2 Completed)
+## Current scope (V0.3 Completed)
 
 - Official FPL API ingestion (`bootstrap-static` and `fixtures`)
-- Timestamped raw API snapshots and normalized SQLite tables
+- Timestamped raw API snapshots and normalized SQLite tables with automated schema migration
 - Pure, testable validators for a 15-player squad and an 11-player starting lineup
 - Squad financial, selling price, and legality reporting (`fpl squad`)
 - Multi-gameweek fixture difficulty rating (FDR) analysis and squad tickers (`fpl fixtures`)
-- Transparent, deterministic expected-points (xP) baseline projections
+- Component-based expected points ($xP$) model with Opta per-90 metrics and expected minutes ($xM$)
+- Uncertainty distributions ($xP_{\text{floor}}$, $xP_{\text{ceiling}}$, $\sigma$) and risk profiles (`neutral`, `floor`, `ceiling`)
 - Matchday Starting-XI, captaincy, and bench optimization (`fpl lineup`)
-- Legal 1-, 2-, and 3-transfer move recommendations scored by net expected points gain (`fpl suggest-transfers`)
+- Fast branch-and-bound combinatorial optimizer for 1 to 5 transfers (`fpl suggest-transfers`)
+- Multi-stage 15-player Wildcard and Free-Hit squad optimization (`fpl wildcard` / `fpl free-hit`)
+- Rolling multi-gameweek transfer planning roadmap over 3 to 6 gameweeks (`fpl plan`)
 - Transfer set validation by player ID or fuzzy name resolution (`fpl validate-transfers`)
 
 ## Roadmap

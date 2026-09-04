@@ -103,3 +103,113 @@ def test_project_gameweek(xp_db: Path) -> None:
     assert saka.fixtures[0].opponent_short == "CHE"
     assert saka.fixtures[0].venue == "A"
     assert saka.expected_points > 0.0
+    assert saka.expected_minutes > 0.0
+    assert saka.start_probability > 0.0
+    assert saka.xp_ceiling >= saka.expected_points
+    assert saka.xp_floor <= saka.expected_points
+
+
+def test_calculate_availability() -> None:
+    from fpl_manager.expected_points import calculate_availability
+    assert calculate_availability("a", None) == 1.0
+    assert calculate_availability("d", None) == 0.75
+    assert calculate_availability("i", None) == 0.0
+    # Explicit percentage takes priority
+    assert calculate_availability("d", 50) == 0.50
+    assert calculate_availability("d", 25) == 0.25
+    assert calculate_availability("a", 100) == 1.00
+    assert calculate_availability("a", 0) == 0.00
+
+
+def test_calculate_expected_minutes() -> None:
+    from fpl_manager.expected_points import calculate_expected_minutes
+    # Fit starter: 2 starts in 2 finished matches
+    xm, p_start, prob_60, prob_sub = calculate_expected_minutes(
+        status="a",
+        chance_of_playing_next_round=None,
+        starts=2,
+        minutes=180,
+        finished_matches=2,
+        price_tenths=150,
+        position=Position.FORWARD,
+    )
+    assert xm > 75.0
+    assert p_start > 0.90
+    assert prob_60 > 0.85
+
+    # Injured player
+    xm_inj, p_start_inj, prob_60_inj, _ = calculate_expected_minutes(
+        status="i",
+        chance_of_playing_next_round=0,
+        starts=2,
+        minutes=180,
+        finished_matches=2,
+        price_tenths=150,
+        position=Position.FORWARD,
+    )
+    assert xm_inj == 0.0
+    assert p_start_inj == 0.0
+    assert prob_60_inj == 0.0
+
+    # Doubtful (50% chance)
+    xm_dbt, p_start_dbt, _, _ = calculate_expected_minutes(
+        status="d",
+        chance_of_playing_next_round=50,
+        starts=2,
+        minutes=180,
+        finished_matches=2,
+        price_tenths=150,
+        position=Position.FORWARD,
+    )
+    assert xm_dbt < xm
+    assert round(p_start_dbt * 2, 2) == round(p_start, 2)
+
+
+def test_calculate_component_xp() -> None:
+    from fpl_manager.expected_points import calculate_component_xp
+    # Attacking forward at home vs FDR 2
+    comp_fwd = calculate_component_xp(
+        position=Position.FORWARD,
+        price_tenths=150,
+        fdr=2,
+        is_home=True,
+        expected_minutes=85.0,
+        prob_60_plus=0.90,
+        prob_sub=0.05,
+        expected_goals_per_90=0.75,
+        expected_assists_per_90=0.20,
+        finished_matches=2,
+    )
+    assert comp_fwd["app"] > 1.8
+    assert comp_fwd["att"] > 2.0
+    assert comp_fwd["total"] > 5.0
+    assert comp_fwd["ceil"] > comp_fwd["total"]
+    assert comp_fwd["floor"] <= comp_fwd["total"]
+    assert comp_fwd["sigma"] > 0.0
+
+    # Zero minutes yields zero points
+    comp_zero = calculate_component_xp(
+        position=Position.MIDFIELDER,
+        price_tenths=70,
+        fdr=3,
+        is_home=True,
+        expected_minutes=0.0,
+        prob_60_plus=0.0,
+        prob_sub=0.0,
+    )
+    assert comp_zero["total"] == 0.0
+    assert comp_zero["floor"] == 0.0
+    assert comp_zero["ceil"] == 0.0
+
+
+def test_project_multi_gameweek_profiles(xp_db: Path) -> None:
+    from fpl_manager.expected_points import project_multi_gameweek_profiles
+    profiles = project_multi_gameweek_profiles(gameweeks=[2], database_path=xp_db)
+    assert len(profiles) == 2
+    saka_prof = [p for p in profiles.values() if p.web_name == "Saka"][0]
+    assert saka_prof.expected_points > 0.0
+    assert saka_prof.expected_minutes > 0.0
+    assert saka_prof.xp_ceiling >= saka_prof.expected_points
+    assert saka_prof.xp_floor <= saka_prof.expected_points
+    assert saka_prof.fixtures_count == 1
+
