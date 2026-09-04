@@ -114,6 +114,7 @@ class SnapshotStore:
                 );
                 CREATE TABLE IF NOT EXISTS decisions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    team_id TEXT NOT NULL DEFAULT 'default',
                     season TEXT NOT NULL,
                     gameweek INTEGER NOT NULL,
                     timestamp TEXT NOT NULL,
@@ -129,7 +130,7 @@ class SnapshotStore:
                     predicted_ceiling_xp REAL,
                     actual_points INTEGER,
                     notes TEXT,
-                    UNIQUE(season, gameweek)
+                    UNIQUE(team_id, season, gameweek)
                 );
                 CREATE TABLE IF NOT EXISTS decision_recommendations (
                     decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
@@ -189,6 +190,49 @@ class SnapshotStore:
             for col_name, col_type in player_migrations:
                 if col_name not in player_columns:
                     connection.execute(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}")
+
+            # Decisions migration check for team_id column
+            cursor = connection.execute("PRAGMA table_info(decisions)")
+            decisions_columns = {row[1] for row in cursor.fetchall()}
+            if "team_id" not in decisions_columns:
+                connection.executescript(
+                    """
+                    CREATE TABLE decisions_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        team_id TEXT NOT NULL DEFAULT 'default',
+                        season TEXT NOT NULL,
+                        gameweek INTEGER NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        chip_played TEXT,
+                        transfer_hits INTEGER NOT NULL DEFAULT 0,
+                        transfers_json TEXT NOT NULL DEFAULT '[]',
+                        starting_ids_json TEXT NOT NULL,
+                        bench_ids_json TEXT NOT NULL,
+                        captain_id INTEGER NOT NULL,
+                        vice_captain_id INTEGER NOT NULL,
+                        predicted_lineup_xp REAL,
+                        predicted_floor_xp REAL,
+                        predicted_ceiling_xp REAL,
+                        actual_points INTEGER,
+                        notes TEXT,
+                        UNIQUE(team_id, season, gameweek)
+                    );
+                    INSERT INTO decisions_new (
+                        id, team_id, season, gameweek, timestamp, chip_played,
+                        transfer_hits, transfers_json, starting_ids_json, bench_ids_json,
+                        captain_id, vice_captain_id, predicted_lineup_xp, predicted_floor_xp,
+                        predicted_ceiling_xp, actual_points, notes
+                    )
+                    SELECT
+                        id, 'default', season, gameweek, timestamp, chip_played,
+                        transfer_hits, transfers_json, starting_ids_json, bench_ids_json,
+                        captain_id, vice_captain_id, predicted_lineup_xp, predicted_floor_xp,
+                        predicted_ceiling_xp, actual_points, notes
+                    FROM decisions;
+                    DROP TABLE decisions;
+                    ALTER TABLE decisions_new RENAME TO decisions;
+                    """
+                )
 
     def save_snapshot(self, bootstrap: dict[str, Any], fixtures: list[dict[str, Any]], fetched_at: str) -> int:
         self.initialize()

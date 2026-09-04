@@ -34,6 +34,7 @@ def record_gameweek_decision(
     bench_player_ids: list[int],
     captain_id: int,
     vice_captain_id: int,
+    team_id: str = "default",
     season: str = "2026/27",
     transfers: list[dict[str, Any]] | None = None,
     transfer_hits: int = 0,
@@ -140,13 +141,13 @@ def record_gameweek_decision(
 
     with closing(store._connect()) as connection, connection:
         existing = connection.execute(
-            "SELECT id FROM decisions WHERE season = ? AND gameweek = ?",
-            (season, gameweek),
+            "SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+            (team_id, season, gameweek),
         ).fetchone()
 
         if existing and not overwrite:
             raise ValueError(
-                f"Decision already logged for {season} GW{gameweek} (Decision ID #{existing[0]}). "
+                f"Decision already logged for team '{team_id}' {season} GW{gameweek} (Decision ID #{existing[0]}). "
                 "Use overwrite=True to update."
             )
 
@@ -180,12 +181,13 @@ def record_gameweek_decision(
             cursor = connection.execute(
                 """
                 INSERT INTO decisions (
-                    season, gameweek, timestamp, chip_played, transfer_hits, transfers_json,
+                    team_id, season, gameweek, timestamp, chip_played, transfer_hits, transfers_json,
                     starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
                     predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    team_id,
                     season,
                     gameweek,
                     timestamp,
@@ -216,6 +218,7 @@ def record_gameweek_decision(
 
     return {
         "decision_id": decision_id,
+        "team_id": team_id,
         "season": season,
         "gameweek": gameweek,
         "timestamp": timestamp,
@@ -238,9 +241,10 @@ def record_gameweek_decision(
 def get_gameweek_decision(
     gameweek: int,
     season: str = "2026/27",
+    team_id: str = "default",
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any] | None:
-    """Retrieve logged decision for a specific gameweek."""
+    """Retrieve logged decision for a specific gameweek and team."""
     store = SnapshotStore(database_path)
     store.initialize()
 
@@ -249,11 +253,11 @@ def get_gameweek_decision(
             """
             SELECT id, season, gameweek, timestamp, chip_played, transfer_hits, transfers_json,
                    starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
-                   predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                   predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes, team_id
             FROM decisions
-            WHERE season = ? AND gameweek = ?
+            WHERE team_id = ? AND season = ? AND gameweek = ?
             """,
-            (season, gameweek),
+            (team_id, season, gameweek),
         ).fetchone()
 
         if not row:
@@ -268,6 +272,7 @@ def get_gameweek_decision(
 
     return {
         "decision_id": row[0],
+        "team_id": row[16] if len(row) > 16 else team_id,
         "season": row[1],
         "gameweek": row[2],
         "timestamp": row[3],
@@ -290,9 +295,10 @@ def get_gameweek_decision(
 
 def list_decisions(
     season: str = "2026/27",
+    team_id: str = "default",
     database_path: Path = DATABASE_PATH,
 ) -> list[dict[str, Any]]:
-    """List all logged decisions in chronological order."""
+    """List all logged decisions for a specific team in chronological order."""
     store = SnapshotStore(database_path)
     store.initialize()
 
@@ -300,10 +306,10 @@ def list_decisions(
         query = (
             "SELECT id, season, gameweek, timestamp, chip_played, transfer_hits, transfers_json, "
             "starting_ids_json, bench_ids_json, captain_id, vice_captain_id, "
-            "predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes "
-            "FROM decisions WHERE season = ? ORDER BY gameweek ASC"
+            "predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes, team_id "
+            "FROM decisions WHERE team_id = ? AND season = ? ORDER BY gameweek ASC"
         )
-        rows = connection.execute(query, (season,)).fetchall()
+        rows = connection.execute(query, (team_id, season)).fetchall()
         name_rows = connection.execute("SELECT player_id, web_name FROM players GROUP BY player_id").fetchall()
         player_names = dict(name_rows)
 
@@ -313,6 +319,7 @@ def list_decisions(
         vc_id = r[10]
         decisions.append({
             "decision_id": r[0],
+            "team_id": r[16] if len(r) > 16 else team_id,
             "season": r[1],
             "gameweek": r[2],
             "timestamp": r[3],
@@ -338,19 +345,20 @@ def record_actual_gameweek_score(
     gameweek: int,
     actual_points: int,
     season: str = "2026/27",
+    team_id: str = "default",
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
-    """Record finalized actual points scored in a completed gameweek."""
+    """Record finalized actual points scored in a completed gameweek for a specific team."""
     store = SnapshotStore(database_path)
     store.initialize()
 
     with closing(store._connect()) as connection, connection:
         row = connection.execute(
-            "SELECT id FROM decisions WHERE season = ? AND gameweek = ?",
-            (season, gameweek),
+            "SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+            (team_id, season, gameweek),
         ).fetchone()
         if not row:
-            raise ValueError(f"No decision found for {season} GW{gameweek}. Log the decision first.")
+            raise ValueError(f"No decision found for team '{team_id}' {season} GW{gameweek}. Log the decision first.")
 
         decision_id = row[0]
         connection.execute(
@@ -358,7 +366,7 @@ def record_actual_gameweek_score(
             (actual_points, decision_id),
         )
 
-    res = get_gameweek_decision(gameweek, season=season, database_path=database_path)
+    res = get_gameweek_decision(gameweek, season=season, team_id=team_id, database_path=database_path)
     if res is None:
         raise RuntimeError("Failed to retrieve updated decision.")
     return res
@@ -458,6 +466,7 @@ def log_decision_from_current_squad(
     transfer_hits: int | None = None,
     transfers: list[str] | list[dict[str, Any]] | None = None,
     notes: str = "",
+    team_id: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Log decision using current squad, custom trades, and custom or optimized lineup.
@@ -470,6 +479,13 @@ def log_decision_from_current_squad(
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     store.initialize()
+
+    if team_id is None:
+        try:
+            from .teams import get_team_id_from_squad_path
+            team_id = get_team_id_from_squad_path(squad_path)
+        except Exception:
+            team_id = "default"
 
     try:
         from .fixtures import get_current_gameweek
@@ -492,7 +508,7 @@ def log_decision_from_current_squad(
         if len(base_squad) != 15:
             raise ValueError(f"Explicit squad must have exactly 15 players; received {len(base_squad)}.")
     elif is_past:
-        prev_dec = get_gameweek_decision(gameweek - 1, database_path=database_path)
+        prev_dec = get_gameweek_decision(gameweek - 1, team_id=team_id, database_path=database_path)
         if prev_dec:
             base_squad = list(prev_dec.get("squad_player_ids") or (prev_dec["starting_player_ids"] + prev_dec["bench_player_ids"]))
         else:
@@ -635,6 +651,7 @@ def log_decision_from_current_squad(
     decision = record_gameweek_decision(
         gameweek=gameweek,
         season=state.season,
+        team_id=team_id,
         squad_player_ids=squad_ids,
         starting_player_ids=starters_ids,
         bench_player_ids=bench_ids,

@@ -41,6 +41,17 @@ from .chip_strategy import (
     recommend_chip_strategy,
 )
 from .scores import update_gameweek_scores
+from .teams import (
+    create_team,
+    delete_team,
+    get_active_squad_path,
+    get_active_team_id,
+    get_team,
+    get_team_id_from_squad_path,
+    get_team_squad_path,
+    list_teams,
+    set_active_team,
+)
 from .transfers import Transfer, validate_transfers
 
 
@@ -50,6 +61,17 @@ RAW_DIRECTORY = DATA_DIRECTORY / "raw"
 DATABASE_PATH = DATA_DIRECTORY / "fpl.sqlite3"
 REPORT_PATH = PROJECT_ROOT / "reports" / "current_state.json"
 DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
+
+
+def resolve_squad_path(arguments: Any) -> Path:
+    """Resolve the squad file path considering explicit arguments, team switches, and active squad."""
+    squad_arg = getattr(arguments, "squad", None)
+    if squad_arg is not None and squad_arg != DEFAULT_SQUAD_PATH:
+        return squad_arg
+    team_arg = getattr(arguments, "team", None)
+    if team_arg is not None:
+        return get_team_squad_path(team_arg)
+    return get_active_squad_path()
 
 
 def update() -> dict[str, object]:
@@ -444,6 +466,38 @@ def format_decisions_list_concise(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def format_teams_concise(teams: list[dict[str, Any]]) -> str:
+    if not teams:
+        return "No teams configured."
+    lines = [
+        f"{'Active':<8} | {'ID':<15} | {'Name':<20} | {'Manager':<15} | {'GW':<4} | {'Bank':<6} | {'Value':<6}",
+        "-" * 85,
+    ]
+    for t in teams:
+        active_mark = "* ACTIVE" if t.get("is_active") else ""
+        tid = t.get("team_id", "")[:15]
+        name = t.get("name", "")[:20]
+        mgr = t.get("manager", "")[:15]
+        gw = f"GW{t.get('gameweek', 1)}"
+        bank = f"£{t.get('bank_millions', 0.0):.1f}m"
+        val = f"£{t.get('team_value_millions', 0.0):.1f}m"
+        lines.append(f"{active_mark:<8} | {tid:<15} | {name:<20} | {mgr:<15} | {gw:<4} | {bank:<6} | {val:<6}")
+    return "\n".join(lines)
+
+
+def format_team_info_concise(team: dict[str, Any]) -> str:
+    meta = team["metadata"]
+    state = team["state"]
+    active_str = " (Active Team)" if team.get("is_active") else ""
+    return (
+        f"Team: {meta.get('name')} [{meta.get('team_id')}]{active_str}\n"
+        f"  Manager: {meta.get('manager')} | Gameweek: {state.gameweek}\n"
+        f"  Bank: £{state.bank_tenths / 10.0:.1f}m | Free Transfers: {state.free_transfers}\n"
+        f"  Squad Players: {len(state.player_ids)} | Chips Remaining: {len(state.chips_remaining)}\n"
+        f"  Squad Path: {meta.get('squad_path')}"
+    )
+
+
 def _parse_scores_argument(val: str | None) -> dict[int, float] | None:
     if not val:
         return None
@@ -658,18 +712,49 @@ def main(argv: list[str] | None = None) -> None:
 
     subcommands.add_parser("update", help="Download and persist the latest official FPL data")
     subcommands.add_parser("report", help="Write a machine-readable summary of the latest snapshot")
-    subcommands.add_parser("squad", help="Generate a detailed analysis report of your current squad")
-    subcommands.add_parser("squad-report", help="Alias for `fpl squad` command")
+
+    subcommands.add_parser("teams", help="List all configured teams and active team")
+
+    team_parser = subcommands.add_parser("team", help="Manage multiple fantasy teams (list, switch, create, info, delete)")
+    team_sub = team_parser.add_subparsers(dest="team_command", required=True)
+
+    team_sub.add_parser("list", help="List all configured teams")
+
+    switch_p = team_sub.add_parser("switch", help="Switch the active team")
+    switch_p.add_argument("team_id", help="ID or name of the team to activate")
+
+    load_p = team_sub.add_parser("load", help="Alias for `fpl team switch`")
+    load_p.add_argument("team_id", help="ID or name of the team to activate")
+
+    create_p = team_sub.add_parser("create", help="Create a new team")
+    create_p.add_argument("name", help="Human-readable name of the team")
+    create_p.add_argument("--id", dest="team_id", default=None, help="Explicit team ID slug (optional)")
+    create_p.add_argument("--manager", default="", help="Manager name")
+    create_p.add_argument("--copy-from", default=None, help="Existing team ID to clone squad from (defaults to active team)")
+    create_p.add_argument("--activate", action="store_true", help="Set this new team as active immediately")
+
+    info_p = team_sub.add_parser("info", help="Display details and squad info for a team")
+    info_p.add_argument("team_id", nargs="?", default=None, help="Team ID (defaults to active team)")
+
+    del_p = team_sub.add_parser("delete", help="Delete a team")
+    del_p.add_argument("team_id", help="Team ID to delete")
+
+    for sq_cmd in ("squad", "squad-report"):
+        sq_p = subcommands.add_parser(sq_cmd, help="Generate a detailed analysis report of your current squad")
+        sq_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        sq_p.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
 
     fixtures_parser = subcommands.add_parser("fixtures", help="Analyze upcoming team fixtures and difficulty ratings (FDR)")
     fixtures_parser.add_argument("--gameweeks", type=int, default=5, help="Number of gameweeks to analyze (default: 5)")
     fixtures_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
     fixtures_parser.add_argument("--squad-only", action="store_true", help="Analyze fixtures only for players in your current squad")
     fixtures_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    fixtures_parser.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
 
     suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1- to 5-transfer move recommendations")
     suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     suggest_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    suggest_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
     suggest_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
@@ -677,6 +762,7 @@ def main(argv: list[str] | None = None) -> None:
     options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
     options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     options_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    options_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
     options_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
@@ -688,6 +774,7 @@ def main(argv: list[str] | None = None) -> None:
         wc_p = subcommands.add_parser(wc_cmd, help=wc_help)
         wc_p.add_argument("--budget", type=float, default=None, help="Squad budget limit in millions (default: current squad value + bank)")
         wc_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        wc_p.add_argument("--team", type=str, default=None, help="Team ID for wildcard/free-hit (defaults to active team)")
         wc_p.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks to evaluate (default: 5)")
         wc_p.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
         wc_p.add_argument("--output", type=Path, default=WILDCARD_REPORT_PATH, help="Output path for JSON report")
@@ -695,6 +782,7 @@ def main(argv: list[str] | None = None) -> None:
     plan_parser = subcommands.add_parser("plan", help="Generate multi-gameweek transfer planning roadmap (3-5 gameweeks)")
     plan_parser.add_argument("--horizon", type=int, default=3, help="Planning horizon in gameweeks (default: 3, up to 6)")
     plan_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    plan_parser.add_argument("--team", type=str, default=None, help="Team ID to plan transfers for (defaults to active team)")
     plan_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
     plan_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
     plan_parser.add_argument("--no-hits", action="store_true", help="Disallow transfer hits (only execute zero-hit moves and rolled transfers)")
@@ -707,6 +795,7 @@ def main(argv: list[str] | None = None) -> None:
     ):
         cmd_p = subcommands.add_parser(cmd_name, help=cmd_help)
         cmd_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        cmd_p.add_argument("--team", type=str, default=None, help="Team ID to select lineup for (defaults to active team)")
         cmd_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: next upcoming GW)")
 
     players_parser = subcommands.add_parser("players", help="Find player IDs in the latest FPL snapshot")
@@ -716,10 +805,12 @@ def main(argv: list[str] | None = None) -> None:
     import_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     validate_parser = subcommands.add_parser("validate-transfers", help="Validate proposed transfers against the local squad state")
     validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
+    validate_parser.add_argument("--team", type=str, default=None, help="Team ID to validate transfers for (defaults to active team)")
     validate_parser.add_argument("-n", "--by-name", action="store_true", help="Resolve transfers by player name queries instead of integer IDs")
     validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING:INCOMING; repeat for multiple moves")
     log_dec_parser = subcommands.add_parser("log-decision", help="Record and freeze gameweek lineup and transfer decisions in audit trail")
     log_dec_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    log_dec_parser.add_argument("--team", type=str, default=None, help="Team ID to log decision for (defaults to active team)")
     log_dec_parser.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current gameweek)")
     log_dec_parser.add_argument("--squad-players", type=str, default=None, help="Comma-separated player names or IDs for the full 15-player squad")
     log_dec_parser.add_argument("--chip", choices=["wildcard", "freehit", "benchboost", "triplecaptain"], default=None, help="Chip played this gameweek")
@@ -735,10 +826,12 @@ def main(argv: list[str] | None = None) -> None:
 
     decisions_parser = subcommands.add_parser("decisions", help="Review past gameweek decisions and audit trail")
     decisions_parser.add_argument("--gameweek", type=int, default=None, help="View specific gameweek decision")
+    decisions_parser.add_argument("--team", type=str, default=None, help="Filter by team ID (defaults to active team)")
     decisions_parser.add_argument("--season", type=str, default="2026/27", help="Filter by season (default: 2026/27)")
 
     eval_parser = subcommands.add_parser("evaluate", help="Evaluate prediction calibration, model accuracy, and decision regret")
     eval_parser.add_argument("--gameweek", type=int, default=None, help="Evaluate specific gameweek (default: all finalized gameweeks)")
+    eval_parser.add_argument("--team", type=str, default=None, help="Team ID to evaluate decisions for (defaults to active team)")
     eval_parser.add_argument("--season", type=str, default="2026/27", help="Season to evaluate (default: 2026/27)")
     eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS' (default: auto-retrieved from FPL)")
     eval_parser.add_argument("--decisions", action="store_true", help="Evaluate all logged decisions across the season")
@@ -752,6 +845,7 @@ def main(argv: list[str] | None = None) -> None:
     ):
         own_p = subcommands.add_parser(own_cmd, help=own_help)
         own_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        own_p.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
         own_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
         own_p.add_argument("--league", action="store_true", help="Analyze entire league instead of current squad")
         own_p.add_argument("--top", type=int, default=10, help="Number of top assets to show for league analysis (default: 10)")
@@ -763,6 +857,7 @@ def main(argv: list[str] | None = None) -> None:
     ):
         chip_p = subcommands.add_parser(chip_cmd, help=chip_help)
         chip_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        chip_p.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
         chip_p.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: upcoming GW)")
         chip_p.add_argument("--end-gw", type=int, default=None, help="Ending gameweek (default: 19 for segment 1-19, 38 for segment 20-38)")
         chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
@@ -771,20 +866,62 @@ def main(argv: list[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
 
     try:
-        if arguments.command == "update":
+        if arguments.command == "teams" or (arguments.command == "team" and arguments.team_command == "list"):
+            teams_data = list_teams()
+            print(json.dumps({"teams": teams_data}, indent=2, ensure_ascii=False) if arguments.verbose else format_teams_concise(teams_data))
+        elif arguments.command == "team" and arguments.team_command in ("switch", "load"):
+            active = set_active_team(arguments.team_id)
+            if arguments.verbose:
+                print(json.dumps(active, indent=2, ensure_ascii=False))
+            else:
+                print(f"Switched active team to '{active['name']}' [{active['team_id']}].")
+        elif arguments.command == "team" and arguments.team_command == "create":
+            created = create_team(
+                name=arguments.name,
+                team_id=arguments.team_id,
+                manager=arguments.manager,
+                copy_from_team_id=arguments.copy_from,
+                set_as_active=arguments.activate,
+            )
+            if arguments.verbose:
+                print(json.dumps(created, indent=2, ensure_ascii=False))
+            else:
+                act_str = " and set as active" if arguments.activate else ""
+                print(f"Created team '{created['name']}' [{created['team_id']}]{act_str}.")
+        elif arguments.command == "team" and arguments.team_command == "info":
+            info = get_team(arguments.team_id)
+            if arguments.verbose:
+                payload = dict(info["metadata"])
+                payload["state"] = {
+                    "gameweek": info["state"].gameweek,
+                    "bank_tenths": info["state"].bank_tenths,
+                    "free_transfers": info["state"].free_transfers,
+                    "player_ids": info["state"].player_ids,
+                    "chips_remaining": info["state"].chips_remaining,
+                }
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print(format_team_info_concise(info))
+        elif arguments.command == "team" and arguments.team_command == "delete":
+            deleted = delete_team(arguments.team_id)
+            if arguments.verbose:
+                print(json.dumps(deleted, indent=2, ensure_ascii=False))
+            else:
+                print(f"Deleted team '{deleted['deleted_team_id']}'. Active team is now '{deleted['active_team_id']}'.")
+        elif arguments.command == "update":
             result = update()
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_update_concise(result))
         elif arguments.command == "report":
             result = report()
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_report_concise(result))
         elif arguments.command in ("squad", "squad-report"):
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             result = generate_squad_report(squad_path=squad_path, database_path=DATABASE_PATH, report_path=SQUAD_REPORT_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_squad_concise(result))
         elif arguments.command == "fixtures":
             if arguments.squad_only:
                 result = analyze_squad_fixtures(
-                    squad_path=arguments.squad,
+                    squad_path=resolve_squad_path(arguments),
                     database_path=DATABASE_PATH,
                     num_gameweeks=arguments.gameweeks,
                     start_gw=arguments.start_gw,
@@ -797,7 +934,7 @@ def main(argv: list[str] | None = None) -> None:
                 )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_fixtures_concise(result))
         elif arguments.command in ("suggest-transfers", "options"):
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             result = suggest_transfers(
                 num_transfers=arguments.transfers,
                 squad_path=squad_path,
@@ -809,7 +946,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_suggest_transfers_concise(result))
         elif arguments.command in ("wildcard", "free-hit"):
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             result = suggest_wildcard(
                 budget_millions=getattr(arguments, "budget", None),
                 squad_path=squad_path,
@@ -820,7 +957,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_wildcard_concise(result))
         elif arguments.command == "plan":
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             result = generate_multi_gameweek_plan(
                 squad_path=squad_path,
                 database_path=DATABASE_PATH,
@@ -832,7 +969,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_plan_concise(result))
         elif arguments.command in ("lineup", "starting-xi", "captain"):
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             gameweek = getattr(arguments, "gameweek", None)
             result = select_starting_lineup(
                 squad_path=squad_path,
@@ -847,20 +984,22 @@ def main(argv: list[str] | None = None) -> None:
         elif arguments.command == "import-squad":
             import_squad_from_file(players_path=arguments.players, squad_path=arguments.squad)
         elif arguments.command == "log-decision":
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
+            team_id = getattr(arguments, "team", None) or get_team_id_from_squad_path(squad_path)
             if arguments.actual_points is not None:
                 gw = arguments.gameweek
                 if gw is None:
                     from .fixtures import get_current_gameweek
                     gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
-                existing = get_gameweek_decision(gw, database_path=DATABASE_PATH)
+                existing = get_gameweek_decision(gw, team_id=team_id, database_path=DATABASE_PATH)
                 if existing is not None and not arguments.overwrite:
-                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, team_id=team_id, database_path=DATABASE_PATH)
                 else:
                     log_decision_from_current_squad(
                         gameweek=gw,
                         squad_path=squad_path,
                         database_path=DATABASE_PATH,
+                        team_id=team_id,
                         squad_player_ids=getattr(arguments, "squad_players", None),
                         starting_player_ids=arguments.starters,
                         bench_player_ids=arguments.bench,
@@ -872,12 +1011,13 @@ def main(argv: list[str] | None = None) -> None:
                         notes=arguments.notes,
                         overwrite=arguments.overwrite,
                     )
-                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, team_id=team_id, database_path=DATABASE_PATH)
             else:
                 result = log_decision_from_current_squad(
                     gameweek=arguments.gameweek,
                     squad_path=squad_path,
                     database_path=DATABASE_PATH,
+                    team_id=team_id,
                     squad_player_ids=getattr(arguments, "squad_players", None),
                     starting_player_ids=arguments.starters,
                     bench_player_ids=arguments.bench,
@@ -891,26 +1031,29 @@ def main(argv: list[str] | None = None) -> None:
                 )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
         elif arguments.command == "decisions":
+            team_id = getattr(arguments, "team", None) or get_active_team_id()
             if arguments.gameweek is not None:
-                result = get_gameweek_decision(arguments.gameweek, season=arguments.season, database_path=DATABASE_PATH)
+                result = get_gameweek_decision(arguments.gameweek, team_id=team_id, season=arguments.season, database_path=DATABASE_PATH)
                 if result is None:
-                    print(f"No decision logged for {arguments.season} GW{arguments.gameweek}.")
+                    print(f"No decision logged for {arguments.season} GW{arguments.gameweek} (Team: {team_id}).")
                 else:
                     print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
             else:
-                decisions_list = list_decisions(season=arguments.season, database_path=DATABASE_PATH)
+                decisions_list = list_decisions(team_id=team_id, season=arguments.season, database_path=DATABASE_PATH)
                 print(json.dumps({"decisions": decisions_list}, indent=2, ensure_ascii=False) if arguments.verbose else format_decisions_list_concise(decisions_list))
         elif arguments.command == "evaluate":
             scores = _parse_scores_argument(arguments.scores)
+            team_id = getattr(arguments, "team", None) or get_active_team_id()
             if arguments.gameweek is not None:
                 result = evaluate_gameweek_decision(
                     gameweek=arguments.gameweek,
+                    team_id=team_id,
                     actual_scores=scores,
                     season=arguments.season,
                     database_path=DATABASE_PATH,
                 )
             else:
-                result = evaluate_season_decisions(season=arguments.season, database_path=DATABASE_PATH)
+                result = evaluate_season_decisions(team_id=team_id, season=arguments.season, database_path=DATABASE_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_evaluation_concise(result))
         elif arguments.command == "update-scores":
             gw = arguments.gameweek
@@ -927,11 +1070,11 @@ def main(argv: list[str] | None = None) -> None:
                     gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
                 result = analyze_gameweek_ownership(gameweek=gw, database_path=DATABASE_PATH, top_n=arguments.top)
             else:
-                squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+                squad_path = resolve_squad_path(arguments)
                 result = analyze_squad_risk_profile(squad_path=squad_path, gameweek=gw, database_path=DATABASE_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_ownership_concise(result))
         elif arguments.command in ("chip-strategy", "chips", "bgw-dgw"):
-            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            squad_path = resolve_squad_path(arguments)
             used_list = [c.strip() for c in arguments.used_chips.split(",")] if arguments.used_chips else None
             result = recommend_chip_strategy(
                 squad_path=squad_path,
@@ -943,7 +1086,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_chip_strategy_concise(result))
         elif arguments.command == "validate-transfers":
-            result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
+            result = validate_transfer_set(resolve_squad_path(arguments), arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
         else:
             parser.print_help()

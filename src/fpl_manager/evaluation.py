@@ -280,6 +280,7 @@ def evaluate_gameweek_decision(
     gameweek: int,
     actual_scores: dict[int, float] | None = None,
     season: str = "2026/27",
+    team_id: str = "default",
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
     """Comprehensive post-gameweek evaluation combining prediction accuracy and decision regret."""
@@ -299,18 +300,19 @@ def evaluate_gameweek_decision(
             SELECT r.recommended_lineup_json
             FROM decision_recommendations r
             JOIN decisions d ON d.id = r.decision_id
-            WHERE d.season = ? AND d.gameweek = ?
+            WHERE d.team_id = ? AND d.season = ? AND d.gameweek = ?
             """,
-            (season, gameweek),
+            (team_id, season, gameweek),
         ).fetchone()
         recommended_lineup = json.loads(rec_row[0]) if (rec_row and rec_row[0]) else None
 
-    decision = get_gameweek_decision(gameweek, season=season, database_path=database_path)
+    decision = get_gameweek_decision(gameweek, season=season, team_id=team_id, database_path=database_path)
     prediction_eval = evaluate_predictions(gameweek, actual_scores, database_path=database_path)
 
     if decision is None:
         return {
             "gameweek": gameweek,
+            "team_id": team_id,
             "decision_logged": False,
             "prediction_accuracy": prediction_eval,
             "captaincy": None,
@@ -340,7 +342,7 @@ def evaluate_gameweek_decision(
     if decision.get("actual_points") is None and actual_scores:
         try:
             from .decision_log import record_actual_gameweek_score
-            record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, database_path=database_path)
+            record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
             decision["actual_points"] = round(actual_lineup)
         except Exception:
             pass
@@ -348,6 +350,7 @@ def evaluate_gameweek_decision(
     return {
         "gameweek": gameweek,
         "season": season,
+        "team_id": team_id,
         "decision_logged": True,
         "predicted_lineup_xp": decision["predicted_lineup_xp"],
         "actual_lineup_score": round(actual_lineup, 2),
@@ -361,11 +364,12 @@ def evaluate_gameweek_decision(
 
 def evaluate_season_decisions(
     season: str = "2026/27",
+    team_id: str = "default",
     database_path: Path = DATABASE_PATH,
     report_path: Path = EVALUATION_REPORT_PATH,
 ) -> dict[str, Any]:
     """Aggregate decision evaluation across all finalized gameweeks in the season."""
-    decisions = list_decisions(season=season, database_path=database_path)
+    decisions = list_decisions(season=season, team_id=team_id, database_path=database_path)
 
     # Auto-finalize any unfinalized decisions if scores are available
     from .scores import get_or_fetch_gameweek_scores
@@ -383,7 +387,7 @@ def evaluate_season_decisions(
                 )
                 try:
                     from .decision_log import record_actual_gameweek_score
-                    record_actual_gameweek_score(d["gameweek"], round(actual_lineup), season=season, database_path=database_path)
+                    record_actual_gameweek_score(d["gameweek"], round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
                     d["actual_points"] = round(actual_lineup)
                 except Exception:
                     pass
@@ -393,6 +397,7 @@ def evaluate_season_decisions(
     if not finalized:
         return {
             "season": season,
+            "team_id": team_id,
             "finalized_gameweeks": 0,
             "summary": "No decisions with finalized actual scores recorded yet.",
             "gameweeks": [],
