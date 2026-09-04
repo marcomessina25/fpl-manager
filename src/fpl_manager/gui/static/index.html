@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FPL Manager Pro — Local Decision Dashboard</title>
+  <link rel="stylesheet" href="app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
+</head>
+<body>
+  <!-- Top Navigation & Global Team Switcher -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-ball">⚽</span>
+        <span class="logo-text">FPL <strong>MANAGER</strong></span>
+        <span class="badge-version">v0.5</span>
+      </div>
+
+      <!-- Team Switcher Bar -->
+      <div class="team-switcher-container">
+        <label for="team-select" class="switcher-label">Team:</label>
+        <select id="team-select" class="team-dropdown">
+          <option value="" disabled selected>Loading teams...</option>
+        </select>
+        <button id="btn-open-create-team" class="btn btn-secondary btn-sm" title="Create a new fantasy team">+ New Team</button>
+        <button id="btn-delete-team" class="btn btn-outline-danger btn-sm" title="Delete current team">🗑️</button>
+      </div>
+    </div>
+
+    <!-- Team Squad HUD Bar -->
+    <div class="header-right">
+      <div class="hud-item" title="Active Gameweek">
+        <span class="hud-label">GAMEWEEK</span>
+        <span id="hud-gw" class="hud-val highlight">GW-</span>
+      </div>
+      <div class="hud-item" title="Bank Balance">
+        <span class="hud-label">BANK</span>
+        <span id="hud-bank" class="hud-val">£0.0m</span>
+      </div>
+      <div class="hud-item" title="Total Team Value (Squad + Bank)">
+        <span class="hud-label">SQUAD VALUE</span>
+        <span id="hud-value" class="hud-val">£0.0m</span>
+      </div>
+      <div class="hud-item" title="Available Free Transfers">
+        <span class="hud-label">FREE TX</span>
+        <span id="hud-ft" class="hud-val highlight">1</span>
+      </div>
+      <div class="hud-item" title="Remaining Available Chips">
+        <span class="hud-label">CHIPS LEFT</span>
+        <span id="hud-chips" class="hud-val">4</span>
+      </div>
+      <div class="header-actions">
+        <button id="btn-sync-data" class="btn btn-primary btn-sm" title="Fetch latest official FPL bootstrap & fixtures">🔄 Sync Data</button>
+        <button id="btn-sync-scores" class="btn btn-outline btn-sm" title="Fetch live matchday player scores">⚡ Scores</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs Bar -->
+  <nav class="tabs-nav">
+    <button class="tab-btn active" data-tab="pitch">🏟️ Pitch & Lineup</button>
+    <button class="tab-btn" data-tab="decisions">📝 Decision Logger</button>
+    <button class="tab-btn" data-tab="transfers">🔄 Transfers & Wildcard</button>
+    <button class="tab-btn" data-tab="planner">📅 Multi-GW Planner</button>
+    <button class="tab-btn" data-tab="chips">🎯 Chip Strategy & Calendar</button>
+    <button class="tab-btn" data-tab="evaluation">📊 Evaluation & Regret</button>
+  </nav>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Main Content Layout -->
+  <main class="main-content">
+
+    <!-- TAB 1: PITCH & LINEUP -->
+    <section id="tab-pitch" class="tab-pane active">
+      <div class="pitch-container-wrapper">
+        <div class="pitch-header-panel">
+          <div class="pitch-title-block">
+            <h2 id="lineup-headline">Matchday Lineup</h2>
+            <div id="lineup-meta" class="lineup-meta-info">Formation: 3-5-2 | Projected: 0.0 xP</div>
+          </div>
+          <div class="pitch-controls">
+            <label for="lineup-gw-select">Gameweek:</label>
+            <input type="number" id="lineup-gw-select" min="1" max="38" value="" class="input-sm" style="width: 70px;">
+            <button id="btn-refresh-lineup" class="btn btn-secondary btn-sm">Optimize XI</button>
+          </div>
+        </div>
+
+        <!-- Visual Football Pitch View -->
+        <div class="pitch">
+          <div class="pitch-line pitch-line-penalty-top"></div>
+          <div class="pitch-line pitch-line-center"></div>
+          <div class="pitch-circle"></div>
+          <div class="pitch-line pitch-line-penalty-bottom"></div>
+
+          <!-- Starting XI Rows -->
+          <div id="pitch-gkp" class="pitch-row"></div>
+          <div id="pitch-def" class="pitch-row"></div>
+          <div id="pitch-mid" class="pitch-row"></div>
+          <div id="pitch-fwd" class="pitch-row"></div>
+        </div>
+
+        <!-- Bench Container -->
+        <div class="bench-section">
+          <div class="bench-title">Bench Substitutes</div>
+          <div id="pitch-bench" class="bench-cards"></div>
+        </div>
+      </div>
+
+      <!-- Lineup Sidebar Stats -->
+      <aside class="pitch-sidebar">
+        <div class="panel card">
+          <div class="panel-header">
+            <h3>Armband & Key Roles</h3>
+          </div>
+          <div class="panel-body">
+            <div id="captain-card" class="role-card captain-card">
+              <span class="role-badge cap-badge">C</span>
+              <div class="role-info">
+                <div class="role-name" id="cap-name">-</div>
+                <div class="role-sub" id="cap-sub">-</div>
+              </div>
+              <div class="role-xp" id="cap-xp">0.0 xP</div>
+            </div>
+            <div id="vice-captain-card" class="role-card vice-captain-card">
+              <span class="role-badge vc-badge">VC</span>
+              <div class="role-info">
+                <div class="role-name" id="vc-name">-</div>
+                <div class="role-sub" id="vc-sub">-</div>
+              </div>
+              <div class="role-xp" id="vc-xp">0.0 xP</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel card">
+          <div class="panel-header">
+            <h3>Squad Health & Uncertainty</h3>
+          </div>
+          <div class="panel-body">
+            <div class="stat-row">
+              <span>Starters xP</span>
+              <strong id="stat-starters-xp">0.0</strong>
+            </div>
+            <div class="stat-row">
+              <span>Uncertainty Range</span>
+              <strong id="stat-uncertainty-range">[0.0, 0.0]</strong>
+            </div>
+            <div class="stat-row">
+              <span>Template Shields</span>
+              <strong id="stat-shields-count" class="badge badge-shield">0</strong>
+            </div>
+            <div class="stat-row">
+              <span>Differential Swords</span>
+              <strong id="stat-swords-count" class="badge badge-sword">0</strong>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- TAB 2: DECISION LOGGER -->
+    <section id="tab-decisions" class="tab-pane">
+      <div class="two-col-layout">
+        <div class="panel card">
+          <div class="panel-header">
+            <h2>Log Pre-Deadline Decision</h2>
+            <span class="badge badge-info">Persistent Audit Trail</span>
+          </div>
+          <div class="panel-body">
+            <form id="form-log-decision">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="dec-gw">Target Gameweek *</label>
+                  <input type="number" id="dec-gw" required min="1" max="38" class="form-control">
+                  <small class="form-hint" id="dec-gw-hint">Logging for past gameweek evaluates models without altering current squad.</small>
+                </div>
+                <div class="form-group">
+                  <label for="dec-chip">Chip Played</label>
+                  <select id="dec-chip" class="form-control">
+                    <option value="">None (Standard)</option>
+                    <option value="wildcard">Wildcard</option>
+                    <option value="freehit">Free Hit</option>
+                    <option value="benchboost">Bench Boost</option>
+                    <option value="triplecaptain">Triple Captain</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="dec-captain">Captain *</label>
+                  <input type="text" id="dec-captain" required placeholder="Player name or ID" class="form-control">
+                </div>
+                <div class="form-group">
+                  <label for="dec-vc">Vice-Captain *</label>
+                  <input type="text" id="dec-vc" required placeholder="Player name or ID" class="form-control">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="dec-transfers">Executed Transfers (OUT:IN)</label>
+                <input type="text" id="dec-transfers" placeholder="e.g. Amad:Tielemans, Watkins:Haaland" class="form-control">
+                <small class="form-hint">Comma-separated OUTGOING:INCOMING player names or IDs.</small>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="dec-hits">Transfer Hits Taken</label>
+                  <input type="number" id="dec-hits" min="0" placeholder="Auto-calculated if blank" class="form-control">
+                </div>
+                <div class="form-group">
+                  <label for="dec-actual-pts">Actual Matchday Points</label>
+                  <input type="number" id="dec-actual-pts" placeholder="Optional final score" class="form-control">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="dec-notes">Manager Notes & Strategic Rationale</label>
+                <textarea id="dec-notes" rows="2" placeholder="Explain why you made these moves and picked this captain..." class="form-control"></textarea>
+              </div>
+
+              <div class="form-actions">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="dec-overwrite"> Overwrite existing log for this GW
+                </label>
+                <button type="submit" class="btn btn-primary">Save & Freeze Decision</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Decision History List -->
+        <div class="panel card">
+          <div class="panel-header">
+            <h2>Season Decision History</h2>
+            <button id="btn-refresh-decisions" class="btn btn-secondary btn-sm">Refresh</button>
+          </div>
+          <div class="panel-body">
+            <div id="decisions-list" class="decisions-list-container">
+              <p class="text-muted">Loading logged decisions...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: TRANSFERS & WILDCARD STUDIO -->
+    <section id="tab-transfers" class="tab-pane">
+      <div class="tabs-subnav">
+        <button class="subtab-btn active" data-subtab="regular-tx">1- to 5-Transfer Optimizer</button>
+        <button class="subtab-btn" data-subtab="wildcard-opt">Wildcard & Free-Hit Studio</button>
+      </div>
+
+      <!-- Regular Transfers Panel -->
+      <div id="subtab-regular-tx" class="subtab-pane active">
+        <div class="toolbar">
+          <div class="tool-group">
+            <label>Transfers:</label>
+            <select id="tx-num" class="form-control form-control-sm">
+              <option value="1" selected>1 Transfer</option>
+              <option value="2">2 Transfers</option>
+              <option value="3">3 Transfers</option>
+              <option value="4">4 Transfers</option>
+              <option value="5">5 Transfers</option>
+            </select>
+          </div>
+          <div class="tool-group">
+            <label>Horizon (GWs):</label>
+            <input type="number" id="tx-gws" value="5" min="1" max="10" class="input-sm" style="width:60px;">
+          </div>
+          <div class="tool-group">
+            <label>Risk Profile:</label>
+            <select id="tx-risk" class="form-control form-control-sm">
+              <option value="neutral" selected>Neutral (Expected xP)</option>
+              <option value="floor">Floor (Safe preservation)</option>
+              <option value="ceiling">Ceiling (Differential upside)</option>
+            </select>
+          </div>
+          <button id="btn-run-suggest-tx" class="btn btn-primary btn-sm">Solve Optimal Moves</button>
+        </div>
+
+        <div id="tx-results-container" class="results-grid">
+          <p class="text-muted">Click "Solve Optimal Moves" to evaluate combinatorial transfers.</p>
+        </div>
+      </div>
+
+      <!-- Wildcard / Free Hit Studio -->
+      <div id="subtab-wildcard-opt" class="subtab-pane">
+        <div class="toolbar">
+          <div class="tool-group">
+            <label>Chip Mode:</label>
+            <select id="wc-mode" class="form-control form-control-sm">
+              <option value="wildcard" selected>Wildcard (Permanent 15-player revamp)</option>
+              <option value="freehit">Free Hit (1-week rental squad)</option>
+            </select>
+          </div>
+          <div class="tool-group">
+            <label>Budget (£m):</label>
+            <input type="number" id="wc-budget" step="0.5" placeholder="Current squad value" class="input-sm" style="width:100px;">
+          </div>
+          <div class="tool-group">
+            <label>Risk Profile:</label>
+            <select id="wc-risk" class="form-control form-control-sm">
+              <option value="neutral" selected>Neutral (Expected xP)</option>
+              <option value="floor">Floor (Safe rank guard)</option>
+              <option value="ceiling">Ceiling (High variance)</option>
+            </select>
+          </div>
+          <button id="btn-run-wildcard" class="btn btn-primary btn-sm">Optimize 15-Player Squad</button>
+        </div>
+
+        <div id="wc-results-container">
+          <p class="text-muted">Configure parameters and click "Optimize 15-Player Squad" to solve the optimal Wildcard lineup.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: MULTI-GW PLANNER -->
+    <section id="tab-planner" class="tab-pane">
+      <div class="toolbar">
+        <div class="tool-group">
+          <label>Planning Horizon:</label>
+          <select id="plan-horizon" class="form-control form-control-sm">
+            <option value="3" selected>3 Gameweeks</option>
+            <option value="4">4 Gameweeks</option>
+            <option value="5">5 Gameweeks</option>
+            <option value="6">6 Gameweeks</option>
+          </select>
+        </div>
+        <div class="tool-group">
+          <label>Risk Profile:</label>
+          <select id="plan-risk" class="form-control form-control-sm">
+            <option value="neutral" selected>Neutral (Standard xP)</option>
+            <option value="floor">Floor (Safe)</option>
+            <option value="ceiling">Ceiling (Differential)</option>
+          </select>
+        </div>
+        <div class="tool-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="plan-no-hits"> Disallow -4pt Hits
+          </label>
+        </div>
+        <button id="btn-run-plan" class="btn btn-primary btn-sm">Generate Multi-GW Plan</button>
+      </div>
+
+      <div id="plan-results-container">
+        <p class="text-muted">Click "Generate Multi-GW Plan" to compute rolling transfer strategies across upcoming gameweeks.</p>
+      </div>
+    </section>
+
+    <!-- TAB 5: CHIP STRATEGY & CALENDAR -->
+    <section id="tab-chips" class="tab-pane">
+      <div class="toolbar">
+        <div class="tool-group">
+          <label>Starting GW:</label>
+          <input type="number" id="chip-start-gw" min="1" max="38" placeholder="Current GW" class="input-sm" style="width:70px;">
+        </div>
+        <div class="tool-group">
+          <label>Chips Already Used:</label>
+          <input type="text" id="chip-used" placeholder="e.g. wildcard,freehit" class="input-sm" style="width:200px;">
+        </div>
+        <button id="btn-run-chip-strategy" class="btn btn-primary btn-sm">Evaluate Chip Roadmap</button>
+      </div>
+
+      <div id="chip-results-container">
+        <p class="text-muted">Loading chip strategy and Blank/Double gameweek calendar...</p>
+      </div>
+    </section>
+
+    <!-- TAB 6: EVALUATION & REGRET HUB -->
+    <section id="tab-evaluation" class="tab-pane">
+      <div class="toolbar">
+        <div class="tool-group">
+          <label>Evaluate Gameweek:</label>
+          <input type="number" id="eval-gw" min="1" max="38" placeholder="All GWs" class="input-sm" style="width:80px;">
+        </div>
+        <button id="btn-run-eval" class="btn btn-primary btn-sm">Run Accuracy & Regret Audit</button>
+      </div>
+
+      <div id="eval-results-container">
+        <p class="text-muted">Click "Run Accuracy & Regret Audit" to benchmark model calibration, captaincy regret, and lineup performance.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: CREATE NEW TEAM -->
+  <div id="modal-create-team" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Create New Fantasy Team</h3>
+        <button class="modal-close" id="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-create-team">
+          <div class="form-group">
+            <label for="new-team-name">Team Name *</label>
+            <input type="text" id="new-team-name" required placeholder="e.g. Pep's Differential XI" class="form-control">
+          </div>
+          <div class="form-group">
+            <label for="new-team-manager">Manager Name</label>
+            <input type="text" id="new-team-manager" placeholder="e.g. Marco" class="form-control">
+          </div>
+          <div class="form-group">
+            <label for="new-team-copy">Clone Squad From</label>
+            <select id="new-team-copy" class="form-control">
+              <option value="">Current Active Team Squad</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="new-team-activate" checked> Set as active team immediately
+            </label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="btn-cancel-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Team</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

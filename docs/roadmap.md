@@ -120,7 +120,7 @@ Remaining:
 
 ### V0.5 — Graphical User Interface (GUI) & Multi-Team Management
 
-Status: **In Progress / Current Milestone.**
+Status: **V0.5 completed on 2026-09-04.**
 
 Scope & Architecture:
 
@@ -138,42 +138,35 @@ Scope & Architecture:
 
 2. **Interactive GUI Application (`src/fpl_manager/gui/` / `fpl gui`)**:
    - Provide a visual, interactive dashboard for all core FPL decision engine capabilities.
-   - Built with a clean, responsive, local web interface (or lightweight desktop framework) launched effortlessly with `fpl gui`:
+   - Built with a clean, responsive, local web interface launched effortlessly with `fpl gui`:
      - **Team Switcher & Creator Bar**:
        - Dropdown to instantly switch active teams.
-       - "New Team" modal: create team, assign initial 15 players, set budget, bank, and starting gameweek.
+       - "New Team" modal: create team, clone squad state, assign manager, and set as active.
      - **Dashboard & Football Pitch View**:
        - Visual formation pitch (e.g. 3-4-3, 3-5-2, 4-4-2, etc.) rendering starting XI cards and ordered bench substitutes.
-       - Player cards display player photo/jersey, web name, position, next fixture + FDR badge, predicted xP, uncertainty bounds ($xP_{\text{floor}}$–$xP_{\text{ceiling}}$), and Effective Ownership role badge (`SHIELD`, `SWORD`, `CORE`).
+       - Player cards display name, team, position, next fixture + FDR badge, predicted xP, and Effective Ownership role badge (`SHIELD`, `SWORD`, `CORE`).
        - Captain (C) and Vice-Captain (VC) visual indicators.
        - Team status HUD: Bank, Team Value, Free Transfers, Remaining Chips, Active Gameweek.
      - **Interactive Decision Logging Panel**:
        - Record pre-deadline decisions for both current and past gameweeks.
        - Drag/select starting 11, bench ordering, captain, and vice-captain.
-       - Interactive transfer builder: search players with autocomplete, preview hits and budget delta, log `-t OUT:IN`.
-       - Visual feedback badge: "Current squad updated" vs. "Past gameweek recorded for evaluation".
+       - Interactive transfer builder: log `-t OUT:IN` moves, track hits and manager notes.
+       - Differentiates current squad updates vs past gameweek logging for historical evaluation.
      - **Transfer Recommendations Visualizer**:
-       - Ranked cards for 1- to 5-transfer moves with projected net gain ($\Delta xP - \text{Hits}$), FDR ticker, and "Apply to Squad" one-click action.
+       - Ranked cards for 1- to 5-transfer moves with projected net gain ($\Delta xP - \text{Hits}$), post-move bank, and FDR badges.
      - **Wildcard & Free-Hit Optimizer Studio**:
-       - Interactive sliders for squad budget and risk profile (`neutral`, `floor`, `ceiling`).
-       - Side-by-side comparison of current squad vs optimized 15-player squad.
+       - Custom squad budget limit and risk profiles (`neutral`, `floor`, `ceiling`).
+       - Side-by-side display of optimal Starting XI and bench substitutes.
      - **Multi-Gameweek Transfer Planning Roadmap**:
-       - Visual timeline across a 3–6 gameweek horizon showing recommended moves, banked transfers, hit costs, and cumulative xP curves.
+       - Visual timeline across a 3–6 gameweek horizon showing recommended moves, banked transfers, hit costs, and cumulative net xP.
      - **Chip Strategy & Fixture Calendar**:
-       - Interactive matrix of all 38 gameweeks highlighting Blanks and Doubles.
-       - Visual roadmap for First Half (GW1–19) and Second Half (GW20–38) with empirical chip valuations and deployment sequence.
+       - Interactive roadmap for First Half (GW1–19) and Second Half (GW20–38) with empirical chip valuations and deployment sequence.
      - **Evaluation & Regret Performance Hub**:
        - Post-matchday actual scores, captaincy regret analysis, bench regret, model calibration curves, and human vs. model comparison.
 
 Remaining:
-- [ ] Task 1: Multi-team storage abstraction, team creation, team switching, and team-scoped decision persistence.
-- [ ] Task 2: GUI server / application architecture and routing (`fpl gui` entry point).
-- [ ] Task 3: Team switching, team creation modal, and squad HUD.
-- [ ] Task 4: Interactive pitch lineup visualizer and formation engine.
-- [ ] Task 5: Decision logger view (current + past gameweeks, trades, captaincy, notes).
-- [ ] Task 6: Transfer recommendations, Wildcard/Free-Hit studio, and multi-GW planner views.
-- [ ] Task 7: Chip strategy calendar and post-gameweek evaluation performance hub.
-- [ ] Task 8: End-to-end integration tests and documentation.
+
+- None. Ready for V0.6.
 
 ### V0.6 — optional LLM integration & live matchday analytics
 

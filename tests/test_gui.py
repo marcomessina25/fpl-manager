@@ -1,0 +1,257 @@
+"""Tests for FPL Manager GUI server and REST API endpoints."""
+
+import json
+import threading
+import time
+import urllib.request
+import urllib.error
+from pathlib import Path
+import pytest
+
+from fpl_manager.cli import main
+from fpl_manager.gui.server import create_gui_server, find_available_port
+from fpl_manager.squad_state import CurrentSquadState, save_current_squad
+from fpl_manager.storage import SnapshotStore, utc_timestamp
+
+
+@pytest.fixture
+def gui_test_server(tmp_path: Path):
+    """Starts a real GUI server instance on a local loopback port for testing."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    db_path = tmp_path / "fpl.sqlite3"
+
+    store = SnapshotStore(db_path)
+    store.initialize()
+
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 3, "name": "Manchester City", "short_name": "MCI"},
+            {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+        ],
+        "elements": [],
+    }
+
+    for p_id in range(1, 18):
+        pos_id = 1 if p_id <= 2 else (2 if p_id <= 7 else (3 if p_id <= 12 else 4))
+        bootstrap["elements"].append({
+            "id": p_id,
+            "web_name": f"Player_{p_id}",
+            "team": 5 if p_id == 16 else (((p_id - 1) % 5) + 1),
+            "element_type": pos_id,
+            "now_cost": 50,
+            "status": "a",
+            "total_points": 30,
+        })
+
+    fixtures = [
+        {"id": 1, "event": 1, "team_h": 1, "team_a": 2, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-08-20T15:00:00Z", "finished": True},
+        {"id": 2, "event": 2, "team_h": 2, "team_a": 3, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-08-27T15:00:00Z", "finished": False},
+        {"id": 3, "event": 3, "team_h": 1, "team_a": 4, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-09-03T15:00:00Z", "finished": False},
+    ]
+
+    store.save_snapshot(bootstrap, fixtures, utc_timestamp())
+
+    # Create base squad
+    base_squad = CurrentSquadState(
+        player_ids=tuple(range(1, 16)),
+        purchase_prices_tenths={p: 50 for p in range(1, 16)},
+        bank_tenths=20,
+        free_transfers=1,
+        chips_remaining=("wildcard", "freehit", "benchboost", "triplecaptain"),
+        season="2026/27",
+        gameweek=2,
+    )
+    save_current_squad(config_dir / "current_squad.json", base_squad)
+
+    # Start server
+    server, port = create_gui_server(
+        host="127.0.0.1",
+        port=9100,
+        database_path=db_path,
+        config_dir=config_dir,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.05)
+
+    base_url = f"http://127.0.0.1:{port}"
+    yield base_url
+
+    server.shutdown()
+    server.server_close()
+
+
+def test_find_available_port() -> None:
+    port = find_available_port("127.0.0.1", 9200)
+    assert 9200 <= port < 9210
+
+
+def test_serve_static_files(gui_test_server: str) -> None:
+    # Root index.html
+    with urllib.request.urlopen(f"{gui_test_server}/") as resp:
+        assert resp.status == 200
+        assert "text/html" in resp.headers.get("Content-Type", "")
+        content = resp.read().decode("utf-8")
+        assert "FPL Manager Pro" in content
+
+    # app.css
+    with urllib.request.urlopen(f"{gui_test_server}/app.css") as resp:
+        assert resp.status == 200
+        assert "text/css" in resp.headers.get("Content-Type", "")
+        css = resp.read().decode("utf-8")
+        assert "pitch" in css
+
+    # app.js
+    with urllib.request.urlopen(f"{gui_test_server}/app.js") as resp:
+        assert resp.status == 200
+        assert "javascript" in resp.headers.get("Content-Type", "")
+        js = resp.read().decode("utf-8")
+        assert "loadTeams" in js
+
+
+def test_api_health(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/health") as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["status"] == "ok"
+        assert "version" in data
+
+
+def test_api_teams_crud(gui_test_server: str) -> None:
+    # 1. GET /api/teams
+    with urllib.request.urlopen(f"{gui_test_server}/api/teams") as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["active_team_id"] == "default"
+        assert len(data["teams"]) >= 1
+
+    # 2. POST /api/teams/create
+    create_req = urllib.request.Request(
+        f"{gui_test_server}/api/teams/create",
+        data=json.dumps({"name": "GUI Dream Team", "manager": "Test Manager", "activate": True}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(create_req) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["team_id"] == "gui-dream-team"
+        assert res["is_active"] is True
+
+    # Verify active team switched
+    with urllib.request.urlopen(f"{gui_test_server}/api/teams") as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["active_team_id"] == "gui-dream-team"
+
+    # 3. POST /api/teams/switch back to default
+    switch_req = urllib.request.Request(
+        f"{gui_test_server}/api/teams/switch",
+        data=json.dumps({"team_id": "default"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(switch_req) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["team_id"] == "default"
+
+    # 4. DELETE /api/teams/gui-dream-team
+    del_req = urllib.request.Request(
+        f"{gui_test_server}/api/teams/gui-dream-team",
+        method="DELETE",
+    )
+    with urllib.request.urlopen(del_req) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["deleted_team_id"] == "gui-dream-team"
+
+
+def test_api_squad_and_lineup(gui_test_server: str) -> None:
+    # GET /api/squad
+    with urllib.request.urlopen(f"{gui_test_server}/api/squad") as resp:
+        squad = json.loads(resp.read().decode("utf-8"))
+        assert squad["squad_size"] == 15
+        assert squad["financials"]["bank_tenths"] == 20
+
+    # GET /api/lineup
+    with urllib.request.urlopen(f"{gui_test_server}/api/lineup") as resp:
+        lineup = json.loads(resp.read().decode("utf-8"))
+        assert len(lineup["starters"]) == 11
+        assert len(lineup["bench"]) == 4
+        assert lineup["captain"] is not None
+        assert lineup["vice_captain"] is not None
+
+
+def test_api_transfers_and_wildcard(gui_test_server: str) -> None:
+    # GET /api/transfers
+    with urllib.request.urlopen(f"{gui_test_server}/api/transfers?transfers=1") as resp:
+        tx = json.loads(resp.read().decode("utf-8"))
+        assert "top_suggestions" in tx
+
+    # GET /api/wildcard
+    with urllib.request.urlopen(f"{gui_test_server}/api/wildcard") as resp:
+        wc = json.loads(resp.read().decode("utf-8"))
+        assert len(wc["starters"]) == 11
+        assert len(wc["bench"]) == 4
+
+
+def test_api_plan_and_chips(gui_test_server: str) -> None:
+    # GET /api/plan
+    with urllib.request.urlopen(f"{gui_test_server}/api/plan?horizon=3") as resp:
+        plan = json.loads(resp.read().decode("utf-8"))
+        assert plan["best_plan"] is not None
+
+    # GET /api/chips
+    with urllib.request.urlopen(f"{gui_test_server}/api/chips") as resp:
+        chips = json.loads(resp.read().decode("utf-8"))
+        assert "available_chips" in chips
+        assert "recommended_schedule" in chips
+
+
+def test_api_decisions_and_evaluation(gui_test_server: str) -> None:
+    # POST /api/decisions
+    dec_body = {
+        "gameweek": 2,
+        "starters": [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        "bench": [2, 6, 7, 15],
+        "captain": 13,
+        "vice_captain": 8,
+        "notes": "Test GUI decision",
+        "overwrite": True,
+    }
+    post_req = urllib.request.Request(
+        f"{gui_test_server}/api/decisions",
+        data=json.dumps(dec_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(post_req) as resp:
+        dec = json.loads(resp.read().decode("utf-8"))
+        assert dec["gameweek"] == 2
+        assert dec["captain_id"] == 13
+
+    # GET /api/decisions
+    with urllib.request.urlopen(f"{gui_test_server}/api/decisions") as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert len(res["decisions"]) >= 1
+
+    # GET /api/evaluate
+    with urllib.request.urlopen(f"{gui_test_server}/api/evaluate?gameweek=2") as resp:
+        eval_res = json.loads(resp.read().decode("utf-8"))
+        assert eval_res["gameweek"] == 2
+        assert eval_res["captaincy"]["captain_id"] == 13
+
+
+def test_api_players_search(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/players?search=Player_1") as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert len(res["players"]) >= 1
+
+
+def test_cli_gui_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["gui", "--help"])
+    assert exc.value.code == 0
+    out, _ = capsys.readouterr()
+    assert "--port" in out
+    assert "--no-browser" in out

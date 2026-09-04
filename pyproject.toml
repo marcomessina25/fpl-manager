@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fpl-manager"
-version = "0.5.0-dev"
+version = "0.5.0"
 description = "A deterministic, local-first Fantasy Premier League decision engine."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

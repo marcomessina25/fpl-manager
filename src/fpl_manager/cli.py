@@ -863,6 +863,11 @@ def main(argv: list[str] | None = None) -> None:
         chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
         chip_p.add_argument("--output", type=Path, default=CHIP_STRATEGY_REPORT_PATH, help="Output path for JSON plan")
 
+    gui_parser = subcommands.add_parser("gui", help="Launch interactive local web dashboard")
+    gui_parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
+    gui_parser.add_argument("--host", type=str, default="127.0.0.1", help="Server host (default: 127.0.0.1)")
+    gui_parser.add_argument("--no-browser", action="store_true", help="Do not open browser automatically")
+
     arguments = parser.parse_args(argv)
 
     try:
@@ -908,6 +913,9 @@ def main(argv: list[str] | None = None) -> None:
                 print(json.dumps(deleted, indent=2, ensure_ascii=False))
             else:
                 print(f"Deleted team '{deleted['deleted_team_id']}'. Active team is now '{deleted['active_team_id']}'.")
+        elif arguments.command == "gui":
+            from .gui.server import start_gui_server
+            start_gui_server(host=arguments.host, port=arguments.port, open_browser=not arguments.no_browser)
         elif arguments.command == "update":
             result = update()
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_update_concise(result))
