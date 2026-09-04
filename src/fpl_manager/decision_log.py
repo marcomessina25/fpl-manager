@@ -427,7 +427,9 @@ def parse_and_apply_transfers(
             # When logging a past gameweek:
             # If in_id is already in squad_ids (e.g. from current squad or post-transfer lineup),
             # squad_ids already reflects the post-transfer squad.
-            if in_id not in squad_ids and len(squad_ids) < 15:
+            if in_id not in squad_ids:
+                if len(squad_ids) >= 15:
+                    squad_ids.pop()
                 squad_ids.append(in_id)
         else:
             out_name = p_names.get(out_id, f"ID {out_id}")
@@ -469,11 +471,20 @@ def log_decision_from_current_squad(
     store = SnapshotStore(database_path)
     store.initialize()
 
-    squad_gw = getattr(state, "gameweek", 1)
+    try:
+        from .fixtures import get_current_gameweek
+        active_fpl_gw = get_current_gameweek(store)
+    except Exception:
+        active_fpl_gw = 1
+
+    squad_gw = getattr(state, "gameweek", None)
+    if squad_gw is None:
+        squad_gw = active_fpl_gw
+
     if gameweek is None:
         gameweek = squad_gw
 
-    is_past = (gameweek < squad_gw)
+    is_past = (gameweek < squad_gw) or (active_fpl_gw is not None and gameweek < active_fpl_gw)
 
     # 1. Determine base squad for this gameweek
     if squad_player_ids is not None:

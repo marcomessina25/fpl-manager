@@ -13,7 +13,7 @@ class CurrentSquadState:
     free_transfers: int
     chips_remaining: tuple[str, ...]
     season: str
-    gameweek: int = 1
+    gameweek: int | None = None
 
     def purchase_price(self, player_id: int) -> int:
         try:
@@ -37,7 +37,8 @@ def load_current_squad(path: Path) -> CurrentSquadState:
         raise ValueError("Bank cannot be negative.")
     if raw["free_transfers"] < 0:
         raise ValueError("Free transfers cannot be negative.")
-    raw_gw = raw.get("gameweek") or raw.get("current_gameweek") or 1
+    raw_gw = raw.get("gameweek") or raw.get("current_gameweek")
+    gw_val = int(raw_gw) if raw_gw is not None else None
     return CurrentSquadState(
         player_ids=player_ids,
         purchase_prices_tenths=purchase_prices,
@@ -45,7 +46,7 @@ def load_current_squad(path: Path) -> CurrentSquadState:
         free_transfers=raw["free_transfers"],
         chips_remaining=tuple(raw.get("chips_remaining", [])),
         season=raw["season"],
-        gameweek=int(raw_gw),
+        gameweek=gw_val,
     )
 
 
@@ -53,7 +54,7 @@ def save_current_squad(path: Path, state: CurrentSquadState) -> None:
     """Save current squad state to a JSON file."""
     data = {
         "season": state.season,
-        "gameweek": state.gameweek,
+        "gameweek": state.gameweek if state.gameweek is not None else 1,
         "player_ids": list(state.player_ids),
         "purchase_prices_tenths": {str(pid): price for pid, price in state.purchase_prices_tenths.items()},
         "bank_tenths": state.bank_tenths,
