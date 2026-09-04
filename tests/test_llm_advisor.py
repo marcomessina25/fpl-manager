@@ -195,3 +195,102 @@ def test_llm_advisory_with_mocked_llm_response(advisor_test_env: tuple[Path, Pat
         assert advisory["validation"]["is_legal"] is True
         assert len(advisory["proposed_transfers"]) == 1
         assert advisory["proposed_transfers"][0]["out"] == "Player_13"
+
+
+def test_missing_api_key_raises_error_for_gemini_and_openai(advisor_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = advisor_test_env
+
+    # Gemini without key
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="Gemini API key is required"):
+            generate_llm_advisory(
+                gameweek=1,
+                squad_path=squad_path,
+                database_path=db_path,
+                provider="gemini",
+                api_key=None,
+                save_reports=False,
+            )
+
+    # OpenAI without key
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="OpenAI API key is required"):
+            generate_llm_advisory(
+                gameweek=1,
+                squad_path=squad_path,
+                database_path=db_path,
+                provider="openai",
+                api_key=None,
+                save_reports=False,
+            )
+
+
+def test_provider_openai_and_ollama_mocked(advisor_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = advisor_test_env
+
+    mock_response = """
+    Tactical breakdown:
+    ```json
+    {
+      "critique_points": ["Rotation risk for mid"],
+      "tactical_notes": ["Direct winger matchups"],
+      "captain": "Player_2",
+      "vice_captain": "Player_1",
+      "transfers": []
+    }
+    ```
+    """
+
+    # OpenAI
+    with patch("fpl_manager.llm_advisor._call_openai_api", return_value=mock_response):
+        advisory_openai = generate_llm_advisory(
+            gameweek=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            provider="openai",
+            api_key="fake-openai-key",
+            save_reports=False,
+        )
+        assert advisory_openai["provider_used"] == "openai"
+        assert advisory_openai["proposed_captain"] == "Player_2"
+        assert "Rotation risk for mid" in advisory_openai["critique_points"]
+
+    # Ollama
+    with patch("fpl_manager.llm_advisor._call_ollama_api", return_value=mock_response):
+        advisory_ollama = generate_llm_advisory(
+            gameweek=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            provider="ollama",
+            save_reports=False,
+        )
+        assert advisory_ollama["provider_used"] == "ollama"
+        assert advisory_ollama["proposed_captain"] == "Player_2"
+
+
+def test_provider_auto_fallback_when_no_keys(advisor_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = advisor_test_env
+
+    with patch.dict("os.environ", {}, clear=True):
+        advisory_auto = generate_llm_advisory(
+            gameweek=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            provider="auto",
+            save_reports=False,
+        )
+        assert advisory_auto["provider_used"] == "heuristic (auto-fallback)"
+        assert any("offline" in note.lower() for note in advisory_auto["tactical_notes"])
+
+
+def test_unknown_provider_raises_error(advisor_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = advisor_test_env
+
+    with pytest.raises(ValueError, match="Unknown provider 'unsupported_engine'"):
+        generate_llm_advisory(
+            gameweek=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            provider="unsupported_engine",
+            save_reports=False,
+        )

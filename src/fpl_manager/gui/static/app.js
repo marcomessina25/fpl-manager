@@ -1904,6 +1904,9 @@ function initEventListeners() {
 
   const btnViewDossier = document.getElementById("btn-view-dossier");
   if (btnViewDossier) btnViewDossier.addEventListener("click", viewManagerDossier);
+
+  const advProvider = document.getElementById("adv-provider");
+  if (advProvider) advProvider.addEventListener("change", updateProviderKeyPlaceholder);
 }
 
 // ==========================================
@@ -2117,11 +2120,42 @@ function renderLiveMatchday(data) {
 // TAB 8: AI ADVISOR & ANALYTICAL DOSSIER
 // ==========================================
 
+function updateProviderKeyPlaceholder() {
+  const provSelect = document.getElementById("adv-provider");
+  const keyInput = document.getElementById("adv-api-key");
+  if (!provSelect || !keyInput) return;
+  const val = provSelect.value;
+  if (val === "heuristic") {
+    keyInput.placeholder = "(Not required)";
+    keyInput.disabled = true;
+    keyInput.value = "";
+  } else if (val === "gemini") {
+    keyInput.placeholder = "Gemini API Key";
+    keyInput.disabled = false;
+    if (!keyInput.value) {
+      try { keyInput.value = localStorage.getItem("fpl_advisor_api_key_gemini") || localStorage.getItem("fpl_advisor_api_key") || ""; } catch (_) {}
+    }
+  } else if (val === "openai") {
+    keyInput.placeholder = "OpenAI API Key";
+    keyInput.disabled = false;
+    if (!keyInput.value) {
+      try { keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || localStorage.getItem("fpl_advisor_api_key") || ""; } catch (_) {}
+    }
+  } else if (val === "ollama") {
+    keyInput.placeholder = "http://localhost:11434";
+    keyInput.disabled = false;
+  } else {
+    keyInput.placeholder = "Optional API Key";
+    keyInput.disabled = false;
+  }
+}
+
 function loadAdvisor() {
   const advGw = document.getElementById("adv-gw");
   if (advGw && !advGw.value) {
     advGw.value = state.activeGameweek || 1;
   }
+  updateProviderKeyPlaceholder();
 }
 
 async function runAdvisor() {
@@ -2140,10 +2174,18 @@ async function runAdvisor() {
   const provider = providerSelect ? providerSelect.value : "auto";
   const apiKey = apiKeyInput ? apiKeyInput.value.trim() : null;
 
+  if (apiKey) {
+    try {
+      localStorage.setItem("fpl_advisor_api_key", apiKey);
+      if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
+      if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
+    } catch (_) {}
+  }
+
   container.innerHTML = `
     <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
       <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor with deterministic guardrails...</p>
+      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor using ${provider.toUpperCase()} engine...</p>
     </div>
   `;
 
@@ -2165,9 +2207,13 @@ async function runAdvisor() {
   } catch (err) {
     container.innerHTML = `
       <div class="alert alert-danger" style="margin-top: 1rem;">
-        Failed to generate AI Advisory: ${escapeHtml(err.message)}
+        <strong>Advisor Error:</strong> ${escapeHtml(err.message)}
       </div>
     `;
+    showToast(err.message, true);
+    if (err.message && err.message.toLowerCase().includes("api key") && apiKeyInput) {
+      apiKeyInput.focus();
+    }
   }
 }
 
