@@ -1158,27 +1158,52 @@ async function runPlanner() {
       return;
     }
 
-    const stepsHtml = best.steps.map(step => {
-      const txText = step.transfers && step.transfers.length
-        ? step.transfers.map(t => `<span class="tx-out">OUT ${t.outgoing_name}</span> ➔ <span class="tx-in">IN ${t.incoming_name}</span>`).join("; ")
-        : '<span class="text-muted">Roll Transfer (Bank FT)</span>';
+    const steps = best.gameweek_steps || best.steps || [];
+    if (!steps.length) {
+      container.innerHTML = '<p class="text-muted">No steps in plan.</p>';
+      return;
+    }
+
+    const stepsHtml = steps.map(step => {
+      let txText = '<span class="text-muted">Roll Transfer (Bank FT)</span>';
+      if (step.transfers && step.transfers.length) {
+        txText = step.transfers.map(t => {
+          const outName = t.out ? `${t.out.name} (${t.out.team || ''})` : (t.outgoing_name || "Out");
+          const inName = t.in ? `${t.in.name} (${t.in.team || ''})` : (t.incoming_name || "In");
+          return `<span class="tx-out">OUT: ${outName}</span> ➔ <span class="tx-in">IN: ${inName}</span>`;
+        }).join("<br/>");
+      }
+
+      const hits = step.transfer_hits !== undefined ? step.transfer_hits : (step.hits || 0);
+      const hitStr = hits > 0 ? `(-${hits * 4}pt hit)` : "0 hits";
+      const xpVal = step.lineup_xp !== undefined ? step.lineup_xp : (step.projected_xp || step.net_xp || 0);
+      const ft = step.free_transfers_after !== undefined ? step.free_transfers_after : (step.ft_available !== undefined ? step.ft_available : 1);
+      const bankStr = step.bank_after_fmt || `£${((step.bank_after_tenths || step.bank_tenths || 0) / 10).toFixed(1)}m`;
+      const capStr = step.captain ? `${step.captain.name} (C)` : "";
+      const formStr = step.formation ? ` · Formation: ${step.formation}` : "";
 
       return `
-        <div class="decision-entry">
+        <div class="decision-entry" style="margin-bottom: 0.8rem;">
           <div class="decision-entry-header">
-            <span>Gameweek ${step.gameweek}</span>
-            <span>Projected: ${step.projected_xp.toFixed(1)} xP (${step.hits > 0 ? `-${step.hits*4}pt hit` : '0 hit'})</span>
+            <span><strong>Gameweek ${step.gameweek}</strong>${formStr}</span>
+            <span class="badge badge-success">Projected: ${xpVal.toFixed(1)} xP <small>${hitStr}</small></span>
           </div>
-          <div class="decision-entry-sub">${txText}</div>
-          <div class="decision-entry-sub">FTs Available: <strong>${step.ft_available}</strong> | Bank: <strong>£${(step.bank_tenths/10).toFixed(1)}m</strong></div>
+          <div class="decision-entry-sub" style="margin: 0.3rem 0;">${txText}</div>
+          <div class="decision-entry-sub">
+            Captain: <strong>${capStr}</strong> | FTs Available: <strong>${ft}</strong> | Post-Move Bank: <strong>${bankStr}</strong>
+          </div>
         </div>
       `;
     }).join("");
 
+    const totalXp = best.total_net_xp !== undefined ? best.total_net_xp : (best.cumulative_net_xp || 0);
+    const totalHits = best.total_hits !== undefined ? best.total_hits : 0;
+
     container.innerHTML = `
       <div class="panel card" style="margin-top: 1rem;">
         <div class="panel-header">
-          <h3>Optimal ${horizon}-Gameweek Roadmap (Cumulative: ${best.cumulative_net_xp.toFixed(1)} Net xP)</h3>
+          <h3>Optimal ${horizon}-Gameweek Roadmap (Cumulative: ${totalXp.toFixed(1)} Net xP)</h3>
+          <span class="badge badge-info">Total Hits: -${totalHits * 4} pts</span>
         </div>
         <div class="panel-body">${stepsHtml}</div>
       </div>
@@ -1194,12 +1219,19 @@ async function loadChipStrategy() {
   container.innerHTML = '<p class="text-muted">Evaluating Blank/Double gameweeks and computing optimal chip roadmap...</p>';
 
   const startGw = document.getElementById("chip-start-gw").value;
-  const usedChips = document.getElementById("chip-used").value;
   const startParam = startGw ? `&start_gw=${startGw}` : "";
-  const usedParam = usedChips ? `&used_chips=${usedChips}` : "";
 
   try {
-    const data = await api(`/api/chips?team=${state.activeTeamId}${startParam}${usedParam}`);
+    const data = await api(`/api/chips?team=${state.activeTeamId}${startParam}`);
+    const infoEl = document.getElementById("chip-status-info");
+    if (infoEl) {
+      const usedArr = data.used_chips || [];
+      const availArr = data.available_chips || [];
+      const usedText = usedArr.length ? `Used: ${usedArr.map(c => c.toUpperCase()).join(", ")}` : "None used yet";
+      const availText = availArr.length ? `Remaining: ${availArr.map(c => c.toUpperCase()).join(", ")}` : "None left";
+      infoEl.innerHTML = `<strong>${availText}</strong> <span class="text-muted">(${usedText})</span>`;
+    }
+
     const sched = data.recommended_schedule || [];
     const schedHtml = sched.length
       ? sched.map(s => `<li><strong>GW${s.gameweek}</strong> [${s.gw_type}]: <strong>${s.chip.toUpperCase()}</strong> — ${s.reasoning}</li>`).join("")
@@ -1219,6 +1251,35 @@ async function loadChipStrategy() {
     `;
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Chip strategy error: ${err.message}</p>`;
+  }
+}
+
+// Undo / Revert Current Gameweek Changes
+async function handleUndoGameweek() {
+  const targetGw = state.selectedGameweek || state.activeGameweek || 1;
+  const confirmed = confirm(
+    `Are you sure you want to reset all changes for GW${targetGw} and revert your squad to the status of the previous gameweek?`
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await api("/api/decisions/undo", {
+      method: "POST",
+      body: JSON.stringify({
+        team_id: state.activeTeamId,
+        gameweek: targetGw,
+      }),
+    });
+
+    showToast(res.message || `Reverted squad to GW${res.reverted_to_gameweek} state!`);
+    await refreshActiveTeamData();
+    await loadDecisions();
+    const chipTab = document.getElementById("tab-chips");
+    if (chipTab && chipTab.classList.contains("active")) {
+      await loadChipStrategy();
+    }
+  } catch (err) {
+    showToast(`Undo failed: ${err.message}`, true);
   }
 }
 
@@ -1369,8 +1430,14 @@ function initEventListeners() {
   const btnSavePitch = document.getElementById("btn-save-pitch-lineup");
   if (btnSavePitch) btnSavePitch.addEventListener("click", savePitchLineup);
 
+  const btnUndoPitch = document.getElementById("btn-undo-pitch-lineup");
+  if (btnUndoPitch) btnUndoPitch.addEventListener("click", handleUndoGameweek);
+
   const btnCancelSub = document.getElementById("btn-cancel-sub");
   if (btnCancelSub) btnCancelSub.addEventListener("click", cancelSubstitution);
+
+  const btnUndoDec = document.getElementById("btn-undo-dec-gw");
+  if (btnUndoDec) btnUndoDec.addEventListener("click", handleUndoGameweek);
 
   // Executed Transfers Handlers
   const btnExecTrade = document.getElementById("btn-execute-trade");

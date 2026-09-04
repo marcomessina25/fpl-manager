@@ -18,6 +18,7 @@ from ..decision_log import (
     list_decisions,
     log_decision_from_current_squad,
     record_actual_gameweek_score,
+    undo_gameweek_changes,
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
@@ -224,6 +225,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     start_gw=start_gw,
                     end_gw=end_gw,
                     used_chips=used_list,
+                    team_id=tid,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -356,6 +358,18 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         notes=body.get("notes", ""),
                         overwrite=overwrite,
                     )
+                self._send_json(res)
+            elif path == "/api/decisions/undo":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                gw_val = body.get("gameweek")
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                res = undo_gameweek_changes(
+                    squad_path=squad_path,
+                    gameweek=int(gw_val) if gw_val is not None else None,
+                    team_id=tid,
+                    season=body.get("season", "2026/27"),
+                    database_path=self.database_path,
+                )
                 self._send_json(res)
             elif path == "/api/update-data":
                 from ..cli import update

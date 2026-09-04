@@ -635,4 +635,58 @@ def test_evaluate_past_logged_decision(decision_test_env: tuple[Path, Path]) -> 
     assert eval_res["captaincy"]["captain_actual_points"] == 10
 
 
+def test_undo_gameweek_changes(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.decision_log import undo_gameweek_changes
+    from fpl_manager.squad_state import load_current_squad
+
+    db_path, squad_path = decision_test_env
+
+    # 1. Log GW 1 decision with base players 1..15
+    log_decision_from_current_squad(
+        gameweek=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # 2. Log GW 2 decision: traded 15 -> 16
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 16],
+        bench_player_ids=[2, 6, 7, 14],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    cur = load_current_squad(squad_path)
+    assert 16 in cur.player_ids
+    assert 15 not in cur.player_ids
+
+    # 3. Undo GW 2 changes -> revert to GW 1
+    res = undo_gameweek_changes(squad_path, gameweek=2, database_path=db_path)
+    assert res["success"] is True
+    assert res["reverted_to_gameweek"] == 1
+
+    reverted = load_current_squad(squad_path)
+    assert 15 in reverted.player_ids
+    assert 16 not in reverted.player_ids
+
+    # GW 2 decision is deleted
+    assert get_gameweek_decision(2, database_path=db_path) is None
+    # GW 1 decision remains
+    assert get_gameweek_decision(1, database_path=db_path) is not None
+
+    # Undoing when no previous gameweek exists raises ValueError
+    with pytest.raises(ValueError, match="No previous gameweek is available"):
+        undo_gameweek_changes(squad_path, gameweek=1, database_path=db_path)
+
+
 

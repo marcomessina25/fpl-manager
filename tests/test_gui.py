@@ -326,6 +326,71 @@ def test_api_historical_logged_lineup(gui_test_server: str) -> None:
         assert squad_rep["squad_size"] == 15
 
 
+def test_api_decisions_undo(gui_test_server: str) -> None:
+    # First, log GW 1 decision with base squad 1..15
+    gw1_body = {
+        "gameweek": 1,
+        "starters": [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        "bench": [2, 6, 7, 15],
+        "captain": 13,
+        "vice_captain": 8,
+        "overwrite": True,
+    }
+    req1 = urllib.request.Request(
+        f"{gui_test_server}/api/decisions",
+        data=json.dumps(gw1_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req1) as resp:
+        assert resp.status == 200
+
+    # Execute trade in GW 2: 15 -> 16
+    tx_body = {
+        "transfers": [{"outgoing_id": 15, "incoming_id": 16}],
+        "gameweek": 2,
+    }
+    req_tx = urllib.request.Request(
+        f"{gui_test_server}/api/transfers/execute",
+        data=json.dumps(tx_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req_tx) as resp:
+        assert resp.status == 200
+
+    # Call undo endpoint for GW 2
+    undo_body = {"gameweek": 2}
+    req_undo = urllib.request.Request(
+        f"{gui_test_server}/api/decisions/undo",
+        data=json.dumps(undo_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req_undo) as resp:
+        assert resp.status == 200
+        undo_res = json.loads(resp.read().decode("utf-8"))
+        assert undo_res["success"] is True
+        assert undo_res["reverted_to_gameweek"] == 1
+        assert 15 in undo_res["player_ids"]
+        assert 16 not in undo_res["player_ids"]
+
+
+def test_api_plan_steps(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/plan?horizon=3") as resp:
+        assert resp.status == 200
+        plan = json.loads(resp.read().decode("utf-8"))
+        best = plan["best_plan"]
+        assert best is not None
+        assert "steps" in best
+        assert "gameweek_steps" in best
+        assert len(best["steps"]) == 3
+        assert "cumulative_net_xp" in best
+        first_step = best["steps"][0]
+        assert "gameweek" in first_step
+        assert "lineup_xp" in first_step
+
+
 def test_cli_gui_help(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["gui", "--help"])

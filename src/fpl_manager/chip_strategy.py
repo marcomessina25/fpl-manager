@@ -74,6 +74,7 @@ def resolve_segment_range(
 
 def get_used_chips_for_segment(
     start_gw: int,
+    team_id: str | None = None,
     database_path: Path = DATABASE_PATH,
 ) -> list[str]:
     """Query logged decisions to find chips already used in the active segment.
@@ -94,14 +95,24 @@ def get_used_chips_for_segment(
         seg_end = 38
 
     with closing(store._connect()) as connection:
-        rows = connection.execute(
-            """
-            SELECT DISTINCT chip_played FROM decisions
-            WHERE gameweek >= ? AND gameweek <= ? AND gameweek < ?
-              AND chip_played IS NOT NULL AND chip_played != ''
-            """,
-            (seg_start, seg_end, start_gw),
-        ).fetchall()
+        if team_id:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT chip_played FROM decisions
+                WHERE team_id = ? AND gameweek >= ? AND gameweek <= ? AND gameweek < ?
+                  AND chip_played IS NOT NULL AND chip_played != ''
+                """,
+                (team_id, seg_start, seg_end, start_gw),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT chip_played FROM decisions
+                WHERE gameweek >= ? AND gameweek <= ? AND gameweek < ?
+                  AND chip_played IS NOT NULL AND chip_played != ''
+                """,
+                (seg_start, seg_end, start_gw),
+            ).fetchall()
 
     used: list[str] = []
     for (cp,) in rows:
@@ -385,6 +396,7 @@ def recommend_chip_strategy(
     end_gw: int | None = None,
     used_chips: list[str] | None = None,
     report_path: Path = CHIP_STRATEGY_REPORT_PATH,
+    team_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate an optimal conflict-free multi-gameweek chip deployment roadmap.
 
@@ -400,7 +412,34 @@ def recommend_chip_strategy(
     start_gw, end_gw, segment_name = resolve_segment_range(start_gw, end_gw)
 
     # Detect chips already used in this specific segment from persistent decision logs
-    logged_used = get_used_chips_for_segment(start_gw, database_path=database_path)
+    logged_used = get_used_chips_for_segment(start_gw, team_id=team_id, database_path=database_path)
+
+    # Read chips used from squad state (chips not remaining in squad.json)
+    squad_used: list[str] = []
+    if squad_path and Path(squad_path).exists():
+        try:
+            raw_squad = json.loads(Path(squad_path).read_text(encoding="utf-8"))
+            if "chips_remaining" in raw_squad and raw_squad["chips_remaining"] is not None:
+                squad_gw = raw_squad.get("gameweek") or raw_squad.get("current_gameweek") or 1
+                same_segment = (start_gw <= 19 and squad_gw <= 19) or (start_gw >= 20 and squad_gw >= 20)
+                if same_segment:
+                    raw_rem = [str(c).lower().strip() for c in raw_squad["chips_remaining"]]
+                    s_rem = set()
+                    for c in raw_rem:
+                        if start_gw <= 19:
+                            if c in ("wildcard_2", "wildcard2"):
+                                continue
+                        elif start_gw >= 20:
+                            if c in ("wildcard_1", "wildcard1"):
+                                continue
+                        norm = CHIP_ALIASES.get(c, c)
+                        s_rem.add(norm)
+
+                    for c in AVAILABLE_CHIPS:
+                        if c not in s_rem and c not in squad_used:
+                            squad_used.append(c)
+        except Exception:
+            pass
 
     # Process explicit caller-supplied used chips
     explicit_used: list[str] = []
@@ -416,7 +455,7 @@ def recommend_chip_strategy(
             if norm in AVAILABLE_CHIPS and norm not in explicit_used:
                 explicit_used.append(norm)
 
-    used_set = set(logged_used) | set(explicit_used)
+    used_set = set(logged_used) | set(squad_used) | set(explicit_used)
     available = [c for c in AVAILABLE_CHIPS if c not in used_set]
 
     calendar_info = analyze_fixture_calendar(

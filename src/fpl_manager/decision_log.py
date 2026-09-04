@@ -18,7 +18,7 @@ from .expected_points import project_gameweek
 from .fixtures import get_current_gameweek
 from .models import Player, Position
 from .rules import validate_squad, validate_starting_lineup
-from .squad_state import CurrentSquadState, load_current_squad
+from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -747,4 +747,121 @@ def log_decision_from_current_squad(
         save_current_squad(squad_path, updated_state)
 
     return decision
+
+
+def undo_gameweek_changes(
+    squad_path: Path,
+    gameweek: int | None = None,
+    team_id: str = "default",
+    season: str = "2026/27",
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any]:
+    """Reset changes for the target gameweek and revert squad to the status of the previous gameweek."""
+    cur_state = load_current_squad(squad_path)
+    target_gw = gameweek or cur_state.gameweek or 1
+
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    with closing(store._connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT gameweek, starting_ids_json, bench_ids_json, transfers_json, chip_played, transfer_hits
+            FROM decisions
+            WHERE team_id = ? AND season = ? AND gameweek < ?
+            ORDER BY gameweek DESC LIMIT 1
+            """,
+            (team_id, season, target_gw),
+        ).fetchone()
+
+    if not row:
+        raise ValueError(f"No previous gameweek is available to revert to (prior to GW{target_gw}).")
+
+    prev_gw, prev_starters_json, prev_bench_json, prev_tx_json, prev_chip, prev_hits = row
+    prev_starters = json.loads(prev_starters_json)
+    prev_bench = json.loads(prev_bench_json)
+    prev_squad_ids = tuple(prev_starters + prev_bench)
+
+    if len(prev_squad_ids) != 15:
+        raise ValueError(f"Previous gameweek (GW{prev_gw}) decision does not contain 15 players.")
+
+    # Check for any logged decision for target_gw and delete it
+    cur_tx = []
+    cur_chip = None
+    with closing(store._connect()) as conn, conn:
+        cur_dec_row = conn.execute(
+            """
+            SELECT id, transfers_json, chip_played FROM decisions
+            WHERE team_id = ? AND season = ? AND gameweek = ?
+            """,
+            (team_id, season, target_gw),
+        ).fetchone()
+        if cur_dec_row:
+            cur_tx = json.loads(cur_dec_row[1]) if cur_dec_row[1] else []
+            cur_chip = cur_dec_row[2]
+            conn.execute("DELETE FROM decisions WHERE id = ?", (cur_dec_row[0],))
+
+    # Calculate price reconstruction and cash impact
+    with closing(store._connect()) as conn:
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        snap_id = snap[0] if snap else 1
+
+        reverted_prices: dict[int, int] = {}
+        for pid in prev_squad_ids:
+            if pid in cur_state.purchase_prices_tenths:
+                reverted_prices[pid] = cur_state.purchase_prices_tenths[pid]
+            else:
+                p_row = conn.execute(
+                    "SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?",
+                    (snap_id, pid),
+                ).fetchone()
+                reverted_prices[pid] = p_row[0] if p_row else 50
+
+    bought_pids = set(cur_state.player_ids) - set(prev_squad_ids)
+    sold_pids = set(prev_squad_ids) - set(cur_state.player_ids)
+
+    net_cash_impact = 0
+    if cur_tx:
+        for tx in cur_tx:
+            sell_p = tx.get("selling_price_tenths", 0)
+            buy_p = tx.get("purchase_price_tenths", 0)
+            net_cash_impact += (sell_p - buy_p)
+    elif bought_pids and sold_pids:
+        for b_pid in bought_pids:
+            net_cash_impact -= cur_state.purchase_prices_tenths.get(b_pid, 50)
+        for s_pid in sold_pids:
+            net_cash_impact += reverted_prices.get(s_pid, 50)
+
+    reverted_bank = max(0, cur_state.bank_tenths - net_cash_impact)
+
+    # Restore chips
+    reverted_chips = list(cur_state.chips_remaining)
+    if cur_chip and cur_chip not in reverted_chips:
+        reverted_chips.append(cur_chip)
+
+    # Restore free transfers
+    reverted_ft = max(1, min(5, cur_state.free_transfers + len(bought_pids)))
+
+    reverted_state = CurrentSquadState(
+        player_ids=prev_squad_ids,
+        purchase_prices_tenths=reverted_prices,
+        bank_tenths=reverted_bank,
+        free_transfers=reverted_ft,
+        chips_remaining=tuple(reverted_chips),
+        season=season,
+        gameweek=target_gw,
+    )
+    save_current_squad(squad_path, reverted_state)
+
+    return {
+        "success": True,
+        "team_id": team_id,
+        "gameweek": target_gw,
+        "reverted_to_gameweek": prev_gw,
+        "player_ids": list(prev_squad_ids),
+        "bank_tenths": reverted_bank,
+        "bank_fmt": f"£{reverted_bank / 10:.1f}m",
+        "free_transfers": reverted_ft,
+        "message": f"Successfully reset GW{target_gw} changes and reverted squad to GW{prev_gw} state.",
+    }
 

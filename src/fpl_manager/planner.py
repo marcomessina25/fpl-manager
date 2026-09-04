@@ -344,10 +344,12 @@ def generate_multi_gameweek_plan(
         plans.append({
             "rank": rank,
             "total_net_xp": cum_score,
+            "cumulative_net_xp": cum_score,
             "total_floor_xp": cum_floor,
             "total_ceiling_xp": cum_ceil,
             "total_hits": tot_hits,
             "gameweek_steps": history,
+            "steps": history,
         })
 
     report = {

@@ -93,6 +93,7 @@
               <option value="triplecaptain">Triple Captain</option>
             </select>
             <button id="btn-save-pitch-lineup" class="btn btn-primary btn-sm" title="Lock in and save this starting XI & captaincy">💾 Save Lineup</button>
+            <button id="btn-undo-pitch-lineup" class="btn btn-outline btn-sm" style="color: #f87171; border-color: #f87171;" title="Reset this gameweek changes and revert squad to previous gameweek">↩️ Undo GW</button>
           </div>
         </div>
 
@@ -235,7 +236,10 @@
           <div class="panel card">
             <div class="panel-header">
               <h2>1. Executed Transfers & Trades</h2>
-              <span class="badge badge-info">Logged Beforehand</span>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="btn-undo-dec-gw" type="button" class="btn btn-outline btn-sm" style="color: #f87171; border-color: #f87171;" title="Reset this gameweek changes and revert squad to previous gameweek">↩️ Revert to Prev GW</button>
+                <span class="badge badge-info">Logged Beforehand</span>
+              </div>
             </div>
             <div class="panel-body">
               <p class="text-muted" style="margin-bottom: 0.8rem; font-size: 0.82rem;">
@@ -457,8 +461,7 @@
           <input type="number" id="chip-start-gw" min="1" max="38" placeholder="Current GW" class="input-sm" style="width:70px;">
         </div>
         <div class="tool-group">
-          <label>Chips Already Used:</label>
-          <input type="text" id="chip-used" placeholder="e.g. wildcard,freehit" class="input-sm" style="width:200px;">
+          <span id="chip-status-info" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
         </div>
         <button id="btn-run-chip-strategy" class="btn btn-primary btn-sm">Evaluate Chip Roadmap</button>
       </div>
