@@ -97,6 +97,7 @@ def test_serve_static_files(gui_test_server: str) -> None:
         assert "text/html" in resp.headers.get("Content-Type", "")
         content = resp.read().decode("utf-8")
         assert "FPL Manager Pro" in content
+        assert "adv-gw" in content
 
     # app.css
     with urllib.request.urlopen(f"{gui_test_server}/app.css") as resp:
@@ -111,6 +112,8 @@ def test_serve_static_files(gui_test_server: str) -> None:
         assert "javascript" in resp.headers.get("Content-Type", "")
         js = resp.read().decode("utf-8")
         assert "loadTeams" in js
+        assert "escapeHtml" in js
+        assert "formatMarkdown" in js
 
 
 def test_api_health(gui_test_server: str) -> None:

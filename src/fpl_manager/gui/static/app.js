@@ -26,6 +26,33 @@ function showToast(message, isError = false) {
   }, 3500);
 }
 
+// HTML Escaping Helper
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Simple Markdown Formatter Helper
+function formatMarkdown(str) {
+  if (!str) return "";
+  let html = escapeHtml(str);
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/`([^`]+)`/g, '<code style="background: rgba(255,255,255,0.1); padding: 1px 4px; border-radius: 3px;">$1</code>');
+  html = html.replace(/^### (.*$)/gim, '<h4 style="margin: 0.8rem 0 0.3rem 0; font-size: 0.95rem; color: #fbbf24;">$1</h4>');
+  html = html.replace(/^## (.*$)/gim, '<h3 style="margin: 1rem 0 0.4rem 0; font-size: 1.05rem;">$1</h3>');
+  html = html.replace(/^# (.*$)/gim, '<h2 style="margin: 1.2rem 0 0.5rem 0; font-size: 1.15rem;">$1</h2>');
+  html = html.replace(/^- (.*$)/gim, '• $1<br>');
+  html = html.replace(/\n\n/g, '<br><br>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
 // API Request Wrapper
 async function api(endpoint, options = {}) {
   try {
@@ -201,6 +228,10 @@ async function loadSquadHUD() {
     if (chipStartGw) chipStartGw.value = state.activeGameweek;
     const evalGw = document.getElementById("eval-gw");
     if (evalGw && !evalGw.value) evalGw.value = state.activeGameweek;
+    const advGw = document.getElementById("adv-gw");
+    if (advGw && !advGw.value) advGw.value = state.activeGameweek;
+    const liveGw = document.getElementById("live-gw");
+    if (liveGw && !liveGw.value) liveGw.value = state.activeGameweek;
   } catch (err) {
     console.error("Could not load squad HUD:", err);
   }
@@ -2087,7 +2118,10 @@ function renderLiveMatchday(data) {
 // ==========================================
 
 function loadAdvisor() {
-  // Retain existing results if already computed
+  const advGw = document.getElementById("adv-gw");
+  if (advGw && !advGw.value) {
+    advGw.value = state.activeGameweek || 1;
+  }
 }
 
 async function runAdvisor() {
@@ -2097,9 +2131,10 @@ async function runAdvisor() {
   const personaSelect = document.getElementById("adv-persona");
   const providerSelect = document.getElementById("adv-provider");
   const apiKeyInput = document.getElementById("adv-api-key");
-  const gwInput = document.getElementById("live-gw");
+  const gwInput = document.getElementById("adv-gw") || document.getElementById("live-gw");
   let gw = gwInput ? parseInt(gwInput.value) : null;
   if (!gw) gw = state.activeGameweek;
+  if (gwInput && !gwInput.value) gwInput.value = gw;
 
   const persona = personaSelect ? personaSelect.value : "devil_advocate";
   const provider = providerSelect ? providerSelect.value : "auto";
@@ -2108,7 +2143,7 @@ async function runAdvisor() {
   container.innerHTML = `
     <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
       <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-      <p>Synthesizing briefing dossier and consulting ${persona.replace('_', ' ').toUpperCase()} advisor with deterministic guardrails...</p>
+      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor with deterministic guardrails...</p>
     </div>
   `;
 
@@ -2161,8 +2196,8 @@ function renderAdvisorResults(data) {
             Strategic Advisory — Gameweek ${data.gameweek}
           </h3>
           <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.2rem;">
-            Persona: <strong>${escapeHtml(data.persona.replace('_', ' ').toUpperCase())}</strong> | 
-            Engine: <code>${escapeHtml(data.provider_used)}</code>
+            Persona: <strong>${escapeHtml((data.persona || '').replace(/_/g, ' ').toUpperCase())}</strong> | 
+            Engine: <code>${escapeHtml(data.provider_used || 'heuristic')}</code>
           </div>
         </div>
         <div>${verdictBadge}</div>
@@ -2172,7 +2207,7 @@ function renderAdvisorResults(data) {
         <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-purple); text-transform: uppercase; margin-bottom: 0.4rem;">
           Executive Tactical Critique
         </div>
-        <div class="advisor-markdown-content">${escapeHtml(data.analysis_markdown)}</div>
+        <div class="advisor-markdown-content" style="line-height: 1.55;">${formatMarkdown(data.analysis_markdown)}</div>
       </div>
   `;
 
@@ -2181,7 +2216,7 @@ function renderAdvisorResults(data) {
       <div style="margin-bottom: 1.2rem;">
         <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #fbbf24;">⚡ Key Contrarian & Trap Risks</h4>
         <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem;">
-          ${critiques.map(c => `<li>${c}</li>`).join('')}
+          ${critiques.map(c => `<li>${formatMarkdown(c)}</li>`).join('')}
         </ul>
       </div>
     `;
@@ -2192,7 +2227,7 @@ function renderAdvisorResults(data) {
       <div style="margin-bottom: 1.2rem;">
         <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #38bdf8;">📋 Tactical & Press Conference Matchup Signals</h4>
         <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem;">
-          ${tactical.map(t => `<li>${t}</li>`).join('')}
+          ${tactical.map(t => `<li>${formatMarkdown(t)}</li>`).join('')}
         </ul>
       </div>
     `;
@@ -2248,9 +2283,10 @@ async function viewManagerDossier() {
   const container = document.getElementById("advisor-results-container");
   if (!container) return;
 
-  const gwInput = document.getElementById("live-gw");
+  const gwInput = document.getElementById("adv-gw") || document.getElementById("live-gw");
   let gw = gwInput ? parseInt(gwInput.value) : null;
   if (!gw) gw = state.activeGameweek;
+  if (gwInput && !gwInput.value) gwInput.value = gw;
 
   container.innerHTML = `
     <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
@@ -2278,12 +2314,14 @@ function renderManagerDossier(dossier) {
   const fin = dossier.financials || {};
   const lineup = dossier.lineup || {};
   const alerts = dossier.squad_health_alerts || [];
-  const risks = dossier.strategic_ownership_risks || [];
-  const recs = dossier.top_transfer_recommendations || [];
+  const riskData = dossier.strategic_risk || {};
+  const threats = riskData.top_threats_against_squad || dossier.strategic_ownership_risks || [];
+  const recs = dossier.transfer_suggestions || dossier.top_transfer_recommendations || [];
+  const chipData = dossier.chip_strategy || {};
 
   let html = `
     <div class="advisor-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 0.5rem;">
         <div>
           <h3 style="margin: 0; font-size: 1.25rem;">📑 Manager Analytical Dossier — Gameweek ${dossier.gameweek}</h3>
           <div style="font-size: 0.82rem; color: var(--text-secondary);">Comprehensive pre-match analytical intelligence package</div>
@@ -2299,7 +2337,7 @@ function renderManagerDossier(dossier) {
         </div>
         <div class="ps-stat-box">
           <div class="ps-stat-label">Free Transfers</div>
-          <div class="ps-stat-value">${fin.free_transfers || 1}</div>
+          <div class="ps-stat-value">${fin.free_transfers !== undefined ? fin.free_transfers : 1}</div>
         </div>
         <div class="ps-stat-box">
           <div class="ps-stat-label">Projected XI xP</div>
@@ -2320,7 +2358,7 @@ function renderManagerDossier(dossier) {
         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
           ${alerts.map(a => `
             <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--accent-red); padding: 0.5rem 0.8rem; border-radius: 4px; font-size: 0.85rem;">
-              <strong>${escapeHtml(a.name)}</strong> (${a.chance_pct !== null ? a.chance_pct + '% chance' : 'Status: ' + a.status}): 
+              <strong>${escapeHtml(a.name)}</strong> (${a.chance_pct !== null && a.chance_pct !== undefined ? a.chance_pct + '% chance' : 'Status: ' + escapeHtml(a.status || 'Flagged')}): 
               <em>${escapeHtml(a.news || 'Flagged by medical staff')}</em>
             </div>
           `).join('')}
@@ -2335,32 +2373,57 @@ function renderManagerDossier(dossier) {
       <div style="margin-bottom: 1.5rem;">
         <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-green);">🔄 Top Algorithmic Transfer Moves</h4>
         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-          ${recs.slice(0, 3).map(r => `
-            <div style="background: var(--bg-input); border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                🔄 <strong>${escapeHtml(r.out_name)}</strong> ➔ <strong>${escapeHtml(r.in_name)}</strong>
+          ${recs.slice(0, 3).map(r => {
+            const outName = r.outgoing ? r.outgoing.map(p => p.name).join(', ') : (r.out_name || 'None');
+            const inName = r.incoming ? r.incoming.map(p => p.name).join(', ') : (r.in_name || 'None');
+            const deltaRaw = r.net_xp_gain !== undefined ? r.net_xp_gain : (r.net_delta !== undefined ? r.net_delta : (r.xp_delta || 0));
+            const delta = typeof deltaRaw === 'number' ? deltaRaw.toFixed(2) : deltaRaw;
+            const hit = r.transfer_hits ? ` (Hits: -${r.transfer_hits * 4}pt)` : '';
+            return `
+              <div style="background: var(--bg-input); border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  🔄 <strong>${escapeHtml(outName)}</strong> ➔ <strong>${escapeHtml(inName)}</strong>${hit}
+                </div>
+                <div style="font-weight: 800; color: var(--accent-green);">
+                  +${delta} xP
+                </div>
               </div>
-              <div style="font-weight: 800; color: var(--accent-green);">
-                +${r.net_delta} xP
-              </div>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       </div>
     `;
   }
 
-  // EO risk
-  if (risks.length > 0) {
+  // Strategic EO / Template Threats
+  if (threats.length > 0) {
     html += `
-      <div>
+      <div style="margin-bottom: 1.5rem;">
         <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-blue);">🛡️ Template & Effective Ownership Exposure</h4>
         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-          ${risks.map(r => `
-            <div style="background: var(--bg-input); border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.8rem;">
-              <strong>${escapeHtml(r.name)}</strong> (${r.team}): <strong>${r.eo_pct}% EO</strong> (${r.owned_by_squad ? '✅ Owned' : '❌ Not Owned'})
-            </div>
-          `).join('')}
+          ${threats.map(r => {
+            const eoVal = r.effective_ownership_pct !== undefined ? r.effective_ownership_pct : (r.eo_pct !== undefined ? r.eo_pct : 0);
+            const eo = typeof eoVal === 'number' ? eoVal.toFixed(1) : eoVal;
+            const isOwned = r.owned_by_squad !== undefined ? r.owned_by_squad : false;
+            return `
+              <div style="background: var(--bg-input); border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.8rem;">
+                <strong>${escapeHtml(r.name)}</strong> (${escapeHtml(r.team || '')}): <strong>${eo}% EO</strong> (${isOwned ? '✅ Owned' : '❌ Not Owned'})
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // Chip Strategy Horizon
+  if (chipData.active_segment || (chipData.chips_remaining && chipData.chips_remaining.length > 0)) {
+    html += `
+      <div>
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-purple);">🃏 Chip Strategy & Horizon</h4>
+        <div style="background: var(--bg-input); border-radius: 6px; padding: 0.6rem 0.9rem; font-size: 0.85rem;">
+          <div>Segment: <strong>${escapeHtml(chipData.active_segment || 'Current Half')}</strong></div>
+          <div style="margin-top: 0.2rem;">Remaining: <em>${escapeHtml((chipData.chips_remaining || []).join(', ') || 'None')}</em></div>
         </div>
       </div>
     `;
