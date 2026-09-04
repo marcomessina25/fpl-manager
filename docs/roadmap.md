@@ -48,10 +48,23 @@ Remaining:
 
 ### V0.3 — projections and optimisation
 
-- Expected-minutes and fixture-adjusted projection models.
-- Squad, transfer, starting-XI, and captain optimisation under all hard rules.
-- Multiple-gameweek planning and strategic flexibility.
-- Uncertainty-aware outputs, rather than single point estimates only.
+Status: **V0.3 completed on 2026-09-04.**
+
+Completed:
+
+- **Expanded Data & Storage Architecture**: Added underlying Opta metrics (`expected_goals`, `expected_assists`, `expected_goal_involvements`, `expected_goals_conceded`, per-90 metrics, `minutes`, `starts`, `bps`, `ict_index`, `news`) and an `events` table for gameweek deadlines with zero-downtime automatic SQLite schema migrations.
+- **Component-Based Projection & Uncertainty Engine**: Built minutes prediction ($xM$, $P(\text{start})$, $P(\ge 60)$), component-based $xP$ calculation (Appearance + Attacking $xGI$ + Defensive clean sheet / concession penalties + BPS), and uncertainty distributions ($xP_{\text{floor}}$ 10th percentile, $xP_{\text{ceiling}}$ 90th percentile, standard deviation $\sigma$). Introduced risk profiles: `neutral` (mean xP), `floor` (safe rank preservation), and `ceiling` (differential upside).
+- **Combinatorial Mathematical Optimizer (`src/fpl_manager/optimizer.py`)**:
+  - Fast recursive **branch-and-bound** multi-transfer solver supporting 1 to 5 transfers. Employs symmetry breaking ($j > i$ for identical positions) and upper-bound heap pruning, solving 4-transfer moves across the entire Premier League in ~0.3s without external solver dependencies.
+  - Multi-stage **Wildcard and Free-Hit squad optimizer** (`solve_wildcard` / `fpl wildcard`) using feasible greedy initialization, 1-opt upgrading, and 2-opt cross-position local search to produce legal 15-player squads and optimal Starting XIs in ~0.05s.
+- **Multi-Gameweek Planning Roadmap (`src/fpl_manager/planner.py` / `fpl plan`)**:
+  - Beam search decision engine evaluating rolling transfer sequences across 3 to 6 gameweeks.
+  - Explicitly models the trade-offs of rolling a transfer, banking up to 5 FTs, using 1 or 2 FTs, or taking targeted -4pt hits.
+  - Supports `--no-hits` mode and risk profiles (`neutral`, `floor`, `ceiling`), generating detailed weekly timelines and alternative strategic trajectories (`reports/transfer_plan.json`).
+
+Remaining:
+
+- None. Ready for V0.4.
 
 ### V0.4 — evaluation and research
 

@@ -132,16 +132,69 @@ def test_suggest_transfers_3_moves(tmp_path: Path, mock_suggest_db: tuple[Path, 
     assert len(top["incoming"]) == 3
 
 
-def test_suggest_transfers_max_3_limit(tmp_path: Path, mock_suggest_db: tuple[Path, Path]) -> None:
+def test_suggest_transfers_4_moves(tmp_path: Path, mock_suggest_db: tuple[Path, Path]) -> None:
     db_path, squad_path = mock_suggest_db
     report_file = tmp_path / "transfer_suggestions.json"
 
-    with pytest.raises(ValueError, match="only 1, 2, or 3 transfers are permitted"):
+    res = suggest_transfers(
+        num_transfers=4,
+        squad_path=squad_path,
+        database_path=db_path,
+        max_results=5,
+        num_gameweeks=1,
+        report_path=report_file,
+    )
+
+    assert res["num_transfers"] == 4
+    assert len(res["top_suggestions"]) > 0
+    top = res["top_suggestions"][0]
+    assert top["type"] == "4-transfer"
+    assert len(top["outgoing"]) == 4
+    assert len(top["incoming"]) == 4
+
+
+def test_suggest_transfers_limit(tmp_path: Path, mock_suggest_db: tuple[Path, Path]) -> None:
+    db_path, squad_path = mock_suggest_db
+    report_file = tmp_path / "transfer_suggestions.json"
+
+    with pytest.raises(ValueError, match="supports between 1 and 5 transfers"):
         suggest_transfers(
-            num_transfers=4,
+            num_transfers=6,
             squad_path=squad_path,
             database_path=db_path,
             max_results=5,
             num_gameweeks=1,
             report_path=report_file,
         )
+
+
+def test_suggest_transfers_with_risk_profiles(tmp_path: Path, mock_suggest_db: tuple[Path, Path]) -> None:
+    db_path, squad_path = mock_suggest_db
+    report_file = tmp_path / "transfer_suggestions.json"
+
+    for risk in ("neutral", "floor", "ceiling"):
+        res = suggest_transfers(
+            num_transfers=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            max_results=5,
+            num_gameweeks=1,
+            risk_profile=risk,
+            report_path=report_file,
+        )
+        assert res["risk_profile"] == risk
+        assert len(res["top_suggestions"]) > 0
+        top = res["top_suggestions"][0]
+        assert "floor_delta" in top
+        assert "ceiling_delta" in top
+        assert "xp_delta" in top
+
+    with pytest.raises(ValueError, match="Invalid risk_profile"):
+        suggest_transfers(
+            num_transfers=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            risk_profile="invalid_profile",
+            report_path=report_file,
+        )
+
