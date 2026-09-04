@@ -51,37 +51,54 @@ PERSONA_PROMPTS = {
 }
 
 
-def _call_gemini_api(prompt: str, api_key: str, model: str = "gemini-1.5-flash") -> str:
-    """Call Google Gemini REST API."""
+def _call_gemini_api(prompt: str, api_key: str, model: str = "gemini-1.5-flash-latest") -> str:
+    """Call Google Gemini REST API with support for gemini-1.5-flash-latest and gemini-1.5-flash-001."""
     clean_key = api_key.strip()
-    clean_model = (model or "gemini-1.5-flash").strip()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={clean_key}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048},
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            res = json.loads(resp.read().decode("utf-8"))
-            candidates = res.get("candidates", [])
-            if candidates and "content" in candidates[0]:
-                parts = candidates[0]["content"].get("parts", [])
-                if parts:
-                    return parts[0].get("text", "")
-    except urllib.error.HTTPError as e:
-        body = ""
-        try:
-            body = e.read().decode("utf-8")
-            err_json = json.loads(body)
-            msg = err_json.get("error", {}).get("message", body)
-        except Exception:
-            msg = body or str(e)
-        raise RuntimeError(f"Google Gemini API error (HTTP {e.code}): {msg}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Google Gemini network error: {e.reason}") from e
+    primary_model = (model or "gemini-1.5-flash-latest").strip()
+    if primary_model == "gemini-1.5-flash":
+        primary_model = "gemini-1.5-flash-latest"
 
+    models_to_try = [primary_model]
+    if primary_model == "gemini-1.5-flash-latest":
+        models_to_try.append("gemini-1.5-flash-001")
+    elif primary_model == "gemini-1.5-flash-001":
+        models_to_try.append("gemini-1.5-flash-latest")
+
+    last_error = None
+    for candidate_model in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:generateContent?key={clean_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048},
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                candidates = res.get("candidates", [])
+                if candidates and "content" in candidates[0]:
+                    parts = candidates[0]["content"].get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8")
+                err_json = json.loads(body)
+                msg = err_json.get("error", {}).get("message", body)
+            except Exception:
+                msg = body or str(e)
+            last_error = RuntimeError(f"Google Gemini API error (HTTP {e.code}, model '{candidate_model}'): {msg}")
+            # If 404 (model not found), fall through and try next candidate release
+            if e.code == 404 and candidate_model != models_to_try[-1]:
+                continue
+            raise last_error from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Google Gemini network error: {e.reason}") from e
+
+    if last_error:
+        raise last_error
     raise RuntimeError("Empty response received from Google Gemini API.")
 
 
@@ -406,7 +423,7 @@ def generate_llm_advisory(
                 "Please enter an API key in the toolbar, pass '--api-key', or set the "
                 "GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable."
             )
-        raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash")
+        raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash-latest")
         provider_used = "gemini"
 
     elif resolved_provider == "openai":
@@ -427,7 +444,7 @@ def generate_llm_advisory(
         # Auto mode: try Gemini if key present, else OpenAI if key present, else Ollama, else heuristic
         if gemini_key:
             try:
-                raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash")
+                raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash-latest")
                 provider_used = "gemini"
             except Exception:
                 pass
