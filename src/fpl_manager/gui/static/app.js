@@ -1907,6 +1907,35 @@ function initEventListeners() {
 
   const advProvider = document.getElementById("adv-provider");
   if (advProvider) advProvider.addEventListener("change", updateProviderKeyPlaceholder);
+
+  const btnToggleKey = document.getElementById("btn-toggle-key-visibility");
+  if (btnToggleKey) {
+    btnToggleKey.addEventListener("click", () => {
+      const keyInput = document.getElementById("adv-api-key");
+      if (!keyInput) return;
+      if (keyInput.type === "password") {
+        keyInput.type = "text";
+        btnToggleKey.textContent = "🙈";
+      } else {
+        keyInput.type = "password";
+        btnToggleKey.textContent = "👁️";
+      }
+    });
+  }
+
+  const advApiKey = document.getElementById("adv-api-key");
+  if (advApiKey) {
+    advApiKey.addEventListener("input", () => {
+      const provSelect = document.getElementById("adv-provider");
+      const provider = provSelect ? provSelect.value : "";
+      const val = advApiKey.value.trim();
+      try {
+        if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", val);
+        else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", val);
+        else if (provider === "openrouter") localStorage.setItem("fpl_advisor_api_key_openrouter", val);
+      } catch (_) {}
+    });
+  }
 }
 
 // ==========================================
@@ -2125,31 +2154,45 @@ function updateProviderKeyPlaceholder() {
   const keyInput = document.getElementById("adv-api-key");
   if (!provSelect || !keyInput) return;
   const val = provSelect.value;
+
+  // Clean up legacy URL strings from older versions
+  try {
+    const orKey = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
+    if (orKey.startsWith("http") || orKey.startsWith("AIza")) {
+      localStorage.removeItem("fpl_advisor_api_key_openrouter");
+    }
+    const legacyKey = localStorage.getItem("fpl_advisor_api_key") || "";
+    if (legacyKey.startsWith("http")) {
+      localStorage.removeItem("fpl_advisor_api_key");
+    }
+  } catch (_) {}
+
   if (val === "heuristic") {
     keyInput.placeholder = "(Not required)";
     keyInput.disabled = true;
     keyInput.value = "";
   } else if (val === "gemini") {
-    keyInput.placeholder = "Gemini API Key";
+    keyInput.placeholder = "Gemini API Key (AIza...)";
     keyInput.disabled = false;
-    if (!keyInput.value) {
-      try { keyInput.value = localStorage.getItem("fpl_advisor_api_key_gemini") || localStorage.getItem("fpl_advisor_api_key") || ""; } catch (_) {}
-    }
+    try {
+      keyInput.value = localStorage.getItem("fpl_advisor_api_key_gemini") || "";
+    } catch (_) {}
   } else if (val === "openai") {
-    keyInput.placeholder = "OpenAI API Key";
+    keyInput.placeholder = "OpenAI API Key (sk-...)";
     keyInput.disabled = false;
-    if (!keyInput.value) {
-      try { keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || localStorage.getItem("fpl_advisor_api_key") || ""; } catch (_) {}
-    }
+    try {
+      keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || "";
+    } catch (_) {}
   } else if (val === "openrouter") {
-    keyInput.placeholder = "OpenRouter API Key";
+    keyInput.placeholder = "OpenRouter Key (sk-or-...)";
     keyInput.disabled = false;
-    if (!keyInput.value) {
-      try { keyInput.value = localStorage.getItem("fpl_advisor_api_key_openrouter") || localStorage.getItem("fpl_advisor_api_key") || ""; } catch (_) {}
-    }
+    try {
+      keyInput.value = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
+    } catch (_) {}
   } else {
     keyInput.placeholder = "Optional API Key";
     keyInput.disabled = false;
+    keyInput.value = "";
   }
 }
 
@@ -2175,14 +2218,16 @@ async function runAdvisor() {
 
   const persona = personaSelect ? personaSelect.value : "devil_advocate";
   const provider = providerSelect ? providerSelect.value : "auto";
-  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : null;
+  let apiKey = apiKeyInput ? apiKeyInput.value.trim() : null;
+  if (apiKey && (apiKey.startsWith("http://") || apiKey.startsWith("https://"))) {
+    apiKey = null;
+  }
 
   if (apiKey) {
     try {
-      localStorage.setItem("fpl_advisor_api_key", apiKey);
       if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
-      if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
-      if (provider === "openrouter") localStorage.setItem("fpl_advisor_api_key_openrouter", apiKey);
+      else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
+      else if (provider === "openrouter") localStorage.setItem("fpl_advisor_api_key_openrouter", apiKey);
     } catch (_) {}
   }
 
@@ -2209,9 +2254,18 @@ async function runAdvisor() {
     renderAdvisorResults(data);
     showToast("AI Strategic Advisory Generated!");
   } catch (err) {
+    let extraTip = "";
+    if (err.message && (err.message.includes("401") || err.message.toLowerCase().includes("authentication") || err.message.toLowerCase().includes("unauthorized"))) {
+      extraTip = `
+        <div style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
+          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key (OpenRouter keys typically start with <code>sk-or-v1-</code>). If the key was set via an environment variable, ensure this field is left empty.</em>
+        </div>
+      `;
+    }
     container.innerHTML = `
       <div class="alert alert-danger" style="margin-top: 1rem;">
         <strong>Advisor Error:</strong> ${escapeHtml(err.message)}
+        ${extraTip}
       </div>
     `;
     showToast(err.message, true);

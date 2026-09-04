@@ -530,8 +530,9 @@
             <option value="openrouter">OpenRouter</option>
           </select>
         </div>
-        <div class="tool-group">
-          <input type="password" id="adv-api-key" placeholder="Optional API Key" class="input-sm" style="width: 140px;" title="API Key for Gemini, OpenAI, or OpenRouter (leave blank if set via environment variable)">
+        <div class="tool-group" style="position: relative; display: inline-flex; align-items: center;">
+          <input type="password" id="adv-api-key" placeholder="Optional API Key" class="input-sm" style="width: 170px; padding-right: 26px;" title="API Key for Gemini, OpenAI, or OpenRouter (leave blank if set via environment variable)">
+          <button type="button" id="btn-toggle-key-visibility" style="position: absolute; right: 4px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.85rem; padding: 2px 4px;" title="Show/Hide API Key">👁️</button>
         </div>
         <button id="btn-run-advisor" class="btn btn-primary btn-sm">🤖 Generate Advisory</button>
         <button id="btn-view-dossier" class="btn btn-secondary btn-sm">📑 View Manager Dossier</button>

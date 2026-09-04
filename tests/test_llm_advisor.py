@@ -352,3 +352,22 @@ def test_gemini_model_fallback_between_latest_and_001() -> None:
         res = _call_gemini_api("hello", "dummy-key-discovery", model="gemini-1.5-flash-latest")
         assert res == "Critique from 001"
         assert any("gemini-1.5-flash-001" in c for c in calls)
+
+
+def test_openrouter_auth_error_and_key_sanitization() -> None:
+    from fpl_manager.llm_advisor import _call_openrouter_api
+    import io
+    import urllib.error
+
+    # URL passed as key raises ValueError
+    with pytest.raises(ValueError, match="Invalid OpenRouter API key"):
+        _call_openrouter_api("test prompt", "http://localhost:11434")
+
+    # 401 from OpenRouter raises descriptive error
+    def fake_401(req, timeout=30):
+        fp = io.BytesIO(b'{"error":{"message":"Missing Authentication header","code":401}}')
+        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, fp)
+
+    with patch("urllib.request.urlopen", side_effect=fake_401):
+        with pytest.raises(RuntimeError, match="OpenRouter authentication failed"):
+            _call_openrouter_api("test prompt", "sk-or-v1-invalid-key")

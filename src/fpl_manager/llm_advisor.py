@@ -56,7 +56,7 @@ _GEMINI_MODEL_CACHE: dict[str, list[str]] = {}
 
 def _get_supported_gemini_models(api_key: str) -> list[str]:
     """Query Google ModelService to discover models supporting generateContent for this API key."""
-    clean_key = api_key.strip()
+    clean_key = (api_key or "").strip().strip('"').strip("'")
     if clean_key in _GEMINI_MODEL_CACHE:
         return _GEMINI_MODEL_CACHE[clean_key]
 
@@ -82,7 +82,7 @@ def _get_supported_gemini_models(api_key: str) -> list[str]:
 
 def _call_gemini_api(prompt: str, api_key: str, model: str | None = None) -> str:
     """Call Google Gemini REST API with dynamic model discovery and fallback."""
-    clean_key = api_key.strip()
+    clean_key = (api_key or "").strip().strip('"').strip("'")
     primary_model = (model or "").strip()
     if primary_model == "gemini-1.5-flash":
         primary_model = "gemini-1.5-flash-latest"
@@ -160,7 +160,9 @@ def _call_gemini_api(prompt: str, api_key: str, model: str | None = None) -> str
 
 def _call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> str:
     """Call OpenAI REST API."""
-    clean_key = api_key.strip()
+    clean_key = (api_key or "").strip().strip('"').strip("'")
+    if clean_key.lower().startswith("bearer "):
+        clean_key = clean_key[7:].strip()
     clean_model = (model or "gpt-4o-mini").strip()
     url = "https://api.openai.com/v1/chat/completions"
     payload = {
@@ -204,7 +206,14 @@ def _call_openrouter_api(
     model: str = "meta-llama/llama-3.3-70b-instruct",
 ) -> str:
     """Call OpenRouter REST API."""
-    clean_key = api_key.strip()
+    clean_key = (api_key or "").strip().strip('"').strip("'")
+    if clean_key.lower().startswith("bearer "):
+        clean_key = clean_key[7:].strip()
+
+    if not clean_key or clean_key.startswith("http://") or clean_key.startswith("https://"):
+        raise ValueError(
+            "Invalid OpenRouter API key. Please provide a valid OpenRouter API key (typically starting with 'sk-or-v1-')."
+        )
     clean_model = (model or "meta-llama/llama-3.3-70b-instruct").strip()
     url = "https://openrouter.ai/api/v1/chat/completions"
     payload = {
@@ -240,6 +249,11 @@ def _call_openrouter_api(
             msg = err_json.get("error", {}).get("message", body)
         except Exception:
             msg = body or str(e)
+        if e.code == 401:
+            raise RuntimeError(
+                f"OpenRouter authentication failed (HTTP 401: {msg}). "
+                "Ensure your OpenRouter API key is valid (keys typically start with 'sk-or-v1-')."
+            ) from e
         raise RuntimeError(f"OpenRouter API error (HTTP {e.code}): {msg}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"OpenRouter network error: {e.reason}") from e
@@ -478,9 +492,13 @@ def generate_llm_advisory(
     provider_used = "heuristic"
 
     # API keys from env if not passed
-    gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    openai_key = api_key or os.environ.get("OPENAI_API_KEY")
-    openrouter_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+    raw_key = api_key.strip().strip('"').strip("'") if (isinstance(api_key, str) and api_key.strip()) else None
+    if raw_key and (raw_key.startswith("http://") or raw_key.startswith("https://")):
+        raw_key = None
+
+    gemini_key = (raw_key if resolved_provider in ("gemini", "auto") else None) or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    openai_key = (raw_key if resolved_provider in ("openai", "auto") else None) or os.environ.get("OPENAI_API_KEY")
+    openrouter_key = (raw_key if resolved_provider in ("openrouter", "auto") else None) or os.environ.get("OPENROUTER_API_KEY")
 
     if resolved_provider == "heuristic":
         heuristic_res = _heuristic_advisory(dossier, persona)
