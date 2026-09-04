@@ -364,42 +364,221 @@ def record_actual_gameweek_score(
     return res
 
 
+def resolve_player_id(store: SnapshotStore, val: int | str) -> int:
+    """Resolve a player ID or name query to an integer player ID."""
+    if isinstance(val, int):
+        return val
+    val_str = str(val).strip()
+    if val_str.isdigit():
+        return int(val_str)
+    from .import_squad import search_player_exact_or_single
+    match = search_player_exact_or_single(store, val_str)
+    if match is None:
+        raise ValueError(f"Could not resolve '{val_str}' to a unique player. Use exact name or ID.")
+    return match["id"]
+
+
+def resolve_player_ids_list(store: SnapshotStore, items: list[int | str] | str | None) -> list[int]:
+    """Parse comma-separated or list of player names/IDs into a list of integer IDs."""
+    if not items:
+        return []
+    if isinstance(items, str):
+        parts = [p.strip() for p in items.replace(";", ",").split(",") if p.strip()]
+    else:
+        parts = items
+    return [resolve_player_id(store, p) for p in parts]
+
+
+def parse_and_apply_transfers(
+    store: SnapshotStore,
+    current_player_ids: list[int],
+    transfers_input: list[str] | list[dict[str, Any]] | None,
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """Parse transfer inputs (e.g. 'OUT:IN' or dicts), apply them to player IDs, and return new IDs and records."""
+    if not transfers_input:
+        return list(current_player_ids), []
+
+    squad_ids = list(current_player_ids)
+    transfer_records = []
+
+    with closing(store._connect()) as connection:
+        name_rows = connection.execute("SELECT player_id, web_name FROM players GROUP BY player_id").fetchall()
+        p_names = dict(name_rows)
+
+    for tx in transfers_input:
+        if isinstance(tx, dict):
+            out_id = resolve_player_id(store, tx.get("outgoing_id", tx.get("outgoing")))
+            in_id = resolve_player_id(store, tx.get("incoming_id", tx.get("incoming")))
+        elif isinstance(tx, str):
+            if ":" not in tx:
+                raise ValueError(f"Invalid transfer format '{tx}'. Use 'OUTGOING:INCOMING'.")
+            out_str, in_str = tx.split(":", maxsplit=1)
+            out_id = resolve_player_id(store, out_str.strip())
+            in_id = resolve_player_id(store, in_str.strip())
+        else:
+            continue
+
+        if out_id not in squad_ids:
+            out_name = p_names.get(out_id, f"ID {out_id}")
+            raise ValueError(f"Outgoing player {out_name} (ID {out_id}) is not in your current squad.")
+
+        squad_ids.remove(out_id)
+        squad_ids.append(in_id)
+
+        transfer_records.append({
+            "outgoing_id": out_id,
+            "outgoing_name": p_names.get(out_id, f"ID {out_id}"),
+            "incoming_id": in_id,
+            "incoming_name": p_names.get(in_id, f"ID {in_id}"),
+        })
+
+    return squad_ids, transfer_records
+
+
 def log_decision_from_current_squad(
     gameweek: int | None = None,
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
+    starting_player_ids: list[int | str] | str | None = None,
+    bench_player_ids: list[int | str] | str | None = None,
+    captain_id: int | str | None = None,
+    vice_captain_id: int | str | None = None,
     chip_played: str | None = None,
-    transfer_hits: int = 0,
-    transfers: list[dict[str, Any]] | None = None,
+    transfer_hits: int | None = None,
+    transfers: list[str] | list[dict[str, Any]] | None = None,
     notes: str = "",
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Automatically log decision using current squad state and optimized lineup."""
+    """Log decision using current squad, custom trades, and custom or optimized lineup."""
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
+    store.initialize()
+
     if gameweek is None:
         gameweek = get_current_gameweek(store)
 
-    from .lineup import select_starting_lineup
-    lineup_res = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
+    # 1. Parse and apply any trades (transfers)
+    squad_ids, parsed_transfers = parse_and_apply_transfers(store, list(state.player_ids), transfers)
 
-    starters_ids = [p["id"] for p in lineup_res["starters"]]
-    bench_ids = [p["id"] for p in lineup_res["bench"]]
-    cap_id = lineup_res["captain"]["id"]
-    vc_id = lineup_res["vice_captain"]["id"]
+    # 2. Compute transfer hits if not explicitly provided
+    if transfer_hits is None:
+        if parsed_transfers:
+            from .transfers import Transfer, validate_transfers
+            transfer_objs = [Transfer(t["outgoing_id"], t["incoming_id"]) for t in parsed_transfers]
+            val_res = validate_transfers(state, store.latest_players(), transfer_objs)
+            computed_hits = val_res.transfer_hits
+        else:
+            computed_hits = 0
+    else:
+        computed_hits = transfer_hits
+
+    # 3. Get projections for the squad players for gameweek
+    projections = project_gameweek(gameweek=gameweek, player_ids=squad_ids, database_path=database_path)
+    proj_map = {p.player_id: p for p in projections}
+
+    # 4. Resolve Starting XI and Bench
+    if starting_player_ids is not None:
+        starters_ids = resolve_player_ids_list(store, starting_player_ids)
+        if len(starters_ids) != 11:
+            raise ValueError(f"Starting XI must have exactly 11 players; received {len(starters_ids)}.")
+        for pid in starters_ids:
+            if pid not in squad_ids:
+                with closing(store._connect()) as conn:
+                    row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (pid,)).fetchone()
+                name = row[0] if row else f"ID {pid}"
+                raise ValueError(f"Selected starter {name} (ID {pid}) is not in the squad.")
+
+        if bench_player_ids is not None:
+            bench_ids = resolve_player_ids_list(store, bench_player_ids)
+            if len(bench_ids) != 4:
+                raise ValueError(f"Bench must have exactly 4 players; received {len(bench_ids)}.")
+        else:
+            remaining = [pid for pid in squad_ids if pid not in starters_ids]
+            gkps = [pid for pid in remaining if proj_map.get(pid) and proj_map[pid].position == Position.GOALKEEPER]
+            outfield = [pid for pid in remaining if pid not in gkps]
+            outfield.sort(key=lambda pid: proj_map[pid].expected_points if pid in proj_map else 0.0, reverse=True)
+            bench_ids = gkps + outfield
+    else:
+        from .lineup import LEGAL_FORMATIONS
+        from .models import Player
+        with closing(store._connect()) as conn:
+            snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            snap_id = snap[0]
+            ph = ",".join("?" for _ in squad_ids)
+            rows = conn.execute(
+                f"SELECT player_id, web_name, position_id, team_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({ph})",
+                (snap_id, *squad_ids),
+            ).fetchall()
+        rules_squad = [Player(r[0], r[1], Position(r[2]), r[3], r[4]) for r in rows]
+
+        gkps = [p for p in projections if p.position == Position.GOALKEEPER]
+        defs = [p for p in projections if p.position == Position.DEFENDER]
+        mids = [p for p in projections if p.position == Position.MIDFIELDER]
+        fwds = [p for p in projections if p.position == Position.FORWARD]
+
+        gkps.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+        defs.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+        mids.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+        fwds.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+
+        best_score = -1e9
+        best_starters = []
+        best_bench = []
+
+        for req_def, req_mid, req_fwd in LEGAL_FORMATIONS:
+            starters = [gkps[0]] + defs[:req_def] + mids[:req_mid] + fwds[:req_fwd]
+            bench = [gkps[1]]
+            bench_outfield = defs[req_def:] + mids[req_mid:] + fwds[req_fwd:]
+            bench_outfield.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+            bench.extend(bench_outfield)
+
+            s_score = sum(p.expected_points for p in starters)
+            if s_score > best_score:
+                best_score = s_score
+                best_starters = starters
+                best_bench = bench
+
+        starters_ids = [p.player_id for p in best_starters]
+        bench_ids = [p.player_id for p in best_bench]
+
+    # 5. Resolve Captain and Vice-Captain
+    starters_projs = [proj_map[pid] for pid in starters_ids if pid in proj_map]
+    starters_ranked = sorted(starters_projs, key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+
+    if captain_id is not None:
+        cap_id = resolve_player_id(store, captain_id)
+        if cap_id not in starters_ids:
+            with closing(store._connect()) as conn:
+                row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (cap_id,)).fetchone()
+            name = row[0] if row else f"ID {cap_id}"
+            raise ValueError(f"Captain {name} (ID {cap_id}) must be in the starting XI.")
+    else:
+        cap_id = starters_ranked[0].player_id if starters_ranked else starters_ids[0]
+
+    if vice_captain_id is not None:
+        vc_id = resolve_player_id(store, vice_captain_id)
+        if vc_id not in starters_ids:
+            with closing(store._connect()) as conn:
+                row = conn.execute("SELECT web_name FROM players WHERE player_id = ? LIMIT 1", (vc_id,)).fetchone()
+            name = row[0] if row else f"ID {vc_id}"
+            raise ValueError(f"Vice-Captain {name} (ID {vc_id}) must be in the starting XI.")
+    else:
+        eligible_vcs = [p for p in starters_ranked if p.player_id != cap_id]
+        vc_id = eligible_vcs[0].player_id if eligible_vcs else ([pid for pid in starters_ids if pid != cap_id][0])
 
     return record_gameweek_decision(
         gameweek=gameweek,
         season=state.season,
-        squad_player_ids=state.player_ids,
+        squad_player_ids=squad_ids,
         starting_player_ids=starters_ids,
         bench_player_ids=bench_ids,
         captain_id=cap_id,
         vice_captain_id=vc_id,
-        transfers=transfers or [],
-        transfer_hits=transfer_hits,
+        transfers=parsed_transfers,
+        transfer_hits=computed_hits,
         chip_played=chip_played,
         notes=notes,
         database_path=database_path,
         overwrite=overwrite,
     )
+

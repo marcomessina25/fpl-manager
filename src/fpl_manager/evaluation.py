@@ -278,11 +278,15 @@ def evaluate_predictions(
 
 def evaluate_gameweek_decision(
     gameweek: int,
-    actual_scores: dict[int, float],
+    actual_scores: dict[int, float] | None = None,
     season: str = "2026/27",
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
     """Comprehensive post-gameweek evaluation combining prediction accuracy and decision regret."""
+    if not actual_scores:
+        from .scores import get_or_fetch_gameweek_scores
+        actual_scores = get_or_fetch_gameweek_scores(gameweek, database_path=database_path)
+
     store = SnapshotStore(database_path)
     store.initialize()
 
@@ -332,6 +336,15 @@ def evaluate_gameweek_decision(
 
     xp_delta = round(actual_lineup - decision["predicted_lineup_xp"], 2)
 
+    # Auto-update actual points in decision record if not yet finalized
+    if decision.get("actual_points") is None and actual_scores:
+        try:
+            from .decision_log import record_actual_gameweek_score
+            record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, database_path=database_path)
+            decision["actual_points"] = round(actual_lineup)
+        except Exception:
+            pass
+
     return {
         "gameweek": gameweek,
         "season": season,
@@ -353,6 +366,28 @@ def evaluate_season_decisions(
 ) -> dict[str, Any]:
     """Aggregate decision evaluation across all finalized gameweeks in the season."""
     decisions = list_decisions(season=season, database_path=database_path)
+
+    # Auto-finalize any unfinalized decisions if scores are available
+    from .scores import get_or_fetch_gameweek_scores
+    for d in decisions:
+        if d.get("actual_points") is None:
+            gw_scores = get_or_fetch_gameweek_scores(d["gameweek"], database_path=database_path)
+            if gw_scores:
+                starters = d["starting_player_ids"]
+                cap_id = d["captain_id"]
+                hits = d.get("transfer_hits", 0)
+                actual_lineup = (
+                    sum(gw_scores.get(pid, 0.0) for pid in starters)
+                    + gw_scores.get(cap_id, 0.0)
+                    - (hits * 4)
+                )
+                try:
+                    from .decision_log import record_actual_gameweek_score
+                    record_actual_gameweek_score(d["gameweek"], round(actual_lineup), season=season, database_path=database_path)
+                    d["actual_points"] = round(actual_lineup)
+                except Exception:
+                    pass
+
     finalized = [d for d in decisions if d.get("actual_points") is not None]
 
     if not finalized:

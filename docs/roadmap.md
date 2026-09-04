@@ -74,12 +74,18 @@ Completed:
 
 - **Pre-Deadline Decision Logging & Audit Trail (`src/fpl_manager/decision_log.py`)**:
   - Persistent, immutable record of manager choices before every deadline (`fpl log-decision`, `fpl decisions`).
-  - Stores chosen Starting XI, primary captain (C), vice-captain (VC), ordered bench, chips played, transfer moves, and transfer hits.
+  - Supports custom Starting XI (`--starters`), ordered bench (`--bench`), captain (`--captain` / `-c`), and vice-captain (`--vice-captain` / `--vc`) with fuzzy name resolution, or defaults to the model's optimized selection.
+  - Supports recording executed transfers (`--transfer` / `-t OUT:IN`), updating squad membership dynamically and automatically calculating transfer hits.
   - Automatically captures point-in-time baseline model recommendations (`decision_recommendations` table) alongside manager choices to track human vs model divergences.
   - Pre-validates complete squad legality and formation rules before persistence.
   - Allows recording post-matchday actual points scored (`--actual-points`) to evaluate decision quality over time.
+- **Official Matchday Live Scores Ingestion (`src/fpl_manager/scores.py` / `fpl update-scores`)**:
+  - Retrieves official player scores and performance statistics directly from the FPL API (`event/{gw}/live/`).
+  - Caches scores in local SQLite table `player_gameweek_scores` and saves raw timestamped payloads in `data/raw/`.
+  - Supports offline fallbacks and graceful handling during future or incomplete gameweeks.
 - **Model Backtesting & Accuracy Evaluation Engine (`src/fpl_manager/evaluation.py` / `fpl evaluate`)**:
   - Point-in-time historical backtesting comparing predicted expected points (xP) vs actual points scored.
+  - Automatically retrieves actual scores from local cache / FPL API when `--scores` is omitted, and auto-finalizes decisions.
   - Statistical metrics: Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and Spearman Rank Correlation ($\rho$) with tied-rank handling.
   - Uncertainty interval calibration: evaluates the empirical coverage percentage of players falling inside predicted $[xP_{\text{floor}}, xP_{\text{ceiling}}]$ confidence bounds.
   - Manager Regret Analysis: calculates Captaincy Regret (points lost compared to optimal captain in Starting XI) and Bench Regret (points stranded on bench compared to lowest-scoring starter).

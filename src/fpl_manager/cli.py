@@ -40,6 +40,7 @@ from .chip_strategy import (
     analyze_fixture_calendar,
     recommend_chip_strategy,
 )
+from .scores import update_gameweek_scores
 from .transfers import Transfer, validate_transfers
 
 
@@ -396,14 +397,23 @@ def format_decision_concise(result: dict[str, Any]) -> str:
     actual_str = str(actual) if actual is not None else "Pending"
     notes = result.get("notes") or "None"
 
+    tx_list = result.get("transfers", [])
+    if tx_list:
+        tx_strs = [f"{t.get('outgoing_name', t.get('outgoing_id'))} -> {t.get('incoming_name', t.get('incoming_id'))}" for t in tx_list]
+        tx_str = ", ".join(tx_strs)
+    else:
+        tx_str = "None"
+
     return (
         f"Gameweek {gw} ({season}) Decision Log (ID #{result.get('decision_id')}):\n"
         f"  Captain: {cap} (C), Vice: {vc} (VC)\n"
         f"  Projected xP: {xp:.1f} (Floor: {floor:.1f}, Ceiling: {ceil:.1f})\n"
         f"  Chip: {chip} | Hits: {hits} (-{hits * 4} pts)\n"
+        f"  Transfers: {tx_str}\n"
         f"  Actual Score: {actual_str}\n"
         f"  Notes: {notes}"
     )
+
 
 
 def format_decisions_list_concise(results: list[dict[str, Any]]) -> str:
@@ -620,7 +630,7 @@ def format_chip_strategy_concise(result: dict[str, Any]) -> str:
 import sys
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -697,7 +707,12 @@ def main() -> None:
     log_dec_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     log_dec_parser.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current gameweek)")
     log_dec_parser.add_argument("--chip", choices=["wildcard", "freehit", "benchboost", "triplecaptain"], default=None, help="Chip played this gameweek")
-    log_dec_parser.add_argument("--hits", type=int, default=0, help="Number of transfer hits taken (4 pts each)")
+    log_dec_parser.add_argument("--hits", type=int, default=None, help="Number of transfer hits taken (default: calculated automatically from transfers)")
+    log_dec_parser.add_argument("--transfer", "-t", action="append", default=None, help="Transfer as OUTGOING:INCOMING (name or ID); repeat for multiple moves")
+    log_dec_parser.add_argument("--starters", type=str, default=None, help="Comma-separated player names or IDs for the 11 starting players")
+    log_dec_parser.add_argument("--bench", type=str, default=None, help="Comma-separated player names or IDs for the 4 bench players in order")
+    log_dec_parser.add_argument("--captain", "-c", type=str, default=None, help="Player name or ID for Captain")
+    log_dec_parser.add_argument("--vice-captain", "--vc", type=str, default=None, help="Player name or ID for Vice-Captain")
     log_dec_parser.add_argument("--notes", type=str, default="", help="Optional manager reasoning/decision notes")
     log_dec_parser.add_argument("--actual-points", type=int, default=None, help="Actual points scored (for post-matchday finalization)")
     log_dec_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing decision log for this gameweek")
@@ -709,8 +724,11 @@ def main() -> None:
     eval_parser = subcommands.add_parser("evaluate", help="Evaluate prediction calibration, model accuracy, and decision regret")
     eval_parser.add_argument("--gameweek", type=int, default=None, help="Evaluate specific gameweek (default: all finalized gameweeks)")
     eval_parser.add_argument("--season", type=str, default="2026/27", help="Season to evaluate (default: 2026/27)")
-    eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS'")
+    eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS' (default: auto-retrieved from FPL)")
     eval_parser.add_argument("--decisions", action="store_true", help="Evaluate all logged decisions across the season")
+
+    scores_parser = subcommands.add_parser("update-scores", help="Fetch and cache official live matchday player scores from FPL")
+    scores_parser.add_argument("--gameweek", type=int, default=None, help="Gameweek to fetch scores for (default: current gameweek)")
 
     for own_cmd, own_help in (
         ("ownership", "Analyze effective ownership, template shields, differential swords, and squad rank exposure"),
@@ -734,7 +752,7 @@ def main() -> None:
         chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
         chip_p.add_argument("--output", type=Path, default=CHIP_STRATEGY_REPORT_PATH, help="Output path for JSON plan")
 
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(argv)
 
     try:
         if arguments.command == "update":
@@ -820,15 +838,20 @@ def main() -> None:
                     from .fixtures import get_current_gameweek
                     gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
                 existing = get_gameweek_decision(gw, database_path=DATABASE_PATH)
-                if existing is not None:
+                if existing is not None and not arguments.overwrite:
                     result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
                 else:
                     log_decision_from_current_squad(
                         gameweek=gw,
                         squad_path=squad_path,
                         database_path=DATABASE_PATH,
+                        starting_player_ids=arguments.starters,
+                        bench_player_ids=arguments.bench,
+                        captain_id=arguments.captain,
+                        vice_captain_id=arguments.vice_captain,
                         chip_played=arguments.chip,
                         transfer_hits=arguments.hits,
+                        transfers=arguments.transfer,
                         notes=arguments.notes,
                         overwrite=arguments.overwrite,
                     )
@@ -838,8 +861,13 @@ def main() -> None:
                     gameweek=arguments.gameweek,
                     squad_path=squad_path,
                     database_path=DATABASE_PATH,
+                    starting_player_ids=arguments.starters,
+                    bench_player_ids=arguments.bench,
+                    captain_id=arguments.captain,
+                    vice_captain_id=arguments.vice_captain,
                     chip_played=arguments.chip,
                     transfer_hits=arguments.hits,
+                    transfers=arguments.transfer,
                     notes=arguments.notes,
                     overwrite=arguments.overwrite,
                 )
@@ -857,16 +885,22 @@ def main() -> None:
         elif arguments.command == "evaluate":
             scores = _parse_scores_argument(arguments.scores)
             if arguments.gameweek is not None:
-                actual_scores = scores or {}
                 result = evaluate_gameweek_decision(
                     gameweek=arguments.gameweek,
-                    actual_scores=actual_scores,
+                    actual_scores=scores,
                     season=arguments.season,
                     database_path=DATABASE_PATH,
                 )
             else:
                 result = evaluate_season_decisions(season=arguments.season, database_path=DATABASE_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_evaluation_concise(result))
+        elif arguments.command == "update-scores":
+            gw = arguments.gameweek
+            if gw is None:
+                from .fixtures import get_current_gameweek
+                gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+            result = update_gameweek_scores(gameweek=gw, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else f"Updated matchday scores for Gameweek {gw} ({result['players_updated']} players saved).")
         elif arguments.command in ("ownership", "risk"):
             gw = arguments.gameweek
             if arguments.league:

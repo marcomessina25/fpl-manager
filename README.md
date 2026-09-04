@@ -99,7 +99,9 @@ Log and lock in your pre-deadline decision in the persistent audit trail:
 
 ```powershell
 fpl log-decision --gameweek 2
-fpl log-decision --gameweek 2 --chip triplecaptain --hits 1 --notes "Aggressive DGW punt"
+fpl log-decision --gameweek 2 --chip triplecaptain --notes "Aggressive DGW punt"
+# Specify custom lineup, captaincy, and trades:
+fpl log-decision --gameweek 2 -t "Gabriel:Saliba" -c "Haaland" --vc "Salah" --starters "Raya,Saliba,Alexander-Arnold,Konsa,Palmer,Saka,Mbeumo,Rogers,Haaland,Wood,Watkins"
 ```
 
 Review past gameweek decisions and audit trail:
@@ -109,10 +111,17 @@ fpl decisions
 fpl decisions --gameweek 2
 ```
 
-Evaluate model prediction accuracy and manager decision quality (MAE, RMSE, Spearman rank correlation, confidence interval calibration, captaincy/bench regret, human vs model divergence):
+Fetch and cache official live matchday player scores from the FPL API:
+
+```powershell
+fpl update-scores --gameweek 2
+```
+
+Evaluate model prediction accuracy and manager decision quality (MAE, RMSE, Spearman rank correlation, confidence interval calibration, captaincy/bench regret, human vs model divergence). If `--scores` is omitted, official scores are fetched automatically:
 
 ```powershell
 fpl evaluate
+fpl evaluate --gameweek 2
 fpl evaluate --gameweek 2 --scores "1:6,4:2,13:14"
 ```
 

@@ -16,3 +16,9 @@ def get_json(endpoint: str, timeout_seconds: int = 30) -> Any:
 
 def fetch_current_data() -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return get_json("bootstrap-static/"), get_json("fixtures/")
+
+
+def fetch_gameweek_live_data(event_id: int) -> dict[str, Any]:
+    """Fetch live player performance and points for a specific gameweek."""
+    return get_json(f"event/{event_id}/live/")
+

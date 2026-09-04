@@ -9,8 +9,11 @@ from fpl_manager.decision_log import (
     get_gameweek_decision,
     list_decisions,
     log_decision_from_current_squad,
+    parse_and_apply_transfers,
     record_actual_gameweek_score,
     record_gameweek_decision,
+    resolve_player_id,
+    resolve_player_ids_list,
 )
 from fpl_manager.storage import SnapshotStore, utc_timestamp
 
@@ -34,12 +37,12 @@ def decision_test_env(tmp_path: Path) -> tuple[Path, Path]:
         "elements": [],
     }
 
-    # 15 players:
+    # 17 players:
     # 2 GKP (ids 1, 2)
     # 5 DEF (ids 3, 4, 5, 6, 7)
     # 5 MID (ids 8, 9, 10, 11, 12)
-    # 3 FWD (ids 13, 14, 15)
-    for p_id in range(1, 16):
+    # 5 FWD (ids 13, 14, 15, 16, 17)
+    for p_id in range(1, 18):
         if p_id <= 2:
             pos_id = 1
             cost = 50 if p_id == 1 else 40
@@ -56,7 +59,7 @@ def decision_test_env(tmp_path: Path) -> tuple[Path, Path]:
         bootstrap["elements"].append({
             "id": p_id,
             "web_name": f"Player_{p_id}",
-            "team": ((p_id - 1) % 5) + 1,
+            "team": 5 if p_id == 16 else (((p_id - 1) % 5) + 1),
             "element_type": pos_id,
             "now_cost": cost,
             "status": "a",
@@ -317,4 +320,134 @@ def test_decision_formatters() -> None:
 
     empty_summary = format_decisions_list_concise([])
     assert "No decisions logged yet." in empty_summary
+
+
+def test_resolve_player_id_and_helpers(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, _ = decision_test_env
+    store = SnapshotStore(db_path)
+
+    # Int and str digits
+    assert resolve_player_id(store, 3) == 3
+    assert resolve_player_id(store, "3") == 3
+
+    # Exact name
+    assert resolve_player_id(store, "Player_3") == 3
+
+    # Unknown
+    with pytest.raises(ValueError, match="Could not resolve"):
+        resolve_player_id(store, "Unknown_Player_999")
+
+    # List resolving
+    assert resolve_player_ids_list(store, None) == []
+    assert resolve_player_ids_list(store, "") == []
+    assert resolve_player_ids_list(store, [1, "2", "Player_3"]) == [1, 2, 3]
+    assert resolve_player_ids_list(store, "1, 2, Player_3") == [1, 2, 3]
+
+
+def test_parse_and_apply_transfers(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, _ = decision_test_env
+    store = SnapshotStore(db_path)
+    squad_ids = list(range(1, 16))
+
+    # None / empty
+    new_ids, records = parse_and_apply_transfers(store, squad_ids, None)
+    assert new_ids == squad_ids
+    assert records == []
+
+    # Valid string transfer: OUT:IN
+    new_ids, records = parse_and_apply_transfers(store, squad_ids, ["Player_15:Player_16"])
+    assert 15 not in new_ids
+    assert 16 in new_ids
+    assert len(new_ids) == 15
+    assert len(records) == 1
+    assert records[0]["outgoing_id"] == 15
+    assert records[0]["incoming_id"] == 16
+    assert records[0]["outgoing_name"] == "Player_15"
+    assert records[0]["incoming_name"] == "Player_16"
+
+    # Outgoing not in squad
+    with pytest.raises(ValueError, match="is not in your current squad"):
+        parse_and_apply_transfers(store, squad_ids, ["Player_16:Player_17"])
+
+    # Invalid format without colon
+    with pytest.raises(ValueError, match="Invalid transfer format"):
+        parse_and_apply_transfers(store, squad_ids, ["Player_15-Player_16"])
+
+
+def test_log_decision_custom_lineup_and_transfers(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = decision_test_env
+
+    # 1. Custom starters & bench & captaincy
+    custom_starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    custom_bench = [2, 6, 7, 16]
+
+    res = log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=custom_starters,
+        bench_player_ids=custom_bench,
+        captain_id="Player_14",
+        vice_captain_id="Player_13",
+        transfers=["Player_15:Player_16"],
+        overwrite=True,
+    )
+    assert res["gameweek"] == 2
+    assert res["captain_id"] == 14
+    assert res["captain_name"] == "Player_14"
+    assert res["vice_captain_id"] == 13
+    assert res["vice_captain_name"] == "Player_13"
+    assert len(res["transfers"]) == 1
+    assert res["transfers"][0]["incoming_id"] == 16
+
+    # 2. Starting player not in squad error
+    with pytest.raises(ValueError, match="not in the squad"):
+        log_decision_from_current_squad(
+            gameweek=2,
+            squad_path=squad_path,
+            database_path=db_path,
+            starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 17],  # 17 not in squad
+            overwrite=True,
+        )
+
+
+def test_cli_log_decision_custom_options(
+    decision_test_env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    db_path, squad_path = decision_test_env
+    monkeypatch.setattr("fpl_manager.cli.DATABASE_PATH", db_path)
+
+    args = [
+        "log-decision",
+        "--squad", str(squad_path),
+        "--gameweek", "2",
+        "--starters", "1,3,4,5,8,9,10,11,12,13,14",
+        "--bench", "2,6,7,15",
+        "--captain", "Player_13",
+        "--vice-captain", "Player_8",
+        "--notes", "CLI customized lineup",
+        "--overwrite",
+    ]
+    main(args)
+    captured = capsys.readouterr().out
+    assert "Gameweek 2" in captured
+    assert "Player_13 (C)" in captured
+    assert "Player_8 (VC)" in captured
+    assert "CLI customized lineup" in captured
+
+    # Test CLI with transfer
+    args_tx = [
+        "log-decision",
+        "--squad", str(squad_path),
+        "--gameweek", "2",
+        "-t", "Player_15:Player_16",
+        "--captain", "Player_13",
+        "--vice-captain", "Player_8",
+        "--overwrite",
+    ]
+    main(args_tx)
+    captured_tx = capsys.readouterr().out
+    assert "Player_15 -> Player_16" in captured_tx
 
