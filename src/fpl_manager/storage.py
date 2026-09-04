@@ -112,6 +112,31 @@ class SnapshotStore:
                     finished INTEGER NOT NULL,
                     PRIMARY KEY (snapshot_id, fixture_id)
                 );
+                CREATE TABLE IF NOT EXISTS decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    season TEXT NOT NULL,
+                    gameweek INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    chip_played TEXT,
+                    transfer_hits INTEGER NOT NULL DEFAULT 0,
+                    transfers_json TEXT NOT NULL DEFAULT '[]',
+                    starting_ids_json TEXT NOT NULL,
+                    bench_ids_json TEXT NOT NULL,
+                    captain_id INTEGER NOT NULL,
+                    vice_captain_id INTEGER NOT NULL,
+                    predicted_lineup_xp REAL,
+                    predicted_floor_xp REAL,
+                    predicted_ceiling_xp REAL,
+                    actual_points INTEGER,
+                    notes TEXT,
+                    UNIQUE(season, gameweek)
+                );
+                CREATE TABLE IF NOT EXISTS decision_recommendations (
+                    decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
+                    recommended_lineup_json TEXT,
+                    recommended_transfers_json TEXT,
+                    recommended_plan_json TEXT
+                );
                 """
             )
             # Fixtures migration check

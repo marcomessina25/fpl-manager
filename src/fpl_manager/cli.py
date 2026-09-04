@@ -18,6 +18,12 @@ from .squad_report import SQUAD_REPORT_PATH, generate_squad_report
 from .squad_state import load_current_squad
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
 from .suggest_transfers import TRANSFERS_REPORT_PATH, WILDCARD_REPORT_PATH, suggest_transfers, suggest_wildcard
+from .decision_log import (
+    get_gameweek_decision,
+    list_decisions,
+    log_decision_from_current_squad,
+    record_actual_gameweek_score,
+)
 from .transfers import Transfer, validate_transfers
 
 
@@ -354,6 +360,52 @@ def format_report_concise(result: dict[str, Any]) -> str:
     )
 
 
+
+def format_decision_concise(result: dict[str, Any]) -> str:
+    gw = result.get("gameweek")
+    season = result.get("season", "2026/27")
+    cap = result.get("captain_name", "Unknown")
+    vc = result.get("vice_captain_name", "Unknown")
+    xp = result.get("predicted_lineup_xp", 0.0)
+    floor = result.get("predicted_floor_xp", 0.0)
+    ceil = result.get("predicted_ceiling_xp", 0.0)
+    chip = result.get("chip_played") or "None"
+    hits = result.get("transfer_hits", 0)
+    actual = result.get("actual_points")
+    actual_str = str(actual) if actual is not None else "Pending"
+    notes = result.get("notes") or "None"
+
+    return (
+        f"Gameweek {gw} ({season}) Decision Log (ID #{result.get('decision_id')}):\n"
+        f"  Captain: {cap} (C), Vice: {vc} (VC)\n"
+        f"  Projected xP: {xp:.1f} (Floor: {floor:.1f}, Ceiling: {ceil:.1f})\n"
+        f"  Chip: {chip} | Hits: {hits} (-{hits * 4} pts)\n"
+        f"  Actual Score: {actual_str}\n"
+        f"  Notes: {notes}"
+    )
+
+
+def format_decisions_list_concise(results: list[dict[str, Any]]) -> str:
+    if not results:
+        return "No decisions logged yet."
+    lines = [
+        f"{'GW':<5} | {'Chip':<10} | {'Hits':<5} | {'Captain':<15} | {'Pred xP':<8} | {'Actual':<8} | {'Date':<10}",
+        "-" * 72,
+    ]
+    for r in results:
+        gw_str = f"GW{r.get('gameweek')}"
+        chip_str = r.get("chip_played") or "-"
+        hits_str = str(r.get("transfer_hits", 0))
+        cap_str = (r.get("captain_name") or f"ID {r.get('captain_id')}")[:15]
+        xp_str = f"{r.get('predicted_lineup_xp', 0.0):.1f}"
+        actual = r.get("actual_points")
+        act_str = str(actual) if actual is not None else "-"
+        date_str = (r.get("timestamp") or "")[:10]
+        lines.append(f"{gw_str:<5} | {chip_str:<10} | {hits_str:<5} | {cap_str:<15} | {xp_str:<8} | {act_str:<8} | {date_str:<10}")
+    return "\n".join(lines)
+
+
+
 import sys
 
 
@@ -430,6 +482,19 @@ def main() -> None:
     validate_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Private current-squad JSON path")
     validate_parser.add_argument("-n", "--by-name", action="store_true", help="Resolve transfers by player name queries instead of integer IDs")
     validate_parser.add_argument("--transfer", action="append", required=True, help="Transfer as OUTGOING:INCOMING; repeat for multiple moves")
+    log_dec_parser = subcommands.add_parser("log-decision", help="Record and freeze gameweek lineup and transfer decisions in audit trail")
+    log_dec_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+    log_dec_parser.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current gameweek)")
+    log_dec_parser.add_argument("--chip", choices=["wildcard", "freehit", "benchboost", "triplecaptain"], default=None, help="Chip played this gameweek")
+    log_dec_parser.add_argument("--hits", type=int, default=0, help="Number of transfer hits taken (4 pts each)")
+    log_dec_parser.add_argument("--notes", type=str, default="", help="Optional manager reasoning/decision notes")
+    log_dec_parser.add_argument("--actual-points", type=int, default=None, help="Actual points scored (for post-matchday finalization)")
+    log_dec_parser.add_argument("--overwrite", action="store_true", help="Overwrite existing decision log for this gameweek")
+
+    decisions_parser = subcommands.add_parser("decisions", help="Review past gameweek decisions and audit trail")
+    decisions_parser.add_argument("--gameweek", type=int, default=None, help="View specific gameweek decision")
+    decisions_parser.add_argument("--season", type=str, default="2026/27", help="Filter by season (default: 2026/27)")
+
     arguments = parser.parse_args()
 
     try:
@@ -508,9 +573,53 @@ def main() -> None:
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_players_concise(result))
         elif arguments.command == "import-squad":
             import_squad_from_file(players_path=arguments.players, squad_path=arguments.squad)
-        else:
+        elif arguments.command == "log-decision":
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            if arguments.actual_points is not None:
+                gw = arguments.gameweek
+                if gw is None:
+                    from .fixtures import get_current_gameweek
+                    gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+                existing = get_gameweek_decision(gw, database_path=DATABASE_PATH)
+                if existing is not None:
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+                else:
+                    log_decision_from_current_squad(
+                        gameweek=gw,
+                        squad_path=squad_path,
+                        database_path=DATABASE_PATH,
+                        chip_played=arguments.chip,
+                        transfer_hits=arguments.hits,
+                        notes=arguments.notes,
+                        overwrite=arguments.overwrite,
+                    )
+                    result = record_actual_gameweek_score(gw, arguments.actual_points, database_path=DATABASE_PATH)
+            else:
+                result = log_decision_from_current_squad(
+                    gameweek=arguments.gameweek,
+                    squad_path=squad_path,
+                    database_path=DATABASE_PATH,
+                    chip_played=arguments.chip,
+                    transfer_hits=arguments.hits,
+                    notes=arguments.notes,
+                    overwrite=arguments.overwrite,
+                )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
+        elif arguments.command == "decisions":
+            if arguments.gameweek is not None:
+                result = get_gameweek_decision(arguments.gameweek, season=arguments.season, database_path=DATABASE_PATH)
+                if result is None:
+                    print(f"No decision logged for {arguments.season} GW{arguments.gameweek}.")
+                else:
+                    print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
+            else:
+                decisions_list = list_decisions(season=arguments.season, database_path=DATABASE_PATH)
+                print(json.dumps({"decisions": decisions_list}, indent=2, ensure_ascii=False) if arguments.verbose else format_decisions_list_concise(decisions_list))
+        elif arguments.command == "validate-transfers":
             result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
+        else:
+            parser.print_help()
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
 
