@@ -35,6 +35,11 @@ from .ownership import (
     analyze_gameweek_ownership,
     analyze_squad_risk_profile,
 )
+from .chip_strategy import (
+    CHIP_STRATEGY_REPORT_PATH,
+    analyze_fixture_calendar,
+    recommend_chip_strategy,
+)
 from .transfers import Transfer, validate_transfers
 
 
@@ -566,6 +571,50 @@ def format_ownership_concise(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_chip_strategy_concise(result: dict[str, Any]) -> str:
+    lines = [
+        f"=== Chip Strategy & BGW/DGW Roadmap (GW{result.get('start_gw')} - GW{result.get('end_gw')}) ===",
+        f"Available Chips: {', '.join(result.get('available_chips', [])) or 'None'}",
+    ]
+    if result.get("used_chips"):
+        lines.append(f"Used Chips: {', '.join(result.get('used_chips', []))}")
+
+    has_bgw = result.get("has_confirmed_blank_gameweeks")
+    has_dgw = result.get("has_confirmed_double_gameweeks")
+    status_str = []
+    if has_dgw:
+        status_str.append("Double Gameweeks Confirmed")
+    if has_bgw:
+        status_str.append("Blank Gameweeks Confirmed")
+    if not status_str:
+        status_str.append("All Upcoming Gameweeks Standard (Postponements Pending)")
+    lines.append(f"Calendar Status: {'; '.join(status_str)}")
+    lines.append("")
+
+    lines.append("Recommended Deployment Schedule:")
+    sched = result.get("recommended_schedule", [])
+    if not sched:
+        lines.append("  No chips recommended for deployment in target horizon.")
+    else:
+        for item in sched:
+            chip_name = item["chip"].upper()
+            gw = item["gameweek"]
+            gw_type = item["gw_type"]
+            reason = item["reasoning"]
+            lines.append(f"  GW{gw:02d} [{gw_type:8s}]: {chip_name:<15} | {reason}")
+
+    lines.append("")
+    lines.append("Top Candidate Gameweeks by Chip:")
+    rankings = result.get("candidate_rankings", {})
+    for chip, cands in rankings.items():
+        if cands:
+            top_cand = cands[0]
+            lines.append(f"  {chip.upper():<15}: Best GW{top_cand['gameweek']} ({top_cand['gw_type']}) - Rating: {top_cand['rating']} ({top_cand['reasoning']})")
+
+    return "\n".join(lines)
+
+
+
 
 
 import sys
@@ -672,6 +721,18 @@ def main() -> None:
         own_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
         own_p.add_argument("--league", action="store_true", help="Analyze entire league instead of current squad")
         own_p.add_argument("--top", type=int, default=10, help="Number of top assets to show for league analysis (default: 10)")
+
+    for chip_cmd, chip_help in (
+        ("chip-strategy", "Evaluate Blank/Double Gameweeks and generate optimal chip deployment strategy"),
+        ("chips", "Alias for `fpl chip-strategy` command"),
+        ("bgw-dgw", "Alias for `fpl chip-strategy` command"),
+    ):
+        chip_p = subcommands.add_parser(chip_cmd, help=chip_help)
+        chip_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        chip_p.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: upcoming GW)")
+        chip_p.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        chip_p.add_argument("--used-chips", type=str, default=None, help="Comma-separated list of already used chips (e.g. wildcard,freehit)")
+        chip_p.add_argument("--output", type=Path, default=CHIP_STRATEGY_REPORT_PATH, help="Output path for JSON plan")
 
     arguments = parser.parse_args()
 
@@ -817,6 +878,18 @@ def main() -> None:
                 squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
                 result = analyze_squad_risk_profile(squad_path=squad_path, gameweek=gw, database_path=DATABASE_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_ownership_concise(result))
+        elif arguments.command in ("chip-strategy", "chips", "bgw-dgw"):
+            squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+            used_list = [c.strip() for c in arguments.used_chips.split(",")] if arguments.used_chips else []
+            result = recommend_chip_strategy(
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                used_chips=used_list,
+                report_path=getattr(arguments, "output", CHIP_STRATEGY_REPORT_PATH),
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_chip_strategy_concise(result))
         elif arguments.command == "validate-transfers":
             result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
