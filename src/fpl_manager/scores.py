@@ -68,6 +68,60 @@ def get_or_fetch_gameweek_scores(
         return {}
 
 
+def get_detailed_player_gameweek_stats(
+    gameweek: int,
+    database_path: Path = DATABASE_PATH,
+    force_fetch: bool = False,
+) -> dict[int, dict[str, Any]]:
+    """Retrieve detailed player statistics for a gameweek (minutes, goals, assists, bps, bonus, points)."""
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    if force_fetch:
+        try:
+            update_gameweek_scores(gameweek, database_path=database_path)
+        except Exception:
+            pass
+
+    with closing(store._connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT player_id, total_points, minutes, goals_scored, assists, clean_sheets, goals_conceded, bonus, bps
+            FROM player_gameweek_scores
+            WHERE event_id = ?
+            """,
+            (gameweek,),
+        ).fetchall()
+
+        if not rows and not force_fetch:
+            try:
+                update_gameweek_scores(gameweek, database_path=database_path)
+                rows = conn.execute(
+                    """
+                    SELECT player_id, total_points, minutes, goals_scored, assists, clean_sheets, goals_conceded, bonus, bps
+                    FROM player_gameweek_scores
+                    WHERE event_id = ?
+                    """,
+                    (gameweek,),
+                ).fetchall()
+            except Exception:
+                pass
+
+        res = {}
+        for r in rows:
+            res[r[0]] = {
+                "total_points": int(r[1]),
+                "minutes": int(r[2]),
+                "goals_scored": int(r[3]),
+                "assists": int(r[4]),
+                "clean_sheets": int(r[5]),
+                "goals_conceded": int(r[6]),
+                "bonus": int(r[7]),
+                "bps": int(r[8]),
+            }
+        return res
+
+
 def update_gameweek_scores(
     gameweek: int,
     database_path: Path = DATABASE_PATH,

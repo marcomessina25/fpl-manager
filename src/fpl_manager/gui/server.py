@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from ..briefing import generate_manager_briefing
 from ..chip_strategy import recommend_chip_strategy
 from ..decision_log import (
     apply_wildcard_or_freehit,
@@ -24,6 +25,8 @@ from ..decision_log import (
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
 from ..lineup import build_logged_lineup, select_starting_lineup
+from ..live_matchday import get_live_gameweek_matchday_summary
+from ..llm_advisor import generate_llm_advisory
 from ..planner import generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
 from ..squad_report import generate_squad_report
@@ -264,6 +267,47 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 store = SnapshotStore(self.database_path)
                 details = store.get_player_details(pid, gameweek=gw)
                 self._send_json(details)
+            elif path == "/api/briefing":
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                rep = generate_manager_briefing(
+                    squad_path=squad_path,
+                    gameweek=gw,
+                    team_id=tid,
+                    database_path=self.database_path,
+                )
+                self._send_json(rep)
+            elif path == "/api/live":
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
+                force = str(get_arg("force", "false")).lower() in ("true", "1", "yes")
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                rep = get_live_gameweek_matchday_summary(
+                    gameweek=gw,
+                    squad_path=squad_path,
+                    team_id=tid,
+                    database_path=self.database_path,
+                    force_fetch=force,
+                )
+                self._send_json(rep)
+            elif path == "/api/advise":
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
+                persona = get_arg("persona", "devil_advocate")
+                provider = get_arg("provider", "auto")
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                rep = generate_llm_advisory(
+                    gameweek=gw,
+                    squad_path=squad_path,
+                    database_path=self.database_path,
+                    persona=persona,
+                    provider=provider,
+                )
+                self._send_json(rep)
             else:
                 # Static file serving fallback
                 self._serve_static(path)
@@ -419,6 +463,25 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     from ..fixtures import get_current_gameweek
                     gw = get_current_gameweek(SnapshotStore(self.database_path))
                 res = update_gameweek_scores(gameweek=gw, database_path=self.database_path)
+                self._send_json(res)
+            elif path == "/api/advise":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                gw_val = body.get("gameweek")
+                gw = int(gw_val) if gw_val is not None else None
+                persona = body.get("persona", "devil_advocate")
+                provider = body.get("provider", "auto")
+                api_key = body.get("api_key")
+                model = body.get("model")
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                res = generate_llm_advisory(
+                    gameweek=gw,
+                    squad_path=squad_path,
+                    database_path=self.database_path,
+                    persona=persona,
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                )
                 self._send_json(res)
             else:
                 self._send_error_json("Unknown endpoint", status=404)

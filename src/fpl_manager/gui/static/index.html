@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-ball">⚽</span>
         <span class="logo-text">FPL <strong>MANAGER</strong></span>
-        <span class="badge-version">v0.5</span>
+        <span class="badge-version">v0.6</span>
       </div>
 
       <!-- Team Switcher Bar -->
@@ -60,6 +60,8 @@
   <!-- Navigation Tabs Bar -->
   <nav class="tabs-nav">
     <button class="tab-btn active" data-tab="pitch">🏟️ Pitch & Lineup</button>
+    <button class="tab-btn" data-tab="live">⚡ Live Matchday</button>
+    <button class="tab-btn" data-tab="advisor">🤖 AI Advisor & Briefing</button>
     <button class="tab-btn" data-tab="decisions">📝 Decision Logger</button>
     <button class="tab-btn" data-tab="transfers">🔄 Transfers & Wildcard</button>
     <button class="tab-btn" data-tab="planner">📅 Multi-GW Planner</button>
@@ -483,6 +485,56 @@
 
       <div id="eval-results-container">
         <p class="text-muted">Click "Run Accuracy & Regret Audit" to benchmark model calibration, captaincy regret, and lineup performance.</p>
+      </div>
+    </section>
+
+    <!-- TAB 7: LIVE MATCHDAY TRACKER -->
+    <section id="tab-live" class="tab-pane">
+      <div class="toolbar">
+        <div class="tool-group">
+          <label>Gameweek:</label>
+          <input type="number" id="live-gw" min="1" max="38" placeholder="Current GW" class="input-sm" style="width:75px;">
+        </div>
+        <button id="btn-refresh-live" class="btn btn-primary btn-sm">⚡ Refresh Live Matchday</button>
+        <button id="btn-fetch-fpl-scores" class="btn btn-outline btn-sm">🔄 Sync FPL Official Scores</button>
+        <span id="live-last-updated" style="font-size: 0.82rem; color: var(--text-secondary); margin-left: auto;"></span>
+      </div>
+
+      <div id="live-results-container">
+        <p class="text-muted">Click "Refresh Live Matchday" to track real-time matchday points, autosubs, captain promotion, and rank accelerators.</p>
+      </div>
+    </section>
+
+    <!-- TAB 8: AI ADVISOR & ANALYTICAL DOSSIER -->
+    <section id="tab-advisor" class="tab-pane">
+      <div class="toolbar">
+        <div class="tool-group">
+          <label>Persona:</label>
+          <select id="adv-persona" class="input-sm" style="width: 170px;">
+            <option value="devil_advocate">😈 Devil's Advocate</option>
+            <option value="tactical_analyst">📋 Tactical & Press Conf</option>
+            <option value="strategic_planner">🧭 Strategic Planner</option>
+          </select>
+        </div>
+        <div class="tool-group">
+          <label>Engine:</label>
+          <select id="adv-provider" class="input-sm" style="width: 140px;">
+            <option value="auto">Auto (Smart Fallback)</option>
+            <option value="heuristic">Heuristic Engine (Local)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
+        </div>
+        <div class="tool-group">
+          <input type="password" id="adv-api-key" placeholder="Optional API Key" class="input-sm" style="width: 130px;" title="API Key for Gemini or OpenAI (leave blank if set via environment variable)">
+        </div>
+        <button id="btn-run-advisor" class="btn btn-primary btn-sm">🤖 Generate Advisory</button>
+        <button id="btn-view-dossier" class="btn btn-secondary btn-sm">📑 View Manager Dossier</button>
+      </div>
+
+      <div id="advisor-results-container">
+        <p class="text-muted">Select an advisory persona and click "Generate Advisory" for strategic tactical reviews with deterministic legality guardrails.</p>
       </div>
     </section>
 

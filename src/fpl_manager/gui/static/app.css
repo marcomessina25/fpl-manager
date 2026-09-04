@@ -1175,3 +1175,159 @@ body {
   margin: 0.15rem 0;
 }
 
+/* V0.6 Live Matchday & AI Advisor Styling */
+.live-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.live-hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.live-hero-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.4rem;
+}
+
+.live-hero-value {
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: var(--accent-green);
+  line-height: 1.1;
+}
+
+.live-hero-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+}
+
+.live-autosub-banner {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 8px;
+  padding: 0.9rem 1.2rem;
+  margin-bottom: 1.5rem;
+}
+
+.live-autosub-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.live-table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
+.live-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.live-table th {
+  background: var(--bg-input);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.live-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  color: var(--text-primary);
+}
+
+.live-table tr:last-child td {
+  border-bottom: none;
+}
+
+.live-status-live {
+  color: #38bdf8;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.live-status-finished {
+  color: var(--text-muted);
+}
+
+.rank-accelerators-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.8rem;
+}
+
+.rank-accelerator-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+}
+
+.advisor-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.advisor-verdict-approved {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid var(--accent-green);
+  color: #34d399;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: inline-block;
+}
+
+.advisor-verdict-rejected {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--accent-red);
+  color: #f87171;
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: inline-block;
+}
+
+.advisor-markdown-content {
+  line-height: 1.65;
+  color: var(--text-primary);
+  margin-top: 1rem;
+  white-space: pre-line;
+}
+
+
