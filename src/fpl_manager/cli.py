@@ -30,6 +30,11 @@ from .evaluation import (
     evaluate_predictions,
     evaluate_season_decisions,
 )
+from .ownership import (
+    OWNERSHIP_REPORT_PATH,
+    analyze_gameweek_ownership,
+    analyze_squad_risk_profile,
+)
 from .transfers import Transfer, validate_transfers
 
 
@@ -130,7 +135,12 @@ def format_lineup_concise(result: dict[str, Any]) -> str:
     for p in starters:
         badge = " [C]" if p.get("role") == "CAPTAIN" else (" [VC]" if p.get("role") == "VICE_CAPTAIN" else "")
         pos = p.get("pos_abbr", "MID")
-        by_pos.setdefault(pos, []).append(f"{p.get('name')}{badge} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP")
+        eo_str = ""
+        if "effective_ownership_pct" in p:
+            cat = p.get("strategic_category", "CORE")
+            eo_val = p.get("effective_ownership_pct", 0.0)
+            eo_str = f" [{cat} {eo_val:.0f}% EO]"
+        by_pos.setdefault(pos, []).append(f"{p.get('name')}{badge} ({p.get('team')}, {p.get('fixtures_summary')}) - {p.get('expected_points', 0.0):.1f} xP{eo_str}")
 
     for pos in ("GKP", "DEF", "MID", "FWD"):
         if pos in by_pos:
@@ -503,6 +513,60 @@ def format_evaluation_concise(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_ownership_concise(result: dict[str, Any]) -> str:
+    gw = result.get("gameweek")
+    if "template_alignment_score" in result:
+        lines = [
+            f"=== Squad Strategic Risk Profile (GW{gw}) ===",
+            f"Verdict: {result.get('strategic_verdict')}",
+            f"Template Alignment: {result.get('template_alignment_score', 0.0):.1f}% | Shields in XI: {result.get('shield_count_in_xi', 0)} | Swords in XI: {result.get('sword_count_in_xi', 0)}",
+            "",
+            "Starting XI Net Exposure:",
+        ]
+        for p in result.get("starters", []):
+            role_tag = f" [{p.get('lineup_role')[:3]}]" if p.get("lineup_role") in ("CAPTAIN", "VICE_CAPTAIN") else ""
+            cat = p.get("strategic_category", "CORE")
+            eo = p.get("effective_ownership_pct", 0.0)
+            net = p.get("net_exposure_pct", 0.0)
+            lines.append(
+                f"  [{cat:<6}] {p.get('name')}{role_tag} ({p.get('position')}, {p.get('team')}) - "
+                f"{p.get('expected_points', 0.0):.1f} xP | {eo:5.1f}% EO | Net Exp: {net:+6.1f}% ({p.get('rank_leverage_verdict')})"
+            )
+
+        threats = result.get("top_non_owned_rank_threats", [])
+        if threats:
+            lines.append("")
+            lines.append("Top Non-Owned League Rank Threats:")
+            for idx, t in enumerate(threats, 1):
+                lines.append(
+                    f"  {idx}. {t.get('name')} ({t.get('team')}) - {t.get('expected_points', 0.0):.1f} xP | "
+                    f"{t.get('effective_ownership_pct', 0.0):.1f}% EO | Net Exp: {t.get('net_exposure_pct', 0.0):+0.1f}% "
+                    f"(Rank Drag: {t.get('rank_threat_drag', 0.0):.1f} pts)"
+                )
+        return "\n".join(lines)
+
+    lines = [
+        f"=== League Effective Ownership & Strategic Assets (GW{gw}) ===",
+        "",
+        "Top Effective Ownership:",
+    ]
+    for p in result.get("top_effective_ownership", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}, {p.get('position')}): {p.get('effective_ownership_pct', 0.0):.1f}% EO ({p.get('ownership_pct', 0.0):.1f}% own, {p.get('captaincy_pct', 0.0):.1f}% cap)")
+
+    lines.append("")
+    lines.append("Top Template Shields (Protection):")
+    for p in result.get("top_shields", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}): {p.get('expected_points', 0.0):.1f} xP | {p.get('effective_ownership_pct', 0.0):.1f}% EO | Shield Score: {p.get('shield_score', 0.0):.2f}")
+
+    lines.append("")
+    lines.append("Top Differential Swords (Upside Attack):")
+    for p in result.get("top_swords", [])[:5]:
+        lines.append(f"  {p.get('name')} ({p.get('team')}): {p.get('expected_points', 0.0):.1f} xP (Ceil: {p.get('xp_ceiling', 0.0):.1f}) | {p.get('effective_ownership_pct', 0.0):.1f}% EO | Sword Score: {p.get('sword_score', 0.0):.2f}")
+
+    return "\n".join(lines)
+
+
+
 
 import sys
 
@@ -598,6 +662,16 @@ def main() -> None:
     eval_parser.add_argument("--season", type=str, default="2026/27", help="Season to evaluate (default: 2026/27)")
     eval_parser.add_argument("--scores", type=str, default=None, help="Player scores: JSON file path, JSON string, or 'ID:PTS,ID:PTS'")
     eval_parser.add_argument("--decisions", action="store_true", help="Evaluate all logged decisions across the season")
+
+    for own_cmd, own_help in (
+        ("ownership", "Analyze effective ownership, template shields, differential swords, and squad rank exposure"),
+        ("risk", "Alias for `fpl ownership` command"),
+    ):
+        own_p = subcommands.add_parser(own_cmd, help=own_help)
+        own_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        own_p.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
+        own_p.add_argument("--league", action="store_true", help="Analyze entire league instead of current squad")
+        own_p.add_argument("--top", type=int, default=10, help="Number of top assets to show for league analysis (default: 10)")
 
     arguments = parser.parse_args()
 
@@ -732,6 +806,17 @@ def main() -> None:
             else:
                 result = evaluate_season_decisions(season=arguments.season, database_path=DATABASE_PATH)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_evaluation_concise(result))
+        elif arguments.command in ("ownership", "risk"):
+            gw = arguments.gameweek
+            if arguments.league:
+                if gw is None:
+                    from .fixtures import get_current_gameweek
+                    gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
+                result = analyze_gameweek_ownership(gameweek=gw, database_path=DATABASE_PATH, top_n=arguments.top)
+            else:
+                squad_path = getattr(arguments, "squad", DEFAULT_SQUAD_PATH)
+                result = analyze_squad_risk_profile(squad_path=squad_path, gameweek=gw, database_path=DATABASE_PATH)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_ownership_concise(result))
         elif arguments.command == "validate-transfers":
             result = validate_transfer_set(arguments.squad, arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
