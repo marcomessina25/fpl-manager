@@ -370,7 +370,7 @@ def _build_live_matchday_markdown(summary: dict[str, Any]) -> str:
 
     for p in summary["starters"]:
         fin_txt = "Finished" if p["match_finished"] else "Live / Upcoming"
-        role_marker = " (C)" if "CAPTAIN" in p["role"] else ""
+        role_marker = " (TC)" if "TC" in p["role"] else (" (C)" if p["role"] == "CAPTAIN" else (" (VC)" if p["role"] == "VICE_CAPTAIN" else ""))
         sub_marker = " 🔄" if p["subbed_in"] else ""
         lines.append(
             f"| {p['position']} | **{p['name']}**{role_marker}{sub_marker} | {p['team']} | {p['minutes']}' | "

@@ -130,6 +130,7 @@ def generate_manager_briefing(
             pid, name, team_code, status, chance, news = r
             if status != "a" or (chance is not None and chance < 100) or (news and len(news.strip()) > 0):
                 squad_alerts.append({
+                    "id": pid,
                     "player_id": pid,
                     "name": name,
                     "team": team_code,

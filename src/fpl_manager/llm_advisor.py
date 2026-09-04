@@ -126,32 +126,49 @@ def _heuristic_advisory(dossier: dict[str, Any], persona: str) -> dict[str, Any]
     critique_points = []
     tactical_notes = []
 
-    # Check health alerts
-    flagged_starters = [p for p in starters if any(a["id"] == p["id"] for a in health_alerts)]
+    # Check health alerts safely
+    flagged_starters = [
+        p for p in starters
+        if any((a.get("id") == p.get("id") or a.get("player_id") == p.get("id")) for a in health_alerts)
+    ]
     if flagged_starters:
-        names = ", ".join(p["name"] for p in flagged_starters)
+        names = ", ".join(p.get("name", "Unknown") for p in flagged_starters)
         critique_points.append(f"⚠️ **Health Exposure**: Starters with flags ({names}) require immediate contingency planning.")
         tactical_notes.append(f"Monitor press conference updates closely for {names}.")
 
     # Evaluate captaincy risk
     cap_name = captain.get("name", "Unknown")
     vice_name = vice_captain.get("name", "Unknown")
-    high_eo = next((r for r in ownership_risks if r["name"] == cap_name), None)
-    if high_eo and high_eo.get("eo_pct", 0) > 100:
-        critique_points.append(f"🛡️ **Captaincy Template Trap**: Captain {cap_name} has {high_eo['eo_pct']}% EO. Playing them protects rank but offers zero upside.")
+    strat_risk = dossier.get("strategic_risk", {})
+    all_threats = dossier.get("strategic_ownership_risks") or strat_risk.get("top_threats_against_squad") or []
+    high_eo = next((r for r in all_threats if r.get("name") == cap_name), None)
+    eo_val = (high_eo.get("effective_ownership_pct") or high_eo.get("eo_pct", 0.0)) if high_eo else 0.0
+    if high_eo and eo_val > 100:
+        critique_points.append(f"🛡️ **Captaincy Template Trap**: Captain {cap_name} has {eo_val:.1f}% EO. Playing them protects rank but offers zero upside.")
     else:
         critique_points.append(f"⚔️ **Captaincy Differential**: {cap_name} is an active rank leverage play against the template.")
 
     # Strategic / transfer logic
     ft = financials.get("free_transfers", 1)
-    if transfer_recs and (flagged_starters or ft >= 2):
-        best_move = transfer_recs[0]
-        proposed_transfers.append({
-            "out": best_move["out_name"],
-            "in": best_move["in_name"],
-            "rationale": f"Algorithmic top delta ({best_move['net_delta']:+.2f} xP). Resolves squad friction and capitalizes on form/fixture swing.",
-        })
-        tactical_notes.append(f"Swap {best_move['out_name']} -> {best_move['in_name']} delivers immediate fixture upgrade.")
+    tx_list = dossier.get("top_transfer_recommendations") or dossier.get("transfer_suggestions") or []
+    if tx_list and (flagged_starters or ft >= 2):
+        best_move = tx_list[0]
+        if "outgoing" in best_move and "incoming" in best_move:
+            out_name = best_move["outgoing"][0].get("name", "") if best_move["outgoing"] else ""
+            in_name = best_move["incoming"][0].get("name", "") if best_move["incoming"] else ""
+            delta = best_move.get("xp_delta") or best_move.get("net_xp_gain") or 0.0
+        else:
+            out_name = best_move.get("out_name", best_move.get("out", ""))
+            in_name = best_move.get("in_name", best_move.get("in", ""))
+            delta = best_move.get("net_delta", 0.0)
+
+        if out_name and in_name:
+            proposed_transfers.append({
+                "out": out_name,
+                "in": in_name,
+                "rationale": f"Algorithmic top move ({delta:+.2f} xP). Resolves squad friction and capitalizes on form/fixture swing.",
+            })
+            tactical_notes.append(f"Swap {out_name} -> {in_name} delivers immediate fixture upgrade.")
     elif ft == 1 and not flagged_starters:
         tactical_notes.append("Roll the free transfer to accumulate 2 FTs for subsequent gameweek flexibility.")
 
