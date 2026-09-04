@@ -68,6 +68,8 @@ function initTabs() {
       }
       if (target === "chips") loadChipStrategy();
       if (target === "evaluation") loadEvaluation();
+      if (target === "live") loadLiveMatchday();
+      if (target === "advisor") loadAdvisor();
     });
   });
 
@@ -1858,6 +1860,514 @@ function initEventListeners() {
   document.getElementById("btn-run-plan").addEventListener("click", runPlanner);
   document.getElementById("btn-run-chip-strategy").addEventListener("click", loadChipStrategy);
   document.getElementById("btn-run-eval").addEventListener("click", loadEvaluation);
+
+  // V0.6 Live Matchday & AI Advisor Buttons
+  const btnRefreshLive = document.getElementById("btn-refresh-live");
+  if (btnRefreshLive) btnRefreshLive.addEventListener("click", () => loadLiveMatchday(false));
+
+  const btnFetchFpl = document.getElementById("btn-fetch-fpl-scores");
+  if (btnFetchFpl) btnFetchFpl.addEventListener("click", () => loadLiveMatchday(true));
+
+  const btnRunAdvisor = document.getElementById("btn-run-advisor");
+  if (btnRunAdvisor) btnRunAdvisor.addEventListener("click", runAdvisor);
+
+  const btnViewDossier = document.getElementById("btn-view-dossier");
+  if (btnViewDossier) btnViewDossier.addEventListener("click", viewManagerDossier);
+}
+
+// ==========================================
+// TAB 7: LIVE MATCHDAY TRACKER CONTROLLER
+// ==========================================
+
+async function loadLiveMatchday(force = false) {
+  const container = document.getElementById("live-results-container");
+  if (!container) return;
+
+  const gwInput = document.getElementById("live-gw");
+  let gw = gwInput ? parseInt(gwInput.value) : null;
+  if (!gw) gw = state.activeGameweek;
+  if (gwInput && !gwInput.value) gwInput.value = gw;
+
+  container.innerHTML = `
+    <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
+      <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-green); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+      <p>Loading real-time matchday performance for Gameweek ${gw}...</p>
+    </div>
+  `;
+
+  try {
+    const data = await api(`/api/live?team=${state.activeTeamId}&gameweek=${gw}${force ? '&force=true' : ''}`);
+    renderLiveMatchday(data);
+    const updatedEl = document.getElementById("live-last-updated");
+    if (updatedEl) {
+      const d = new Date(data.generated_at);
+      updatedEl.textContent = `Updated: ${d.toLocaleTimeString()}`;
+    }
+  } catch (err) {
+    container.innerHTML = `
+      <div class="alert alert-danger" style="margin-top: 1rem;">
+        Failed to load live matchday data: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+function renderLiveMatchday(data) {
+  const container = document.getElementById("live-results-container");
+  if (!container) return;
+
+  const net = data.net_points || 0;
+  const gross = data.gross_points || 0;
+  const hits = data.hit_cost || 0;
+  const cap = data.captain || {};
+  const chip = data.chip_played;
+  const autosubs = data.autosubs || [];
+  const starters = data.starters || [];
+  const bench = data.bench || [];
+  const rankAcc = data.rank_accelerators || [];
+
+  let html = `
+    <div class="live-hero-grid">
+      <div class="live-hero-card">
+        <div class="live-hero-label">Live Score</div>
+        <div class="live-hero-value">${net} <span style="font-size: 1.1rem; font-weight: 600; color: var(--text-secondary);">pts</span></div>
+        <div class="live-hero-sub">${hits > 0 ? `Gross: ${gross} pts (-${hits} hit deduction)` : 'No transfer hits taken'}</div>
+      </div>
+      <div class="live-hero-card">
+        <div class="live-hero-label">Armband (Captain)</div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-gold); line-height: 1.2;">
+          👑 ${escapeHtml(cap.name || 'Unknown')} <span style="font-size: 0.95rem; color: var(--text-primary);">(${cap.multiplier || 2}x)</span>
+        </div>
+        <div class="live-hero-sub">
+          <strong>${cap.points || 0} pts</strong> ${cap.promoted_from_vice ? '• <span style="color: #60a5fa;">Promoted from Vice</span>' : ''}
+        </div>
+      </div>
+      <div class="live-hero-card">
+        <div class="live-hero-label">Active Chip</div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: ${chip ? 'var(--accent-purple)' : 'var(--text-muted)'}; line-height: 1.2;">
+          ${chip ? escapeHtml(chip.toUpperCase()) : 'None Active'}
+        </div>
+        <div class="live-hero-sub">${chip ? 'Chip modifier applied' : 'Standard matchday scoring'}</div>
+      </div>
+    </div>
+  `;
+
+  if (autosubs.length > 0) {
+    html += `
+      <div class="live-autosub-banner">
+        <div class="live-autosub-title">🔄 Automatic Substitutions Applied (${autosubs.length})</div>
+        <div style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem;">
+          ${autosubs.map(s => `
+            <div>
+              • <strong>OUT</strong>: ${escapeHtml(s.out.name)} (${s.out.position}) ➔ 
+              <strong>IN</strong>: <strong style="color: var(--accent-green);">${escapeHtml(s.in.name)}</strong> (${s.in.position}, +${s.in.points} pts): 
+              <em>${escapeHtml(s.reason)}</em>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  html += `
+    <h3 style="margin: 1.5rem 0 0.8rem 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px;">
+      <span>🏟️ Starting XI Performance</span>
+    </h3>
+    <div class="live-table-container">
+      <table class="live-table">
+        <thead>
+          <tr>
+            <th>Pos</th>
+            <th>Player</th>
+            <th>Team</th>
+            <th>Min</th>
+            <th>G</th>
+            <th>A</th>
+            <th>CS</th>
+            <th>GC</th>
+            <th>Bonus</th>
+            <th>BPS</th>
+            <th>Status</th>
+            <th style="text-align: right;">Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${starters.map(p => {
+            const isCap = p.role && p.role.includes("CAPTAIN");
+            const isSubbed = p.subbed_in;
+            const badge = isCap ? ' <span class="badge" style="background: var(--accent-gold); color: #000; font-weight: 800; font-size: 0.7rem; padding: 2px 4px; border-radius: 3px;">C</span>' : (p.role === "VICE_CAPTAIN" ? ' <span class="badge" style="background: #64748b; font-size: 0.7rem; padding: 2px 4px; border-radius: 3px;">VC</span>' : '');
+            const subBadge = isSubbed ? ' <span class="badge" style="background: #3b82f6; font-size: 0.7rem; padding: 2px 4px; border-radius: 3px;">🔄 SUB IN</span>' : '';
+            const statusHtml = p.match_finished ? '<span class="live-status-finished">Finished</span>' : '<span class="live-status-live">● Live/Upcoming</span>';
+            return `
+              <tr style="${isSubbed ? 'background: rgba(59, 130, 246, 0.05);' : ''}">
+                <td><span class="pos-badge pos-${p.position.toLowerCase()}">${p.position}</span></td>
+                <td><strong>${escapeHtml(p.name)}</strong>${badge}${subBadge}</td>
+                <td><span class="team-tag">${p.team}</span></td>
+                <td>${p.minutes}'</td>
+                <td>${p.goals}</td>
+                <td>${p.assists}</td>
+                <td>${p.clean_sheet}</td>
+                <td>${p.goals_conceded}</td>
+                <td>${p.bonus}</td>
+                <td>${p.bps}</td>
+                <td>${statusHtml}</td>
+                <td style="text-align: right; font-weight: 800; font-size: 1.05rem; color: ${p.points > 0 ? 'var(--accent-green)' : 'var(--text-primary)'};">${p.points}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin: 1.5rem 0 0.8rem 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px;">
+      <span>🪑 Bench Substitutes</span>
+    </h3>
+    <div class="live-table-container">
+      <table class="live-table">
+        <thead>
+          <tr>
+            <th>Order</th>
+            <th>Pos</th>
+            <th>Player</th>
+            <th>Team</th>
+            <th>Min</th>
+            <th>Raw Pts</th>
+            <th>Counted in Total</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bench.map(p => {
+            const countedBadge = p.counted_in_total ? '<span style="color: var(--accent-green); font-weight: 700;">✅ Yes</span>' : '<span style="color: var(--text-muted);">No</span>';
+            const statusHtml = p.match_finished ? '<span class="live-status-finished">Finished</span>' : '<span class="live-status-live">● Live/Upcoming</span>';
+            return `
+              <tr>
+                <td>#${p.order}</td>
+                <td><span class="pos-badge pos-${p.position.toLowerCase()}">${p.position}</span></td>
+                <td>${escapeHtml(p.name)} ${p.subbed_in ? '<span class="badge" style="background: #3b82f6; font-size: 0.7rem; padding: 2px 4px; border-radius: 3px;">🔄 Subbed In</span>' : ''}</td>
+                <td><span class="team-tag">${p.team}</span></td>
+                <td>${p.minutes}'</td>
+                <td><strong>${p.raw_points}</strong></td>
+                <td>${countedBadge}</td>
+                <td>${statusHtml}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  if (rankAcc.length > 0) {
+    html += `
+      <h3 style="margin: 1.5rem 0 0.8rem 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px;">
+        <span>🚀 Rank Accelerators (Top Swing Leverage)</span>
+      </h3>
+      <div class="rank-accelerators-grid">
+        ${rankAcc.map(a => `
+          <div class="rank-accelerator-card">
+            <div style="font-weight: 700; font-size: 0.95rem;">⭐ ${escapeHtml(a.name)} <span class="team-tag">${a.team}</span></div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0;">
+              Scored <strong>${a.points} pts</strong> (EO: ${a.eo_pct}%)
+            </div>
+            <div style="font-size: 0.85rem; font-weight: 800; color: var(--accent-green);">
+              +${a.rank_delta_pts} pts rank leverage
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+// ==========================================
+// TAB 8: AI ADVISOR & ANALYTICAL DOSSIER
+// ==========================================
+
+function loadAdvisor() {
+  // Retain existing results if already computed
+}
+
+async function runAdvisor() {
+  const container = document.getElementById("advisor-results-container");
+  if (!container) return;
+
+  const personaSelect = document.getElementById("adv-persona");
+  const providerSelect = document.getElementById("adv-provider");
+  const apiKeyInput = document.getElementById("adv-api-key");
+  const gwInput = document.getElementById("live-gw");
+  let gw = gwInput ? parseInt(gwInput.value) : null;
+  if (!gw) gw = state.activeGameweek;
+
+  const persona = personaSelect ? personaSelect.value : "devil_advocate";
+  const provider = providerSelect ? providerSelect.value : "auto";
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : null;
+
+  container.innerHTML = `
+    <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
+      <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+      <p>Synthesizing briefing dossier and consulting ${persona.replace('_', ' ').toUpperCase()} advisor with deterministic guardrails...</p>
+    </div>
+  `;
+
+  try {
+    const payload = {
+      team_id: state.activeTeamId,
+      gameweek: gw,
+      persona: persona,
+      provider: provider,
+    };
+    if (apiKey) payload.api_key = apiKey;
+
+    const data = await api("/api/advise", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    renderAdvisorResults(data);
+    showToast("AI Strategic Advisory Generated!");
+  } catch (err) {
+    container.innerHTML = `
+      <div class="alert alert-danger" style="margin-top: 1rem;">
+        Failed to generate AI Advisory: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+function renderAdvisorResults(data) {
+  const container = document.getElementById("advisor-results-container");
+  if (!container) return;
+
+  const val = data.validation || {};
+  const isLegal = val.is_legal !== false;
+  const errors = val.errors || [];
+  const critiques = data.critique_points || [];
+  const tactical = data.tactical_notes || [];
+  const transfers = data.proposed_transfers || [];
+  const cap = data.proposed_captain;
+  const vc = data.proposed_vice_captain;
+
+  const verdictBadge = isLegal
+    ? `<span class="advisor-verdict-approved">🟢 APPROVED (LEGAL & WITHIN BUDGET)</span>`
+    : `<span class="advisor-verdict-rejected">🔴 REJECTED (${errors.length} RULE VIOLATIONS)</span>`;
+
+  let html = `
+    <div class="advisor-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.25rem;">
+            Strategic Advisory — Gameweek ${data.gameweek}
+          </h3>
+          <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            Persona: <strong>${escapeHtml(data.persona.replace('_', ' ').toUpperCase())}</strong> | 
+            Engine: <code>${escapeHtml(data.provider_used)}</code>
+          </div>
+        </div>
+        <div>${verdictBadge}</div>
+      </div>
+
+      <div style="background: var(--bg-input); border-radius: 8px; padding: 1.2rem; margin-bottom: 1.2rem;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: var(--accent-purple); text-transform: uppercase; margin-bottom: 0.4rem;">
+          Executive Tactical Critique
+        </div>
+        <div class="advisor-markdown-content">${escapeHtml(data.analysis_markdown)}</div>
+      </div>
+  `;
+
+  if (critiques.length > 0) {
+    html += `
+      <div style="margin-bottom: 1.2rem;">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #fbbf24;">⚡ Key Contrarian & Trap Risks</h4>
+        <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem;">
+          ${critiques.map(c => `<li>${c}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
+  if (tactical.length > 0) {
+    html += `
+      <div style="margin-bottom: 1.2rem;">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #38bdf8;">📋 Tactical & Press Conference Matchup Signals</h4>
+        <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem;">
+          ${tactical.map(t => `<li>${t}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
+  html += `
+      <div style="margin-top: 1.2rem; padding-top: 1.2rem; border-top: 1px solid var(--border-color);">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.6rem;">🎯 Proposed Strategic Actions</h4>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem;">
+          <div style="background: var(--bg-input); border-radius: 6px; padding: 0.6rem 1rem;">
+            <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">RECOMMENDED CAPTAIN</span>
+            <strong style="color: var(--accent-gold); font-size: 1.05rem;">👑 ${escapeHtml(cap || 'None')}</strong>
+            ${vc ? `<span style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 6px;">(VC: ${escapeHtml(vc)})</span>` : ''}
+          </div>
+        </div>
+
+        <div style="font-size: 0.88rem;">
+          <strong>Transfers:</strong>
+          ${transfers.length > 0 ? `
+            <ul style="padding-left: 1.2rem; margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.35rem;">
+              ${transfers.map(t => `
+                <li>
+                  🔄 OUT: <strong>${escapeHtml(t.out)}</strong> ➔ IN: <strong style="color: var(--accent-green);">${escapeHtml(t.in)}</strong>
+                  ${t.rationale ? ` — <span style="color: var(--text-secondary);">${escapeHtml(t.rationale)}</span>` : ''}
+                </li>
+              `).join('')}
+            </ul>
+          ` : '<span style="color: var(--text-muted); margin-left: 6px;">No transfers suggested (Roll free transfer).</span>'}
+        </div>
+      </div>
+
+      <div style="margin-top: 1.2rem; padding: 0.9rem 1.1rem; border-radius: 8px; background: ${isLegal ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'}; border: 1px solid ${isLegal ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'};">
+        <div style="font-weight: 700; font-size: 0.85rem; color: ${isLegal ? 'var(--accent-green)' : 'var(--accent-red)'}; margin-bottom: 0.25rem;">
+          Deterministic Validation Guardrails
+        </div>
+        ${isLegal ? `
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">
+            All proposed moves comply with FPL constraints. Projected Bank: <strong>£${((val.bank_after_tenths || 0)/10).toFixed(1)}m</strong> | Hits: <strong>${val.transfer_hits || 0}</strong>.
+          </div>
+        ` : `
+          <div style="font-size: 0.85rem; color: #fca5a5;">
+            ${errors.map(e => `<div>• ${escapeHtml(e)}</div>`).join('')}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+async function viewManagerDossier() {
+  const container = document.getElementById("advisor-results-container");
+  if (!container) return;
+
+  const gwInput = document.getElementById("live-gw");
+  let gw = gwInput ? parseInt(gwInput.value) : null;
+  if (!gw) gw = state.activeGameweek;
+
+  container.innerHTML = `
+    <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
+      <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-blue); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+      <p>Compiling analytical manager dossier for Gameweek ${gw}...</p>
+    </div>
+  `;
+
+  try {
+    const data = await api(`/api/briefing?team=${state.activeTeamId}&gameweek=${gw}`);
+    renderManagerDossier(data);
+  } catch (err) {
+    container.innerHTML = `
+      <div class="alert alert-danger" style="margin-top: 1rem;">
+        Failed to load analytical dossier: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+function renderManagerDossier(dossier) {
+  const container = document.getElementById("advisor-results-container");
+  if (!container) return;
+
+  const fin = dossier.financials || {};
+  const lineup = dossier.lineup || {};
+  const alerts = dossier.squad_health_alerts || [];
+  const risks = dossier.strategic_ownership_risks || [];
+  const recs = dossier.top_transfer_recommendations || [];
+
+  let html = `
+    <div class="advisor-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.25rem;">📑 Manager Analytical Dossier — Gameweek ${dossier.gameweek}</h3>
+          <div style="font-size: 0.82rem; color: var(--text-secondary);">Comprehensive pre-match analytical intelligence package</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="runAdvisor()">Switch to AI Critique</button>
+      </div>
+
+      <!-- Financials HUD -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem;">
+        <div class="ps-stat-box">
+          <div class="ps-stat-label">Bank</div>
+          <div class="ps-stat-value">${escapeHtml(fin.bank_fmt || '£0.0m')}</div>
+        </div>
+        <div class="ps-stat-box">
+          <div class="ps-stat-label">Free Transfers</div>
+          <div class="ps-stat-value">${fin.free_transfers || 1}</div>
+        </div>
+        <div class="ps-stat-box">
+          <div class="ps-stat-label">Projected XI xP</div>
+          <div class="ps-stat-value" style="color: var(--accent-green);">${lineup.total_predicted_xp || 0}</div>
+        </div>
+        <div class="ps-stat-box">
+          <div class="ps-stat-label">Captain Armband</div>
+          <div class="ps-stat-value" style="color: var(--accent-gold); font-size: 0.95rem;">${escapeHtml(lineup.captain ? lineup.captain.name : 'None')}</div>
+        </div>
+      </div>
+  `;
+
+  // Health alerts
+  if (alerts.length > 0) {
+    html += `
+      <div style="margin-bottom: 1.5rem;">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #f87171;">⚠️ Squad Health Alerts & Press Conference Notes</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          ${alerts.map(a => `
+            <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--accent-red); padding: 0.5rem 0.8rem; border-radius: 4px; font-size: 0.85rem;">
+              <strong>${escapeHtml(a.name)}</strong> (${a.chance_pct !== null ? a.chance_pct + '% chance' : 'Status: ' + a.status}): 
+              <em>${escapeHtml(a.news || 'Flagged by medical staff')}</em>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // Top Transfer recommendations
+  if (recs.length > 0) {
+    html += `
+      <div style="margin-bottom: 1.5rem;">
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-green);">🔄 Top Algorithmic Transfer Moves</h4>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          ${recs.slice(0, 3).map(r => `
+            <div style="background: var(--bg-input); border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                🔄 <strong>${escapeHtml(r.out_name)}</strong> ➔ <strong>${escapeHtml(r.in_name)}</strong>
+              </div>
+              <div style="font-weight: 800; color: var(--accent-green);">
+                +${r.net_delta} xP
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // EO risk
+  if (risks.length > 0) {
+    html += `
+      <div>
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-blue);">🛡️ Template & Effective Ownership Exposure</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+          ${risks.map(r => `
+            <div style="background: var(--bg-input); border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.8rem;">
+              <strong>${escapeHtml(r.name)}</strong> (${r.team}): <strong>${r.eo_pct}% EO</strong> (${r.owned_by_squad ? '✅ Owned' : '❌ Not Owned'})
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
 }
 
 // App Initialization

@@ -35,11 +35,14 @@ from .ownership import (
     analyze_gameweek_ownership,
     analyze_squad_risk_profile,
 )
+from .briefing import BRIEFING_REPORT_PATH, generate_manager_briefing
 from .chip_strategy import (
     CHIP_STRATEGY_REPORT_PATH,
     analyze_fixture_calendar,
     recommend_chip_strategy,
 )
+from .live_matchday import LIVE_REPORT_PATH, get_live_gameweek_matchday_summary
+from .llm_advisor import ADVISORY_REPORT_PATH, generate_llm_advisory
 from .scores import update_gameweek_scores
 from .teams import (
     create_team,
@@ -869,6 +872,40 @@ def main(argv: list[str] | None = None) -> None:
     gui_parser.add_argument("--host", type=str, default="127.0.0.1", help="Server host (default: 127.0.0.1)")
     gui_parser.add_argument("--no-browser", action="store_true", help="Do not open browser automatically")
 
+    for brief_cmd, brief_help in (
+        ("briefing", "Generate structured manager analytical briefing dossier"),
+        ("dossier", "Alias for `fpl briefing` command"),
+    ):
+        bp = subcommands.add_parser(brief_cmd, help=brief_help)
+        bp.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        bp.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
+        bp.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
+        bp.add_argument("--season", type=str, default="2026/27", help="Season (default: 2026/27)")
+
+    for live_cmd, live_help in (
+        ("live", "Track real-time live matchday points, autosubs, and rank velocity"),
+        ("matchday", "Alias for `fpl live` command"),
+    ):
+        lp = subcommands.add_parser(live_cmd, help=live_help)
+        lp.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        lp.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
+        lp.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: current GW)")
+        lp.add_argument("--season", type=str, default="2026/27", help="Season (default: 2026/27)")
+        lp.add_argument("--force-fetch", action="store_true", help="Force fresh fetch of live score data from FPL")
+
+    for adv_cmd, adv_help in (
+        ("advise", "Generate strategic LLM advisory analysis with deterministic guardrails"),
+        ("advisor", "Alias for `fpl advise` command"),
+    ):
+        ap = subcommands.add_parser(adv_cmd, help=adv_help)
+        ap.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
+        ap.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
+        ap.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
+        ap.add_argument("--persona", choices=["devil_advocate", "tactical_analyst", "strategic_planner"], default="devil_advocate", help="Advisory persona")
+        ap.add_argument("--provider", choices=["auto", "gemini", "openai", "ollama", "heuristic"], default="auto", help="LLM Provider")
+        ap.add_argument("--api-key", type=str, default=None, help="API key for Gemini/OpenAI")
+        ap.add_argument("--model", type=str, default=None, help="Model name override")
+
     arguments = parser.parse_args(argv)
 
     try:
@@ -1097,6 +1134,41 @@ def main(argv: list[str] | None = None) -> None:
         elif arguments.command == "validate-transfers":
             result = validate_transfer_set(resolve_squad_path(arguments), arguments.transfer, by_name=arguments.by_name)
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_validate_transfers_concise(result))
+        elif arguments.command in ("briefing", "dossier"):
+            squad_path = resolve_squad_path(arguments)
+            team_id = getattr(arguments, "team", None) or get_active_team_id()
+            result = generate_manager_briefing(
+                squad_path=squad_path,
+                gameweek=arguments.gameweek,
+                season=arguments.season,
+                team_id=team_id,
+                database_path=DATABASE_PATH,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else result.get("markdown", ""))
+        elif arguments.command in ("live", "matchday"):
+            squad_path = resolve_squad_path(arguments)
+            team_id = getattr(arguments, "team", None) or get_active_team_id()
+            result = get_live_gameweek_matchday_summary(
+                gameweek=arguments.gameweek,
+                squad_path=squad_path,
+                team_id=team_id,
+                season=arguments.season,
+                database_path=DATABASE_PATH,
+                force_fetch=arguments.force_fetch,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else result.get("markdown", ""))
+        elif arguments.command in ("advise", "advisor"):
+            squad_path = resolve_squad_path(arguments)
+            result = generate_llm_advisory(
+                gameweek=arguments.gameweek,
+                squad_path=squad_path,
+                database_path=DATABASE_PATH,
+                persona=arguments.persona,
+                provider=arguments.provider,
+                api_key=arguments.api_key,
+                model=arguments.model,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else result.get("markdown", ""))
         else:
             parser.print_help()
     except (RuntimeError, ValueError) as error:

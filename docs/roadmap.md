@@ -168,13 +168,31 @@ Remaining:
 
 - None. Ready for V0.6.
 
-### V0.6 — optional LLM integration & live matchday analytics
+### V0.6 — optional LLM integration & live matchday analytics (Complete)
 
-- Generate structured analytical packages from deterministic data and reports.
-- Start with human + LLM review of those artifacts.
-- API-based LLM analysis advisory layer evaluating narrative sentiment, injury press conferences, and tactical setups.
-- Real-time live matchday points and rank simulation tracker.
-- All LLM suggestions remain advisory and must be validated before presentation.
+Delivered:
+
+- **Structured Analytical Briefing Packages & Manager Dossier**:
+  - `src/fpl_manager/briefing.py`: Generates machine-readable `reports/analytical_dossier.json` and human-readable Markdown `reports/manager_briefing.md`.
+  - Aggregates squad status, Starting XI projections, medical/injury flags, press conference news, strategic effective ownership (EO) risks, algorithmic transfer moves, and chip schedules.
+- **Real-Time Live Matchday Points & Rank Simulation Tracker**:
+  - `src/fpl_manager/live_matchday.py`: Computes live gross/net points, dynamic autosubs with formation legality enforcement (min 3 DEF, 2 MID, 1 FWD), captain auto-promotion on 0 minutes & finished fixture, Triple Captain (3x) and Bench Boost (all 4 bench players counted) chip support, transfer hits deduction, and effective ownership rank acceleration momentum.
+  - Enhanced `src/fpl_manager/scores.py` with granular match statistics (minutes, goals, assists, clean sheets, bonus, bps).
+- **Strategic LLM Advisory Layer with Deterministic Guardrails**:
+  - `src/fpl_manager/llm_advisor.py`: Multi-provider architecture (Google Gemini, OpenAI, Ollama, and offline deterministic heuristic fallback).
+  - Specialized strategic personas: `devil_advocate` (constructive contrarian challenging template traps), `tactical_analyst` (tactical roles, set pieces, press conference sentiment), and `strategic_planner` (3-5 GW macro horizons, bank management, chip timing).
+  - **Deterministic Guardrails**: Proposed transfers and captaincy picks are rigorously validated against squad membership, bank balances (accounting for sale price rises), and max 3 players per club limit prior to presentation. Invalid moves are rejected with explicit rule violation errors.
+- **Interactive GUI Dashboard Expansion**:
+  - Added **⚡ Live Matchday** panel with real-time score hero cards, active captaincy multipliers, automatic substitution notifications, granular player match performance tables, and rank accelerator swing cards.
+  - Added **🤖 AI Advisor & Briefing** studio with persona selection, multi-engine routing, deterministic legality badges, and toggleable manager analytical briefing dossier.
+- **Unified CLI Commands**:
+  - `fpl briefing` / `fpl dossier`: Outputs pre-match intelligence package.
+  - `fpl live` / `fpl matchday`: Displays real-time matchday scoreboard, autosub actions, and rank momentum.
+  - `fpl advise` / `fpl advisor`: Delivers persona-driven strategic critiques with deterministic legality verdicts.
+
+Remaining:
+
+- None. V0.6 roadmap milestone fully achieved and verified.
 
 ## Working conventions
 
