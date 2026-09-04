@@ -179,7 +179,7 @@ Delivered:
   - `src/fpl_manager/live_matchday.py`: Computes live gross/net points, dynamic autosubs with formation legality enforcement (min 3 DEF, 2 MID, 1 FWD), captain auto-promotion on 0 minutes & finished fixture, Triple Captain (3x) and Bench Boost (all 4 bench players counted) chip support, transfer hits deduction, and effective ownership rank acceleration momentum.
   - Enhanced `src/fpl_manager/scores.py` with granular match statistics (minutes, goals, assists, clean sheets, bonus, bps).
 - **Strategic LLM Advisory Layer with Deterministic Guardrails**:
-  - `src/fpl_manager/llm_advisor.py`: Multi-provider architecture (Google Gemini, OpenAI, Ollama, and offline deterministic heuristic fallback).
+  - `src/fpl_manager/llm_advisor.py`: Multi-provider architecture (Google Gemini, OpenAI, OpenRouter, and offline deterministic heuristic fallback).
   - Specialized strategic personas: `devil_advocate` (constructive contrarian challenging template traps), `tactical_analyst` (tactical roles, set pieces, press conference sentiment), and `strategic_planner` (3-5 GW macro horizons, bank management, chip timing).
   - **Deterministic Guardrails**: Proposed transfers and captaincy picks are rigorously validated against squad membership, bank balances (accounting for sale price rises), and max 3 players per club limit prior to presentation. Invalid moves are rejected with explicit rule violation errors.
 - **Interactive GUI Dashboard Expansion**:

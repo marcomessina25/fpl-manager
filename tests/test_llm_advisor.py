@@ -197,7 +197,7 @@ def test_llm_advisory_with_mocked_llm_response(advisor_test_env: tuple[Path, Pat
         assert advisory["proposed_transfers"][0]["out"] == "Player_13"
 
 
-def test_missing_api_key_raises_error_for_gemini_and_openai(advisor_test_env: tuple[Path, Path]) -> None:
+def test_missing_api_key_raises_error_for_gemini_openai_openrouter(advisor_test_env: tuple[Path, Path]) -> None:
     db_path, squad_path = advisor_test_env
 
     # Gemini without key
@@ -224,8 +224,20 @@ def test_missing_api_key_raises_error_for_gemini_and_openai(advisor_test_env: tu
                 save_reports=False,
             )
 
+    # OpenRouter without key
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="OpenRouter API key is required"):
+            generate_llm_advisory(
+                gameweek=1,
+                squad_path=squad_path,
+                database_path=db_path,
+                provider="openrouter",
+                api_key=None,
+                save_reports=False,
+            )
 
-def test_provider_openai_and_ollama_mocked(advisor_test_env: tuple[Path, Path]) -> None:
+
+def test_provider_openai_and_openrouter_mocked(advisor_test_env: tuple[Path, Path]) -> None:
     db_path, squad_path = advisor_test_env
 
     mock_response = """
@@ -255,17 +267,18 @@ def test_provider_openai_and_ollama_mocked(advisor_test_env: tuple[Path, Path]) 
         assert advisory_openai["proposed_captain"] == "Player_2"
         assert "Rotation risk for mid" in advisory_openai["critique_points"]
 
-    # Ollama
-    with patch("fpl_manager.llm_advisor._call_ollama_api", return_value=mock_response):
-        advisory_ollama = generate_llm_advisory(
+    # OpenRouter
+    with patch("fpl_manager.llm_advisor._call_openrouter_api", return_value=mock_response):
+        advisory_openrouter = generate_llm_advisory(
             gameweek=1,
             squad_path=squad_path,
             database_path=db_path,
-            provider="ollama",
+            provider="openrouter",
+            api_key="fake-openrouter-key",
             save_reports=False,
         )
-        assert advisory_ollama["provider_used"] == "ollama"
-        assert advisory_ollama["proposed_captain"] == "Player_2"
+        assert advisory_openrouter["provider_used"] == "openrouter"
+        assert advisory_openrouter["proposed_captain"] == "Player_2"
 
 
 def test_provider_auto_fallback_when_no_keys(advisor_test_env: tuple[Path, Path]) -> None:
