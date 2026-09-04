@@ -118,7 +118,57 @@ Remaining:
 
 - None. Ready for V0.5.
 
-### V0.5 — optional LLM integration & live matchday analytics
+### V0.5 — Graphical User Interface (GUI) & Multi-Team Management
+
+Status: **V0.5 completed on 2026-09-04.**
+
+Scope & Architecture:
+
+1. **Multi-Team Management Core (`src/fpl_manager/teams.py`)**:
+   - Support multiple squads/teams stored under `config/teams/<team_id>/` (or SQLite `teams` table).
+   - Each team maintains:
+     - Squad state (`squad.json`): player IDs, purchase prices, bank, free transfers, remaining chips, active gameweek.
+     - Team metadata (`metadata.json` or DB record): team name, manager name, FPL team ID, created timestamp.
+     - Scoped historical decision audit logs and post-gameweek evaluations linked to `team_id`.
+   - Team Management API and CLI:
+     - `create_team(name, squad_data)`: create a new team from scratch, example template, or player import.
+     - `list_teams()`: list all registered teams and their active gameweek/bank.
+     - `load_team(name_or_id)`: switch the global active team pointer (`config/active_team.json`).
+     - Backwards compatibility: seamless fallback to `config/current_squad.json` as the default team (`"default"`).
+
+2. **Interactive GUI Application (`src/fpl_manager/gui/` / `fpl gui`)**:
+   - Provide a visual, interactive dashboard for all core FPL decision engine capabilities.
+   - Built with a clean, responsive, local web interface launched effortlessly with `fpl gui`:
+     - **Team Switcher & Creator Bar**:
+       - Dropdown to instantly switch active teams.
+       - "New Team" modal: create team, clone squad state, assign manager, and set as active.
+     - **Dashboard & Football Pitch View**:
+       - Visual formation pitch (e.g. 3-4-3, 3-5-2, 4-4-2, etc.) rendering starting XI cards and ordered bench substitutes.
+       - Player cards display name, team, position, next fixture + FDR badge, predicted xP, and Effective Ownership role badge (`SHIELD`, `SWORD`, `CORE`).
+       - Captain (C) and Vice-Captain (VC) visual indicators.
+       - Team status HUD: Bank, Team Value, Free Transfers, Remaining Chips, Active Gameweek.
+     - **Interactive Decision Logging Panel**:
+       - Record pre-deadline decisions for both current and past gameweeks.
+       - Drag/select starting 11, bench ordering, captain, and vice-captain.
+       - Interactive transfer builder: log `-t OUT:IN` moves, track hits and manager notes.
+       - Differentiates current squad updates vs past gameweek logging for historical evaluation.
+     - **Transfer Recommendations Visualizer**:
+       - Ranked cards for 1- to 5-transfer moves with projected net gain ($\Delta xP - \text{Hits}$), post-move bank, and FDR badges.
+     - **Wildcard & Free-Hit Optimizer Studio**:
+       - Custom squad budget limit and risk profiles (`neutral`, `floor`, `ceiling`).
+       - Side-by-side display of optimal Starting XI and bench substitutes.
+     - **Multi-Gameweek Transfer Planning Roadmap**:
+       - Visual timeline across a 3–6 gameweek horizon showing recommended moves, banked transfers, hit costs, and cumulative net xP.
+     - **Chip Strategy & Fixture Calendar**:
+       - Interactive roadmap for First Half (GW1–19) and Second Half (GW20–38) with empirical chip valuations and deployment sequence.
+     - **Evaluation & Regret Performance Hub**:
+       - Post-matchday actual scores, captaincy regret analysis, bench regret, model calibration curves, and human vs. model comparison.
+
+Remaining:
+
+- None. Ready for V0.6.
+
+### V0.6 — optional LLM integration & live matchday analytics
 
 - Generate structured analytical packages from deterministic data and reports.
 - Start with human + LLM review of those artifacts.

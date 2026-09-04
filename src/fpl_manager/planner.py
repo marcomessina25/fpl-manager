@@ -214,7 +214,7 @@ def generate_multi_gameweek_plan(
                     l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp = round(l_xp - hits, 2)
+                    net_xp = round(l_xp - (hits * 4), 2)
                     action_label = "1_TRANSFER" if hits == 0 else "1_TRANSFER_HIT"
 
                     tx_step = {
@@ -279,7 +279,7 @@ def generate_multi_gameweek_plan(
                     l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp = round(l_xp - hits, 2)
+                    net_xp = round(l_xp - (hits * 4), 2)
                     action_label = "2_TRANSFERS" if hits == 0 else "2_TRANSFERS_HIT"
 
                     tx_step = {
@@ -344,10 +344,12 @@ def generate_multi_gameweek_plan(
         plans.append({
             "rank": rank,
             "total_net_xp": cum_score,
+            "cumulative_net_xp": cum_score,
             "total_floor_xp": cum_floor,
             "total_ceiling_xp": cum_ceil,
             "total_hits": tot_hits,
             "gameweek_steps": history,
+            "steps": history,
         })
 
     report = {

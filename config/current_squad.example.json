@@ -23,5 +23,5 @@
   },
   "bank_tenths": 0,
   "free_transfers": 1,
-  "chips_remaining": ["wildcard_1", "wildcard_2", "free_hit", "bench_boost", "triple_captain"]
+  "chips_remaining": ["wildcard", "free_hit", "bench_boost", "triple_captain"]
 }

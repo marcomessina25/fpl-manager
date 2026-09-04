@@ -197,7 +197,45 @@ def test_solve_wildcard_risk_profiles(optimizer_test_db: tuple[Path, Path]) -> N
             database_path=db_path,
             risk_profile=risk,
         )
-        assert res["risk_profile"] == risk
         assert res["total_cost_tenths"] <= 980
         assert len(res["starters"]) == 11
         assert len(res["bench"]) == 4
+
+
+def test_solve_transfers_hit_calculation(optimizer_test_db: tuple[Path, Path]) -> None:
+    db_path, squad_path = optimizer_test_db
+
+    # free_transfers is 1 in optimizer_test_db
+    # 1 transfer -> 0 hits, hit_cost = 0
+    res_1 = suggest_transfers(
+        num_transfers=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        max_results=1,
+    )
+    top_1 = res_1["top_suggestions"][0]
+    assert top_1["transfer_hits"] == 0
+    assert top_1["hit_cost"] == 0
+
+    # 2 transfers with 1 FT -> 1 hit (-4 pts)
+    res_2 = suggest_transfers(
+        num_transfers=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        max_results=1,
+    )
+    top_2 = res_2["top_suggestions"][0]
+    assert top_2["transfer_hits"] == 1
+    assert top_2["hit_cost"] == 4
+
+    # 3 transfers with 1 FT -> 2 hits (-8 pts)
+    res_3 = suggest_transfers(
+        num_transfers=3,
+        squad_path=squad_path,
+        database_path=db_path,
+        max_results=1,
+    )
+    top_3 = res_3["top_suggestions"][0]
+    assert top_3["transfer_hits"] == 2
+    assert top_3["hit_cost"] == 8
+

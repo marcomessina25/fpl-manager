@@ -114,6 +114,7 @@ class SnapshotStore:
                 );
                 CREATE TABLE IF NOT EXISTS decisions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    team_id TEXT NOT NULL DEFAULT 'default',
                     season TEXT NOT NULL,
                     gameweek INTEGER NOT NULL,
                     timestamp TEXT NOT NULL,
@@ -129,7 +130,7 @@ class SnapshotStore:
                     predicted_ceiling_xp REAL,
                     actual_points INTEGER,
                     notes TEXT,
-                    UNIQUE(season, gameweek)
+                    UNIQUE(team_id, season, gameweek)
                 );
                 CREATE TABLE IF NOT EXISTS decision_recommendations (
                     decision_id INTEGER PRIMARY KEY REFERENCES decisions(id),
@@ -189,6 +190,49 @@ class SnapshotStore:
             for col_name, col_type in player_migrations:
                 if col_name not in player_columns:
                     connection.execute(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}")
+
+            # Decisions migration check for team_id column
+            cursor = connection.execute("PRAGMA table_info(decisions)")
+            decisions_columns = {row[1] for row in cursor.fetchall()}
+            if "team_id" not in decisions_columns:
+                connection.executescript(
+                    """
+                    CREATE TABLE decisions_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        team_id TEXT NOT NULL DEFAULT 'default',
+                        season TEXT NOT NULL,
+                        gameweek INTEGER NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        chip_played TEXT,
+                        transfer_hits INTEGER NOT NULL DEFAULT 0,
+                        transfers_json TEXT NOT NULL DEFAULT '[]',
+                        starting_ids_json TEXT NOT NULL,
+                        bench_ids_json TEXT NOT NULL,
+                        captain_id INTEGER NOT NULL,
+                        vice_captain_id INTEGER NOT NULL,
+                        predicted_lineup_xp REAL,
+                        predicted_floor_xp REAL,
+                        predicted_ceiling_xp REAL,
+                        actual_points INTEGER,
+                        notes TEXT,
+                        UNIQUE(team_id, season, gameweek)
+                    );
+                    INSERT INTO decisions_new (
+                        id, team_id, season, gameweek, timestamp, chip_played,
+                        transfer_hits, transfers_json, starting_ids_json, bench_ids_json,
+                        captain_id, vice_captain_id, predicted_lineup_xp, predicted_floor_xp,
+                        predicted_ceiling_xp, actual_points, notes
+                    )
+                    SELECT
+                        id, 'default', season, gameweek, timestamp, chip_played,
+                        transfer_hits, transfers_json, starting_ids_json, bench_ids_json,
+                        captain_id, vice_captain_id, predicted_lineup_xp, predicted_floor_xp,
+                        predicted_ceiling_xp, actual_points, notes
+                    FROM decisions;
+                    DROP TABLE decisions;
+                    ALTER TABLE decisions_new RENAME TO decisions;
+                    """
+                )
 
     def save_snapshot(self, bootstrap: dict[str, Any], fixtures: list[dict[str, Any]], fetched_at: str) -> int:
         self.initialize()
@@ -437,7 +481,7 @@ class SnapshotStore:
                 raise RuntimeError("No FPL data found. Run `fpl update` first.")
             rows = connection.execute(
                 """
-                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths
+                SELECT players.player_id, players.web_name, teams.short_name, players.price_tenths, players.position_id
                 FROM players JOIN teams
                   ON teams.snapshot_id = players.snapshot_id AND teams.team_id = players.team_id
                 WHERE players.snapshot_id = ? AND LOWER(players.web_name) LIKE ?
@@ -445,10 +489,154 @@ class SnapshotStore:
                 """,
                 (snapshot[0], f"%{query.lower()}%"),
             ).fetchall()
+        pos_names = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
         return [
-            {"id": player_id, "name": name, "team": team, "price_tenths": price}
-            for player_id, name, team, price in rows
+            {
+                "id": player_id,
+                "name": name,
+                "team": team,
+                "price_tenths": price,
+                "price_fmt": f"£{price / 10:.1f}m",
+                "position": pos_names.get(pos_id, "MID"),
+            }
+            for player_id, name, team, price, pos_id in rows
         ]
+
+    def get_player_details(self, player_id: int, gameweek: int | None = None) -> dict[str, Any]:
+        """Fetch complete statistics, metrics, projections, and upcoming fixtures for a player."""
+        self.initialize()
+        with closing(self._connect()) as connection:
+            snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            if snapshot is None:
+                raise RuntimeError("No FPL data found. Run `fpl update` first.")
+            snapshot_id = snapshot[0]
+
+            row = connection.execute(
+                """
+                SELECT players.player_id, players.web_name, teams.name, teams.short_name, players.position_id,
+                       players.price_tenths, players.status, players.total_points, players.minutes, players.starts,
+                       players.chance_of_playing_next_round, players.chance_of_playing_this_round,
+                       players.expected_goals, players.expected_assists, players.expected_goal_involvements,
+                       players.expected_goals_conceded, players.expected_goals_per_90, players.expected_assists_per_90,
+                       players.expected_goals_conceded_per_90, players.clean_sheets_per_90, players.bps, players.ict_index,
+                       players.form, players.points_per_game, players.selected_by_percent, players.news, players.team_id
+                FROM players JOIN teams
+                  ON teams.snapshot_id = players.snapshot_id AND teams.team_id = players.team_id
+                WHERE players.snapshot_id = ? AND players.player_id = ?
+                """,
+                (snapshot_id, player_id),
+            ).fetchone()
+
+            if row is None:
+                raise ValueError(f"Player ID {player_id} not found.")
+
+            team_id = row[26]
+
+            # Fixtures (next 5 unfinished fixtures)
+            fix_rows = connection.execute(
+                """
+                SELECT f.event, f.team_h, f.team_a, f.team_h_difficulty, f.team_a_difficulty,
+                       th.short_name, ta.short_name
+                FROM fixtures f
+                JOIN teams th ON th.snapshot_id = f.snapshot_id AND th.team_id = f.team_h
+                JOIN teams ta ON ta.snapshot_id = f.snapshot_id AND ta.team_id = f.team_a
+                WHERE f.snapshot_id = ? AND (f.team_h = ? OR f.team_a = ?) AND f.finished = 0
+                ORDER BY f.event ASC LIMIT 5
+                """,
+                (snapshot_id, team_id, team_id),
+            ).fetchall()
+
+        fixtures = []
+        for f in fix_rows:
+            is_home = (f[1] == team_id)
+            opp_name = f[6] if is_home else f[5]
+            diff = f[3] if is_home else f[4]
+            loc = "H" if is_home else "A"
+            fixtures.append({
+                "gameweek": f[0],
+                "opponent": opp_name,
+                "is_home": is_home,
+                "difficulty": diff,
+                "summary": f"{opp_name} ({loc})",
+            })
+
+        proj_xp = None
+        xp_floor = None
+        xp_ceiling = None
+        start_prob = None
+        exp_min = None
+        if gameweek is not None:
+            try:
+                from .expected_points import project_gameweek
+                projs = project_gameweek(gameweek=gameweek, player_ids=[player_id], database_path=self.database_path)
+                if projs:
+                    p_proj = projs[0]
+                    proj_xp = round(p_proj.expected_points, 2)
+                    xp_floor = round(p_proj.xp_floor, 2)
+                    xp_ceiling = round(p_proj.xp_ceiling, 2)
+                    start_prob = round(p_proj.start_probability * 100) if p_proj.start_probability <= 1.0 else round(p_proj.start_probability)
+                    exp_min = round(p_proj.expected_minutes)
+            except Exception:
+                pass
+
+        own_pct = float(row[24])
+        eo_pct = own_pct
+        strat_cat = "CORE"
+        try:
+            from .ownership import get_player_ownership_map
+            own_map = get_player_ownership_map(self.database_path)
+            if player_id in own_map:
+                own_pct = round(own_map[player_id], 1)
+                eo_pct = own_pct
+                if eo_pct >= 40.0 or own_pct >= 35.0:
+                    strat_cat = "SHIELD"
+                elif eo_pct < 15.0 or own_pct < 10.0:
+                    strat_cat = "SWORD"
+        except Exception:
+            pass
+
+        pos_names = {1: "Goalkeeper", 2: "Defender", 3: "Midfielder", 4: "Forward"}
+        pos_abbrs = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
+
+        return {
+            "id": row[0],
+            "name": row[1],
+            "team_name": row[2],
+            "team_short": row[3],
+            "position": pos_names.get(row[4], "Midfielder"),
+            "pos_abbr": pos_abbrs.get(row[4], "MID"),
+            "price_tenths": row[5],
+            "price_fmt": f"£{row[5] / 10:.1f}m",
+            "status": row[6],
+            "total_points": row[7],
+            "minutes": row[8],
+            "starts": row[9],
+            "chance_playing_next": row[10],
+            "chance_playing_this": row[11],
+            "expected_goals": round(row[12], 2),
+            "expected_assists": round(row[13], 2),
+            "expected_goal_involvements": round(row[14], 2),
+            "expected_goals_conceded": round(row[15], 2),
+            "expected_goals_per_90": round(row[16], 2),
+            "expected_assists_per_90": round(row[17], 2),
+            "expected_goals_conceded_per_90": round(row[18], 2),
+            "clean_sheets_per_90": round(row[19], 2),
+            "bps": row[20],
+            "ict_index": round(row[21], 1),
+            "form": round(row[22], 1),
+            "points_per_game": round(row[23], 1),
+            "selected_by_percent": own_pct,
+            "effective_ownership_pct": eo_pct,
+            "strategic_category": strat_cat,
+            "news": row[25] or "",
+            "gameweek": gameweek,
+            "expected_points": proj_xp,
+            "xp_floor": xp_floor,
+            "xp_ceiling": xp_ceiling,
+            "start_probability": start_prob,
+            "expected_minutes": exp_min,
+            "fixtures": fixtures,
+        }
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)

@@ -99,7 +99,8 @@ def solve_transfers(
     for p in squad_players:
         base_team_counts[p.team_id] = base_team_counts.get(p.team_id, 0) + 1
 
-    transfer_hits = max(0, num_transfers - free_transfers) * 4
+    num_hits = max(0, num_transfers - free_transfers)
+    hit_penalty_pts = num_hits * 4
 
     min_price: dict[Position, int] = {}
     max_metric: dict[Position, float] = {}
@@ -137,8 +138,9 @@ def solve_transfers(
         out_sell_sum = sum(selling_prices[p.id] for p in out_combo)
         max_budget = bank_tenths + out_sell_sum
 
-        # Sort positions canonically to group identical positions and break permutation symmetry
-        req_positions = sorted([p.position for p in out_combo], key=lambda pos: pos.value)
+        # Sort out_combo by position canonically to match picked candidates by position
+        sorted_out_combo = sorted(out_combo, key=lambda p: p.position.value)
+        req_positions = [p.position for p in sorted_out_combo]
 
         # Quick feasibility check: can budget afford cheapest candidates?
         if sum(min_price[pos] for pos in req_positions) > max_budget:
@@ -177,11 +179,11 @@ def solve_transfers(
                 ceil_delta = round(curr_ceil - out_ceil, 2)
 
                 if risk_profile == "floor":
-                    rank_metric = floor_delta - transfer_hits
+                    rank_metric = floor_delta - hit_penalty_pts
                 elif risk_profile == "ceiling":
-                    rank_metric = ceil_delta - transfer_hits
+                    rank_metric = ceil_delta - hit_penalty_pts
                 else:
-                    rank_metric = xp_delta - transfer_hits
+                    rank_metric = xp_delta - hit_penalty_pts
 
                 score = round(rank_metric + 0.1 * fdr_delta, 2)
                 bank_after = max_budget - curr_price
@@ -200,7 +202,7 @@ def solve_transfers(
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
                         }
-                        for p in out_combo
+                        for p in sorted_out_combo
                     ],
                     "incoming": [
                         {
@@ -225,7 +227,8 @@ def solve_transfers(
                     "ceiling_delta": ceil_delta,
                     "fdr_improvement": fdr_delta,
                     "points_delta": points_delta,
-                    "transfer_hits": transfer_hits,
+                    "transfer_hits": num_hits,
+                    "hit_cost": hit_penalty_pts,
                     "score": score,
                 })
                 return
@@ -247,7 +250,7 @@ def solve_transfers(
                     cand_term = cand.xp_floor if risk_profile == "floor" else (cand.xp_ceiling if risk_profile == "ceiling" else cand.expected_points)
                     curr_term = curr_floor if risk_profile == "floor" else (curr_ceil if risk_profile == "ceiling" else curr_xp)
                     est_in_metric = curr_term + cand_term + rem_max
-                    est_score = (est_in_metric - out_baseline) - transfer_hits + 0.5
+                    est_score = (est_in_metric - out_baseline) - hit_penalty_pts + 0.5
                     if est_score <= heap[0][0]:
                         break
 

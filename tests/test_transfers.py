@@ -109,3 +109,76 @@ def test_validate_transfer_set_by_name(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="Could not resolve outgoing player 'NonExistent'"):
         validate_transfer_set(squad_file, ["NonExistent:Pickford"], by_name=True, database_path=db_path)
 
+
+def test_execute_transfers(tmp_path: Path) -> None:
+    from fpl_manager.squad_state import load_current_squad
+    from fpl_manager.transfers import execute_transfers
+
+    db_path = tmp_path / "fpl.sqlite3"
+    squad_file = tmp_path / "current_squad.json"
+
+    store = SnapshotStore(db_path)
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Manchester City", "short_name": "MCI"},
+            {"id": 3, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+            {"id": 6, "name": "Newcastle", "short_name": "NEW"},
+        ],
+        "elements": [
+            {"id": 1, "web_name": "Raya", "team": 1, "element_type": 1, "now_cost": 55, "status": "a", "total_points": 100},
+            {"id": 2, "web_name": "Pickford", "team": 2, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 90},
+        ]
+        + [
+            {
+                "id": k,
+                "web_name": f"P{k}",
+                "team": (k % 6) + 1,
+                "element_type": 1 if k == 4 else (2 if k < 10 else (3 if k < 15 else 4)),
+                "now_cost": 50,
+                "status": "a",
+                "total_points": 50,
+            }
+            for k in range(4, 18)
+        ],
+    }
+    store.save_snapshot(bootstrap, [], utc_timestamp())
+
+    squad_data = {
+        "season": "2026/27",
+        "player_ids": [1] + list(range(4, 18)),
+        "purchase_prices_tenths": {str(k): 50 for k in [1] + list(range(4, 18))},
+        "bank_tenths": 10,
+        "free_transfers": 1,
+        "chips_remaining": ["wildcard"],
+        "gameweek": 3,
+    }
+    squad_file.write_text(json.dumps(squad_data), encoding="utf-8")
+
+    res = execute_transfers(squad_file, [(1, 2)], database_path=db_path, gameweek=3)
+    assert res["success"] is True
+    assert res["free_transfers"] == 0
+    assert 2 in res["new_player_ids"]
+    assert 1 not in res["new_player_ids"]
+
+    updated = load_current_squad(squad_file)
+    assert 2 in updated.player_ids
+    assert 1 not in updated.player_ids
+    assert updated.purchase_price(2) == 50
+    assert updated.free_transfers == 0
+
+
+def test_validate_transfers_crossed_positions_realigned() -> None:
+    # Squad has player 3 (DEF) and player 8 (MID)
+    players, state = squad_and_state()
+    # Add candidate player 16 (MID) and player 17 (DEF)
+    players.extend([make_player(16, Position.MIDFIELDER, 6, 50), make_player(17, Position.DEFENDER, 6, 50)])
+    # Submit crossed pairs: player 3 (DEF) -> player 16 (MID), player 8 (MID) -> player 17 (DEF)
+    result = validate_transfers(state, players, [Transfer(3, 16), Transfer(8, 17)])
+    assert result.is_valid
+    assert result.bank_after_tenths == 10
+
+
+

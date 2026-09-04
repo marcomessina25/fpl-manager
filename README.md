@@ -27,6 +27,43 @@ conda activate fbl
 pip install -e ".[dev]"
 ```
 
+Launch the interactive local web dashboard:
+
+```powershell
+fpl gui
+```
+
+Or run headless without automatically opening the default browser:
+
+```powershell
+fpl gui --port 8080 --no-browser
+```
+
+### Multi-Team Management
+
+Manage multiple isolated fantasy teams, switch between them, or create a new team:
+
+```powershell
+# List all configured teams and active squad
+fpl teams
+
+# Create a new team (cloned from active squad or template)
+fpl team create "Differential Kings" --manager "Marco" --activate
+
+# Inspect active or specific team metadata and financials
+fpl team info
+fpl team info differential-kings
+
+# Switch active team
+fpl team switch default
+fpl team switch differential-kings
+
+# Delete a team
+fpl team delete differential-kings
+```
+
+All CLI commands (`squad`, `lineup`, `suggest-transfers`, `wildcard`, `plan`, `chip-strategy`, `log-decision`, `decisions`, `evaluate`) automatically operate on the currently active team, or accept an explicit `--team <id>` argument.
+
 Download and store an official FPL snapshot:
 
 ```powershell
@@ -191,8 +228,10 @@ Repeat `--transfer` for a multi-transfer move. The command checks your squad, po
 
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
-## Current scope (V0.4 Completed)
+## Current scope (V0.5 Completed)
 
+- **Interactive Local Graphical Dashboard (`fpl gui`)**: Zero-external-dependency local web app with visual football pitch lineup, team switcher, decision logger, transfers visualizer, Wildcard studio, and evaluation hub.
+- **Multi-Team Management Core (`fpl teams`, `fpl team`)**: Full multi-squad support with team isolation, active team switching, team cloning, and team-scoped decision persistence.
 - Official FPL API ingestion (`bootstrap-static` and `fixtures`)
 - Timestamped raw API snapshots and normalized SQLite tables with automated schema migration
 - Pure, testable validators for a 15-player squad and an 11-player starting lineup
