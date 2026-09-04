@@ -678,6 +678,7 @@ def test_undo_gameweek_changes(decision_test_env: tuple[Path, Path]) -> None:
     reverted = load_current_squad(squad_path)
     assert 15 in reverted.player_ids
     assert 16 not in reverted.player_ids
+    assert reverted.free_transfers == 1
 
     # GW 2 decision is deleted
     assert get_gameweek_decision(2, database_path=db_path) is None
@@ -687,6 +688,119 @@ def test_undo_gameweek_changes(decision_test_env: tuple[Path, Path]) -> None:
     # Undoing when no previous gameweek exists raises ValueError
     with pytest.raises(ValueError, match="No previous gameweek is available"):
         undo_gameweek_changes(squad_path, gameweek=1, database_path=db_path)
+
+
+def test_undo_gameweek_changes_price_preservation_and_no_ft_inflation(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.decision_log import undo_gameweek_changes, compute_expected_free_transfers
+    from fpl_manager.squad_state import load_current_squad, save_current_squad, CurrentSquadState
+
+    db_path, squad_path = decision_test_env
+
+    # 1. Setup squad at GW1
+    cur = load_current_squad(squad_path)
+    squad_1 = CurrentSquadState(
+        player_ids=cur.player_ids,
+        purchase_prices_tenths=cur.purchase_prices_tenths,
+        bank_tenths=cur.bank_tenths,
+        free_transfers=1,
+        chips_remaining=cur.chips_remaining,
+        season=cur.season,
+        gameweek=1,
+    )
+    save_current_squad(squad_path, squad_1)
+
+    log_decision_from_current_squad(
+        gameweek=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # 2. Log GW 2 with 1 transfer: 15 -> 16 (both FWD, both Team 5)
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 16],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # Set custom purchase price for 16 (55 instead of default 60) to test preservation
+    cur2 = load_current_squad(squad_path)
+    p2 = dict(cur2.purchase_prices_tenths)
+    p2[16] = 55
+    squad_2 = CurrentSquadState(
+        player_ids=cur2.player_ids,
+        purchase_prices_tenths=p2,
+        bank_tenths=cur2.bank_tenths,
+        free_transfers=cur2.free_transfers,
+        chips_remaining=cur2.chips_remaining,
+        season=cur2.season,
+        gameweek=2,
+    )
+    save_current_squad(squad_path, squad_2)
+
+    # In GW2, 1 transfer was made with 1 FT. Free transfers entering GW3 should be 1.
+    assert compute_expected_free_transfers(3, database_path=db_path) == 1
+
+    # 3. In GW 3, make a transfer selling player 16 back for 15
+    log_decision_from_current_squad(
+        gameweek=3,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_16:Player_15"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # Saving decisions repeatedly for GW3 should NOT inflate free transfers!
+    for _ in range(3):
+        log_decision_from_current_squad(
+            gameweek=3,
+            squad_path=squad_path,
+            database_path=db_path,
+            starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+            bench_player_ids=[2, 6, 7, 15],
+            captain_id=13,
+            vice_captain_id=8,
+            overwrite=True,
+        )
+
+    squad_after_saves = load_current_squad(squad_path)
+    # FT should not have inflated to 4 or 5!
+    assert squad_after_saves.free_transfers <= 1
+
+    # 4. Now Undo GW3 changes!
+    res = undo_gameweek_changes(squad_path, gameweek=3, database_path=db_path)
+    assert res["success"] is True
+    assert res["reverted_to_gameweek"] == 2
+
+    reverted = load_current_squad(squad_path)
+    # Player 16 is back in squad
+    assert 16 in reverted.player_ids
+    # Player 16's purchase price must be 55 (preserved), NOT 60 (snapshot market price)
+    assert reverted.purchase_prices_tenths[16] == 55
+    # Free transfers must be exactly 1!
+    assert reverted.free_transfers == 1
+
+    # 5. Repeated resets do NOT inflate free transfers to 2, 3, 4, 5
+    for _ in range(3):
+        res2 = undo_gameweek_changes(squad_path, gameweek=3, database_path=db_path)
+        assert res2["free_transfers"] == 1
+        reverted2 = load_current_squad(squad_path)
+        assert reverted2.free_transfers == 1
+
 
 
 

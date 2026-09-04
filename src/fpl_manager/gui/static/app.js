@@ -220,6 +220,9 @@ async function loadLineup(gw = null, mode = "auto") {
   }
 }
 
+// Alias for backwards compatibility
+const loadPitchAndLineup = loadLineup;
+
 async function renderLineupGWPills(currentGw) {
   const container = document.getElementById("lineup-gw-pills");
   if (!container) return;
@@ -1246,10 +1249,38 @@ async function runSuggestTransfers() {
         if (!confirmed) return;
 
         try {
-          const transfersPayload = opt.outgoing.map((outP, i) => ({
-            outgoing_id: outP.id,
-            incoming_id: opt.incoming[i].id,
-          }));
+          const outByPos = {};
+          opt.outgoing.forEach(p => {
+            const pos = p.position || p.pos_abbr || "DEF";
+            outByPos[pos] = outByPos[pos] || [];
+            outByPos[pos].push(p);
+          });
+          const inByPos = {};
+          opt.incoming.forEach(p => {
+            const pos = p.position || p.pos_abbr || "DEF";
+            inByPos[pos] = inByPos[pos] || [];
+            inByPos[pos].push(p);
+          });
+
+          let transfersPayload = [];
+          for (const pos in outByPos) {
+            const outs = outByPos[pos];
+            const ins = inByPos[pos] || [];
+            for (let i = 0; i < outs.length; i++) {
+              if (ins[i]) {
+                transfersPayload.push({
+                  outgoing_id: outs[i].id,
+                  incoming_id: ins[i].id,
+                });
+              }
+            }
+          }
+          if (transfersPayload.length < opt.outgoing.length) {
+            transfersPayload = opt.outgoing.map((outP, i) => ({
+              outgoing_id: outP.id,
+              incoming_id: opt.incoming[i].id,
+            }));
+          }
 
           const res = await api("/api/transfers/execute", {
             method: "POST",
@@ -1263,7 +1294,7 @@ async function runSuggestTransfers() {
           showToast(res.message || "Transfers applied successfully!");
           await refreshActiveTeamData();
           await loadDecisions();
-          await loadPitchAndLineup();
+          await loadLineup();
           await runSuggestTransfers();
         } catch (err) {
           showToast(`Transfer failed: ${err.message}`, true);
@@ -1357,7 +1388,7 @@ async function runWildcard() {
           showToast(res.message || `${mode.toUpperCase()} squad applied successfully!`);
           await refreshActiveTeamData();
           await loadDecisions();
-          await loadPitchAndLineup();
+          await loadLineup();
           const chipTab = document.getElementById("tab-chips");
           if (chipTab && chipTab.classList.contains("active")) {
             await loadChipStrategy();
@@ -1491,7 +1522,7 @@ async function runPlanner() {
           showToast(`GW${step0.gameweek} plan move applied successfully!`);
           await refreshActiveTeamData();
           await loadDecisions();
-          await loadPitchAndLineup();
+          await loadLineup();
           await runPlanner();
         } catch (err) {
           showToast(`Failed to apply plan move: ${err.message}`, true);

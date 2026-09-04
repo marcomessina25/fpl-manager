@@ -170,3 +170,15 @@ def test_execute_transfers(tmp_path: Path) -> None:
     assert updated.free_transfers == 0
 
 
+def test_validate_transfers_crossed_positions_realigned() -> None:
+    # Squad has player 3 (DEF) and player 8 (MID)
+    players, state = squad_and_state()
+    # Add candidate player 16 (MID) and player 17 (DEF)
+    players.extend([make_player(16, Position.MIDFIELDER, 6, 50), make_player(17, Position.DEFENDER, 6, 50)])
+    # Submit crossed pairs: player 3 (DEF) -> player 16 (MID), player 8 (MID) -> player 17 (DEF)
+    result = validate_transfers(state, players, [Transfer(3, 16), Transfer(8, 17)])
+    assert result.is_valid
+    assert result.bank_after_tenths == 10
+
+
+

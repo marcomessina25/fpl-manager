@@ -137,8 +137,9 @@ def solve_transfers(
         out_sell_sum = sum(selling_prices[p.id] for p in out_combo)
         max_budget = bank_tenths + out_sell_sum
 
-        # Sort positions canonically to group identical positions and break permutation symmetry
-        req_positions = sorted([p.position for p in out_combo], key=lambda pos: pos.value)
+        # Sort out_combo by position canonically to match picked candidates by position
+        sorted_out_combo = sorted(out_combo, key=lambda p: p.position.value)
+        req_positions = [p.position for p in sorted_out_combo]
 
         # Quick feasibility check: can budget afford cheapest candidates?
         if sum(min_price[pos] for pos in req_positions) > max_budget:
@@ -200,7 +201,7 @@ def solve_transfers(
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
                         }
-                        for p in out_combo
+                        for p in sorted_out_combo
                     ],
                     "incoming": [
                         {

@@ -48,6 +48,29 @@ def validate_transfers(
     if len(set(incoming_ids)) != len(incoming_ids):
         errors.append("A player cannot be transferred in more than once.")
 
+    # If any proposed transfer crosses positions, check if overall positions match and re-align
+    all_known_out = [player_by_id.get(t.outgoing_id) for t in proposed]
+    all_known_in = [player_by_id.get(t.incoming_id) for t in proposed]
+    if all(p is not None for p in all_known_out) and all(p is not None for p in all_known_in):
+        out_pos = sorted(p.position.value for p in all_known_out)
+        in_pos = sorted(p.position.value for p in all_known_in)
+        if out_pos == in_pos and any(o.position != i.position for o, i in zip(all_known_out, all_known_in)):
+            outs_by_pos: dict[Any, list[int]] = {}
+            for t in proposed:
+                p = player_by_id[t.outgoing_id]
+                outs_by_pos.setdefault(p.position, []).append(t.outgoing_id)
+            ins_by_pos: dict[Any, list[int]] = {}
+            for t in proposed:
+                p = player_by_id[t.incoming_id]
+                ins_by_pos.setdefault(p.position, []).append(t.incoming_id)
+
+            realigned = []
+            for pos, out_list in outs_by_pos.items():
+                in_list = ins_by_pos.get(pos, [])
+                for o_id, i_id in zip(out_list, in_list):
+                    realigned.append(Transfer(outgoing_id=o_id, incoming_id=i_id))
+            proposed = tuple(realigned)
+
     squad_ids = set(state.player_ids)
     for transfer in proposed:
         outgoing = player_by_id.get(transfer.outgoing_id)
@@ -113,6 +136,29 @@ def execute_transfers(
             tx_objs.append(Transfer(outgoing_id=out_id, incoming_id=in_id))
 
     all_players = store.latest_players()
+    all_player_map = {p.id: p for p in all_players}
+    out_with_p = [all_player_map.get(tx.outgoing_id) for tx in tx_objs]
+    in_with_p = [all_player_map.get(tx.incoming_id) for tx in tx_objs]
+    if all(p is not None for p in out_with_p) and all(p is not None for p in in_with_p):
+        out_pos = sorted(p.position.value for p in out_with_p)
+        in_pos = sorted(p.position.value for p in in_with_p)
+        if out_pos == in_pos and any(o.position != i.position for o, i in zip(out_with_p, in_with_p)):
+            outs_by_pos: dict[Any, list[int]] = {}
+            for tx in tx_objs:
+                p = all_player_map[tx.outgoing_id]
+                outs_by_pos.setdefault(p.position, []).append(tx.outgoing_id)
+            ins_by_pos: dict[Any, list[int]] = {}
+            for tx in tx_objs:
+                p = all_player_map[tx.incoming_id]
+                ins_by_pos.setdefault(p.position, []).append(tx.incoming_id)
+
+            realigned = []
+            for pos, out_list in outs_by_pos.items():
+                in_list = ins_by_pos.get(pos, [])
+                for o_id, i_id in zip(out_list, in_list):
+                    realigned.append(Transfer(outgoing_id=o_id, incoming_id=i_id))
+            tx_objs = realigned
+
     val_res = validate_transfers(state, all_players, tx_objs)
     if not val_res.is_valid:
         raise ValueError(f"Transfer validation failed: {'; '.join(val_res.errors)}")
@@ -144,6 +190,7 @@ def execute_transfers(
             "incoming_team": in_p.team_id,
             "selling_price_tenths": sell_p,
             "purchase_price_tenths": in_p.price_tenths,
+            "outgoing_purchase_price_tenths": out_purchase,
         })
 
     num_tx = len(tx_objs)
