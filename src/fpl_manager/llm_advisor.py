@@ -53,28 +53,45 @@ PERSONA_PROMPTS = {
 
 def _call_gemini_api(prompt: str, api_key: str, model: str = "gemini-1.5-flash") -> str:
     """Call Google Gemini REST API."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    clean_key = api_key.strip()
+    clean_model = (model or "gemini-1.5-flash").strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={clean_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048},
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        candidates = res.get("candidates", [])
-        if candidates and "content" in candidates[0]:
-            parts = candidates[0]["content"].get("parts", [])
-            if parts:
-                return parts[0].get("text", "")
-    raise RuntimeError("Empty response received from Gemini API.")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            candidates = res.get("candidates", [])
+            if candidates and "content" in candidates[0]:
+                parts = candidates[0]["content"].get("parts", [])
+                if parts:
+                    return parts[0].get("text", "")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8")
+            err_json = json.loads(body)
+            msg = err_json.get("error", {}).get("message", body)
+        except Exception:
+            msg = body or str(e)
+        raise RuntimeError(f"Google Gemini API error (HTTP {e.code}): {msg}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Google Gemini network error: {e.reason}") from e
+
+    raise RuntimeError("Empty response received from Google Gemini API.")
 
 
 def _call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> str:
     """Call OpenAI REST API."""
+    clean_key = api_key.strip()
+    clean_model = (model or "gpt-4o-mini").strip()
     url = "https://api.openai.com/v1/chat/completions"
     payload = {
-        "model": model,
+        "model": clean_model,
         "messages": [
             {"role": "system", "content": "You are an expert Fantasy Premier League tactical advisor."},
             {"role": "user", "content": prompt},
@@ -85,29 +102,56 @@ def _call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> s
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {clean_key}"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        choices = res.get("choices", [])
-        if choices and "message" in choices[0]:
-            return choices[0]["message"].get("content", "")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            choices = res.get("choices", [])
+            if choices and "message" in choices[0]:
+                return choices[0]["message"].get("content", "")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8")
+            err_json = json.loads(body)
+            msg = err_json.get("error", {}).get("message", body)
+        except Exception:
+            msg = body or str(e)
+        raise RuntimeError(f"OpenAI API error (HTTP {e.code}): {msg}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"OpenAI network error: {e.reason}") from e
+
     raise RuntimeError("Empty response received from OpenAI API.")
 
 
 def _call_ollama_api(prompt: str, host: str = "http://localhost:11434", model: str = "llama3.2") -> str:
     """Call local Ollama REST API."""
-    url = f"{host.rstrip('/')}/api/chat"
+    clean_host = (host or "http://localhost:11434").rstrip("/")
+    clean_model = (model or "llama3.2").strip()
+    url = f"{clean_host}/api/chat"
     payload = {
-        "model": model,
+        "model": clean_model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res.get("message", {}).get("content", "")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            return res.get("message", {}).get("content", "")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8")
+            err_json = json.loads(body)
+            msg = err_json.get("error", body)
+        except Exception:
+            msg = body or str(e)
+        raise RuntimeError(f"Ollama API error (HTTP {e.code}): {msg}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Cannot connect to Ollama at {clean_host} ({e.reason}). Ensure Ollama daemon is running (`ollama serve`).") from e
 
 
 def _heuristic_advisory(dossier: dict[str, Any], persona: str) -> dict[str, Any]:
@@ -281,6 +325,30 @@ def validate_proposed_advisory_actions(
     }
 
 
+def _build_llm_prompt(system_persona: str, dossier: dict[str, Any], gw: int) -> str:
+    """Construct structured instruction prompt for generative AI providers."""
+    return (
+        f"{system_persona}\n\n"
+        f"Review this manager briefing dossier for Gameweek {gw}:\n"
+        f"{json.dumps(dossier, indent=2, ensure_ascii=False)}\n\n"
+        f"INSTRUCTIONS:\n"
+        f"1. Provide a rigorous tactical analysis and strategic critique in Markdown format.\n"
+        f"2. Conclude your response with a JSON block enclosed in ```json and ``` with this exact schema:\n"
+        f"```json\n"
+        f"{{\n"
+        f'  "critique_points": ["First contrarian or trap risk", "Second contrarian risk"],\n'
+        f'  "tactical_notes": ["Key matchup signal", "Press conference fitness takeaway"],\n'
+        f'  "captain": "Player Name",\n'
+        f'  "vice_captain": "Player Name",\n'
+        f'  "transfers": [\n'
+        f'    {{"out": "Outgoing Player Name", "in": "Incoming Player Name", "rationale": "Transfer rationale"}}\n'
+        f'  ]\n'
+        f"}}\n"
+        f"```\n"
+        f"If rolling the transfer, provide an empty list for 'transfers'. Player names must match the dossier."
+    )
+
+
 def generate_llm_advisory(
     gameweek: int | None = None,
     squad_path: Path = DEFAULT_SQUAD_PATH,
@@ -309,56 +377,19 @@ def generate_llm_advisory(
     gw = dossier.get("gameweek", state.gameweek or 1)
 
     system_persona = PERSONA_PROMPTS.get(persona, PERSONA_PROMPTS["devil_advocate"])
+    prompt = custom_prompt or _build_llm_prompt(system_persona, dossier, gw)
 
     # 2. Determine provider and attempt call
-    resolved_provider = provider.lower()
+    resolved_provider = provider.lower().strip()
     raw_response = None
     provider_used = "heuristic"
 
     # API keys from env if not passed
-    gemini_key = api_key or os.environ.get("GEMINI_API_KEY")
+    gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     openai_key = api_key or os.environ.get("OPENAI_API_KEY")
+    ollama_host = (api_key if (api_key and api_key.startswith("http")) else None) or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
-    if resolved_provider in ("auto", "gemini") and gemini_key:
-        try:
-            prompt = (
-                f"{system_persona}\n\n"
-                f"Review this manager briefing dossier for Gameweek {gw}:\n"
-                f"{json.dumps(dossier, indent=2)}\n\n"
-                f"Provide your strategic critique, tactical recommendations, proposed captain, and any transfers."
-            )
-            raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash")
-            provider_used = "gemini"
-        except Exception:
-            pass
-
-    if raw_response is None and resolved_provider in ("auto", "openai") and openai_key:
-        try:
-            prompt = (
-                f"{system_persona}\n\n"
-                f"Review this manager briefing dossier for Gameweek {gw}:\n"
-                f"{json.dumps(dossier, indent=2)}\n\n"
-                f"Provide your strategic critique, tactical recommendations, proposed captain, and any transfers."
-            )
-            raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
-            provider_used = "openai"
-        except Exception:
-            pass
-
-    if raw_response is None and resolved_provider in ("auto", "ollama") and os.environ.get("OLLAMA_HOST"):
-        try:
-            prompt = (
-                f"{system_persona}\n\n"
-                f"Review this manager briefing dossier for Gameweek {gw}:\n"
-                f"{json.dumps(dossier, indent=2)}"
-            )
-            raw_response = _call_ollama_api(prompt, host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"), model=model or "llama3.2")
-            provider_used = "ollama"
-        except Exception:
-            pass
-
-    # If no API or API failed -> Deterministic Heuristic Engine
-    if raw_response is None:
+    if resolved_provider == "heuristic":
         heuristic_res = _heuristic_advisory(dossier, persona)
         analysis_markdown = heuristic_res["analysis_markdown"]
         critique_points = heuristic_res["critique_points"]
@@ -366,30 +397,104 @@ def generate_llm_advisory(
         proposed_captain = heuristic_res["proposed_captain"]
         proposed_vice_captain = heuristic_res["proposed_vice_captain"]
         proposed_transfers = heuristic_res["proposed_transfers"]
-        provider_used = "heuristic (deterministic fallback)"
+        provider_used = "heuristic"
+
+    elif resolved_provider == "gemini":
+        if not gemini_key:
+            raise ValueError(
+                "Gemini API key is required when selecting the Google Gemini engine. "
+                "Please enter an API key in the toolbar, pass '--api-key', or set the "
+                "GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable."
+            )
+        raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash")
+        provider_used = "gemini"
+
+    elif resolved_provider == "openai":
+        if not openai_key:
+            raise ValueError(
+                "OpenAI API key is required when selecting the OpenAI engine. "
+                "Please enter an API key in the toolbar, pass '--api-key', or set the "
+                "OPENAI_API_KEY environment variable."
+            )
+        raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
+        provider_used = "openai"
+
+    elif resolved_provider == "ollama":
+        raw_response = _call_ollama_api(prompt, host=ollama_host, model=model or "llama3.2")
+        provider_used = "ollama"
+
+    elif resolved_provider == "auto":
+        # Auto mode: try Gemini if key present, else OpenAI if key present, else Ollama, else heuristic
+        if gemini_key:
+            try:
+                raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash")
+                provider_used = "gemini"
+            except Exception:
+                pass
+
+        if raw_response is None and openai_key:
+            try:
+                raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
+                provider_used = "openai"
+            except Exception:
+                pass
+
+        if raw_response is None and os.environ.get("OLLAMA_HOST"):
+            try:
+                raw_response = _call_ollama_api(prompt, host=ollama_host, model=model or "llama3.2")
+                provider_used = "ollama"
+            except Exception:
+                pass
+
+        if raw_response is None:
+            heuristic_res = _heuristic_advisory(dossier, persona)
+            analysis_markdown = heuristic_res["analysis_markdown"]
+            critique_points = heuristic_res["critique_points"]
+            tactical_notes = heuristic_res["tactical_notes"]
+            proposed_captain = heuristic_res["proposed_captain"]
+            proposed_vice_captain = heuristic_res["proposed_vice_captain"]
+            proposed_transfers = heuristic_res["proposed_transfers"]
+            provider_used = "heuristic (auto-fallback)"
+            tactical_notes.append(
+                "ℹ️ Auto-routed to local heuristic engine (no API key configured for Gemini/OpenAI, and Ollama is offline)."
+            )
     else:
+        raise ValueError(
+            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai', 'ollama'."
+        )
+
+    if raw_response is not None:
         # Parse output from LLM
-        analysis_markdown = raw_response
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_response, re.DOTALL)
         critique_points = []
         tactical_notes = []
         proposed_captain = dossier.get("lineup", {}).get("captain", {}).get("name")
         proposed_vice_captain = dossier.get("lineup", {}).get("vice_captain", {}).get("name")
         proposed_transfers = []
 
-        # Extract transfers if found in JSON or text
-        # Look for JSON blocks
-        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_response, re.DOTALL)
         if json_match:
             try:
                 parsed = json.loads(json_match.group(1))
-                if "captain" in parsed:
-                    proposed_captain = parsed["captain"]
-                if "vice_captain" in parsed:
-                    proposed_vice_captain = parsed["vice_captain"]
-                if "transfers" in parsed and isinstance(parsed["transfers"], list):
+                if parsed.get("captain"):
+                    proposed_captain = str(parsed["captain"]).strip()
+                if parsed.get("vice_captain"):
+                    proposed_vice_captain = str(parsed["vice_captain"]).strip()
+                if isinstance(parsed.get("transfers"), list):
                     proposed_transfers = parsed["transfers"]
+                if isinstance(parsed.get("critique_points"), list):
+                    critique_points = [str(c) for c in parsed["critique_points"]]
+                if isinstance(parsed.get("tactical_notes"), list):
+                    tactical_notes = [str(t) for t in parsed["tactical_notes"]]
             except Exception:
                 pass
+            analysis_markdown = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", raw_response, flags=re.DOTALL).strip()
+        else:
+            analysis_markdown = raw_response.strip()
+
+        if not critique_points:
+            bullets = re.findall(r"^[-*•]\s+(.*)$", analysis_markdown, flags=re.MULTILINE)
+            if bullets:
+                critique_points = bullets[:4]
 
     # 3. Deterministic Validation Guardrails
     validation = validate_proposed_advisory_actions(

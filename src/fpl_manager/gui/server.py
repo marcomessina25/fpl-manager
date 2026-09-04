@@ -299,6 +299,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 gw = int(gw_arg) if gw_arg else None
                 persona = get_arg("persona", "devil_advocate")
                 provider = get_arg("provider", "auto")
+                api_key = get_arg("api_key")
+                model = get_arg("model")
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 rep = generate_llm_advisory(
                     gameweek=gw,
@@ -306,6 +308,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                     persona=persona,
                     provider=provider,
+                    api_key=api_key,
+                    model=model,
                 )
                 self._send_json(rep)
             else:
@@ -471,7 +475,11 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 persona = body.get("persona", "devil_advocate")
                 provider = body.get("provider", "auto")
                 api_key = body.get("api_key")
+                if isinstance(api_key, str):
+                    api_key = api_key.strip() or None
                 model = body.get("model")
+                if isinstance(model, str):
+                    model = model.strip() or None
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 res = generate_llm_advisory(
                     gameweek=gw,
