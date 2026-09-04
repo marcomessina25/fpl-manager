@@ -1,6 +1,6 @@
 """LLM Advisory Layer with Deterministic Guardrails for FPL Manager V0.6.
 
-Integrates multi-provider LLM analysis (Gemini, OpenAI, Ollama, Heuristic)
+Integrates multi-provider LLM analysis (Gemini, OpenAI, OpenRouter, Heuristic)
 with specialized personas (Devil's Advocate, Tactical Analyst, Strategic Planner).
 Deterministic validation ensures that all LLM advice is strictly verified against
 FPL budget, squad quota, and formation constraints before presentation.
@@ -198,33 +198,53 @@ def _call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini") -> s
     raise RuntimeError("Empty response received from OpenAI API.")
 
 
-def _call_ollama_api(prompt: str, host: str = "http://localhost:11434", model: str = "llama3.2") -> str:
-    """Call local Ollama REST API."""
-    clean_host = (host or "http://localhost:11434").rstrip("/")
-    clean_model = (model or "llama3.2").strip()
-    url = f"{clean_host}/api/chat"
+def _call_openrouter_api(
+    prompt: str,
+    api_key: str,
+    model: str = "meta-llama/llama-3.3-70b-instruct",
+) -> str:
+    """Call OpenRouter REST API."""
+    clean_key = api_key.strip()
+    clean_model = (model or "meta-llama/llama-3.3-70b-instruct").strip()
+    url = "https://openrouter.ai/api/v1/chat/completions"
     payload = {
         "model": clean_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
+        "messages": [
+            {"role": "system", "content": "You are an expert Fantasy Premier League tactical advisor."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.4,
     }
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {clean_key}",
+            "HTTP-Referer": "https://github.com/marcomessina25/fpl-manager",
+            "X-Title": "FPL Manager Pro",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             res = json.loads(resp.read().decode("utf-8"))
-            return res.get("message", {}).get("content", "")
+            choices = res.get("choices", [])
+            if choices and "message" in choices[0]:
+                return choices[0]["message"].get("content", "")
     except urllib.error.HTTPError as e:
         body = ""
         try:
             body = e.read().decode("utf-8")
             err_json = json.loads(body)
-            msg = err_json.get("error", body)
+            msg = err_json.get("error", {}).get("message", body)
         except Exception:
             msg = body or str(e)
-        raise RuntimeError(f"Ollama API error (HTTP {e.code}): {msg}") from e
+        raise RuntimeError(f"OpenRouter API error (HTTP {e.code}): {msg}") from e
     except urllib.error.URLError as e:
-        raise RuntimeError(f"Cannot connect to Ollama at {clean_host} ({e.reason}). Ensure Ollama daemon is running (`ollama serve`).") from e
+        raise RuntimeError(f"OpenRouter network error: {e.reason}") from e
+
+    raise RuntimeError("Empty response received from OpenRouter API.")
 
 
 def _heuristic_advisory(dossier: dict[str, Any], persona: str) -> dict[str, Any]:
@@ -460,7 +480,7 @@ def generate_llm_advisory(
     # API keys from env if not passed
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     openai_key = api_key or os.environ.get("OPENAI_API_KEY")
-    ollama_host = (api_key if (api_key and api_key.startswith("http")) else None) or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    openrouter_key = api_key or os.environ.get("OPENROUTER_API_KEY")
 
     if resolved_provider == "heuristic":
         heuristic_res = _heuristic_advisory(dossier, persona)
@@ -492,12 +512,18 @@ def generate_llm_advisory(
         raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
         provider_used = "openai"
 
-    elif resolved_provider == "ollama":
-        raw_response = _call_ollama_api(prompt, host=ollama_host, model=model or "llama3.2")
-        provider_used = "ollama"
+    elif resolved_provider == "openrouter":
+        if not openrouter_key:
+            raise ValueError(
+                "OpenRouter API key is required when selecting the OpenRouter engine. "
+                "Please enter an API key in the toolbar, pass '--api-key', or set the "
+                "OPENROUTER_API_KEY environment variable."
+            )
+        raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
+        provider_used = "openrouter"
 
     elif resolved_provider == "auto":
-        # Auto mode: try Gemini if key present, else OpenAI if key present, else Ollama, else heuristic
+        # Auto mode: try Gemini if key present, else OpenAI if key present, else OpenRouter, else heuristic
         if gemini_key:
             try:
                 raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash-latest")
@@ -512,10 +538,10 @@ def generate_llm_advisory(
             except Exception:
                 pass
 
-        if raw_response is None and os.environ.get("OLLAMA_HOST"):
+        if raw_response is None and openrouter_key:
             try:
-                raw_response = _call_ollama_api(prompt, host=ollama_host, model=model or "llama3.2")
-                provider_used = "ollama"
+                raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
+                provider_used = "openrouter"
             except Exception:
                 pass
 
@@ -529,11 +555,11 @@ def generate_llm_advisory(
             proposed_transfers = heuristic_res["proposed_transfers"]
             provider_used = "heuristic (auto-fallback)"
             tactical_notes.append(
-                "ℹ️ Auto-routed to local heuristic engine (no API key configured for Gemini/OpenAI, and Ollama is offline)."
+                "ℹ️ Auto-routed to offline heuristic engine (no API key configured for Gemini/OpenAI/OpenRouter)."
             )
     else:
         raise ValueError(
-            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai', 'ollama'."
+            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai', 'openrouter'."
         )
 
     if raw_response is not None:

@@ -902,8 +902,8 @@ def main(argv: list[str] | None = None) -> None:
         ap.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
         ap.add_argument("--gameweek", type=int, default=None, help="Target gameweek (default: upcoming GW)")
         ap.add_argument("--persona", choices=["devil_advocate", "tactical_analyst", "strategic_planner"], default="devil_advocate", help="Advisory persona")
-        ap.add_argument("--provider", choices=["auto", "gemini", "openai", "ollama", "heuristic"], default="auto", help="LLM Provider")
-        ap.add_argument("--api-key", type=str, default=None, help="API key for Gemini/OpenAI")
+        ap.add_argument("--provider", choices=["auto", "gemini", "openai", "openrouter", "heuristic"], default="auto", help="LLM Provider")
+        ap.add_argument("--api-key", type=str, default=None, help="API key for Gemini/OpenAI/OpenRouter")
         ap.add_argument("--model", type=str, default=None, help="Model name override")
 
     arguments = parser.parse_args(argv)
