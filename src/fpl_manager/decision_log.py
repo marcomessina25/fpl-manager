@@ -270,6 +270,9 @@ def get_gameweek_decision(
         cap_name = cap_row[0] if cap_row else f"ID {cap_id}"
         vc_name = vc_row[0] if vc_row else f"ID {vc_id}"
 
+    starters = json.loads(row[7])
+    bench = json.loads(row[8])
+
     return {
         "decision_id": row[0],
         "team_id": row[16] if len(row) > 16 else team_id,
@@ -279,8 +282,9 @@ def get_gameweek_decision(
         "chip_played": row[4],
         "transfer_hits": row[5],
         "transfers": json.loads(row[6]),
-        "starting_player_ids": json.loads(row[7]),
-        "bench_player_ids": json.loads(row[8]),
+        "starting_player_ids": starters,
+        "bench_player_ids": bench,
+        "squad_player_ids": starters + bench,
         "captain_id": cap_id,
         "captain_name": cap_name,
         "vice_captain_id": vc_id,
@@ -522,9 +526,61 @@ def log_decision_from_current_squad(
     )
 
     if transfers is None and not is_past:
-        existing_dec = get_gameweek_decision(gameweek, team_id=team_id, database_path=database_path)
+        existing_dec = get_gameweek_decision(gameweek, season=state.season, team_id=team_id, database_path=database_path)
         if existing_dec and existing_dec.get("transfers"):
-            parsed_transfers = existing_dec.get("transfers", [])
+            parsed_transfers = list(existing_dec.get("transfers", []))
+
+    if not parsed_transfers and not is_past and gameweek > 1:
+        prev_dec = get_gameweek_decision(gameweek - 1, season=state.season, team_id=team_id, database_path=database_path)
+        if prev_dec:
+            prev_squad_ids = set(prev_dec.get("squad_player_ids") or (prev_dec.get("starting_player_ids", []) + prev_dec.get("bench_player_ids", [])))
+            curr_squad_ids = set(squad_ids)
+            if prev_squad_ids and prev_squad_ids != curr_squad_ids:
+                out_pids = list(prev_squad_ids - curr_squad_ids)
+                in_pids = list(curr_squad_ids - prev_squad_ids)
+                if len(out_pids) == len(in_pids) and len(out_pids) > 0:
+                    with closing(store._connect()) as conn:
+                        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+                        snap_id = snap[0] if snap else 1
+                        all_p_rows = conn.execute(
+                            f"SELECT player_id, web_name, team_id, position_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({','.join('?' for _ in (out_pids + in_pids))})",
+                            (snap_id, *(out_pids + in_pids)),
+                        ).fetchall()
+                        p_info = {r[0]: {"name": r[1], "team": r[2], "pos": r[3], "price": r[4]} for r in all_p_rows}
+
+                    reconciled = []
+                    unmatched_outs = list(out_pids)
+                    unmatched_ins = list(in_pids)
+                    for o_id in list(unmatched_outs):
+                        o_pos = p_info.get(o_id, {}).get("pos")
+                        match_in = next((i_id for i_id in unmatched_ins if p_info.get(i_id, {}).get("pos") == o_pos), None)
+                        if match_in is not None:
+                            unmatched_outs.remove(o_id)
+                            unmatched_ins.remove(match_in)
+                            reconciled.append((o_id, match_in))
+                    for o_id, i_id in zip(unmatched_outs, unmatched_ins):
+                        reconciled.append((o_id, i_id))
+
+                    for o_id, i_id in reconciled:
+                        o_meta = p_info.get(o_id, {})
+                        i_meta = p_info.get(i_id, {})
+                        out_current_cost = o_meta.get("price", 50)
+                        in_current_cost = i_meta.get("price", 50)
+                        out_purchase = state.purchase_prices_tenths.get(o_id, out_current_cost)
+                        gain = max(0, (out_current_cost - out_purchase) // 2)
+                        selling_price = out_purchase + gain
+
+                        parsed_transfers.append({
+                            "outgoing_id": o_id,
+                            "outgoing_name": o_meta.get("name", f"ID {o_id}"),
+                            "outgoing_team": o_meta.get("team", ""),
+                            "incoming_id": i_id,
+                            "incoming_name": i_meta.get("name", f"ID {i_id}"),
+                            "incoming_team": i_meta.get("team", ""),
+                            "selling_price_tenths": selling_price,
+                            "purchase_price_tenths": in_current_cost,
+                            "outgoing_purchase_price_tenths": out_purchase,
+                        })
 
     if parsed_transfers:
         with closing(store._connect()) as conn:
@@ -548,12 +604,17 @@ def log_decision_from_current_squad(
                     tx["outgoing_purchase_price_tenths"] = out_purchase
 
     # 3. Compute transfer hits if not explicitly provided
-    if transfer_hits is None:
+    if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+        computed_hits = 0
+    elif transfer_hits is None:
         if parsed_transfers:
-            from .transfers import Transfer, validate_transfers
-            transfer_objs = [Transfer(t["outgoing_id"], t["incoming_id"]) for t in parsed_transfers]
-            val_res = validate_transfers(state, store.latest_players(), transfer_objs)
-            computed_hits = val_res.transfer_hits
+            starting_ft = compute_expected_free_transfers(
+                gameweek,
+                team_id=team_id,
+                season=state.season,
+                database_path=database_path,
+            )
+            computed_hits = max(0, len(parsed_transfers) - starting_ft)
         else:
             computed_hits = 0
     else:
@@ -735,23 +796,25 @@ def log_decision_from_current_squad(
                 out_id = tx["outgoing_id"]
                 in_id = tx["incoming_id"]
 
-                out_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, out_id)).fetchone()
-                in_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, in_id)).fetchone()
+                # Only adjust bank and purchase prices if outgoing player was still in the squad state!
+                if out_id in state.player_ids:
+                    out_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, out_id)).fetchone()
+                    in_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, in_id)).fetchone()
 
-                out_current_cost = out_row[0] if out_row else new_prices.get(out_id, 50)
-                in_current_cost = in_row[0] if in_row else 50
-                out_purchase = new_prices.get(out_id, out_current_cost)
+                    out_current_cost = out_row[0] if out_row else new_prices.get(out_id, 50)
+                    in_current_cost = in_row[0] if in_row else 50
+                    out_purchase = new_prices.get(out_id, out_current_cost)
 
-                gain = max(0, (out_current_cost - out_purchase) // 2)
-                selling_price = out_purchase + gain
+                    gain = max(0, (out_current_cost - out_purchase) // 2)
+                    selling_price = out_purchase + gain
 
-                new_prices.pop(out_id, None)
-                new_prices[in_id] = in_current_cost
-                new_bank += (selling_price - in_current_cost)
+                    new_prices.pop(out_id, None)
+                    new_prices[in_id] = in_current_cost
+                    new_bank += (selling_price - in_current_cost)
 
-                tx["selling_price_tenths"] = selling_price
-                tx["purchase_price_tenths"] = in_current_cost
-                tx["outgoing_purchase_price_tenths"] = out_purchase
+                    tx["selling_price_tenths"] = selling_price
+                    tx["purchase_price_tenths"] = in_current_cost
+                    tx["outgoing_purchase_price_tenths"] = out_purchase
 
         new_chips = list(state.chips_remaining)
         if chip_played:
@@ -782,16 +845,18 @@ def log_decision_from_current_squad(
                 new_chips.remove(to_remove)
 
         num_tx = len(parsed_transfers)
-        if gameweek > squad_gw:
-            if num_tx > 0:
-                new_ft = max(1, min(5, state.free_transfers - num_tx + 1))
-            else:
-                new_ft = min(5, state.free_transfers + 1)
+        starting_ft = compute_expected_free_transfers(
+            gameweek,
+            team_id=team_id,
+            season=state.season,
+            database_path=database_path,
+        )
+        remaining_ft = max(0, starting_ft - num_tx)
+
+        if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+            new_ft = 1
         else:
-            if num_tx > 0:
-                new_ft = max(0, state.free_transfers - num_tx)
-            else:
-                new_ft = state.free_transfers
+            new_ft = remaining_ft
 
         new_gw = max(squad_gw, gameweek)
 
@@ -847,7 +912,7 @@ def compute_expected_free_transfers(
                     tx_count = len(tx_list)
                     ft = min(5, max(0, ft - tx_count) + 1)
             else:
-                ft = min(5, ft + 1)
+                ft = 1
 
     return max(1, min(5, ft))
 
@@ -1104,6 +1169,54 @@ def apply_wildcard_or_freehit(
     )
     save_current_squad(squad_path, updated_state)
 
+    # Reconcile transfers made from previous squad state for decision record
+    outs = set(state.player_ids) - set(squad_ids)
+    ins = set(squad_ids) - set(state.player_ids)
+    tx_records = []
+    if outs and ins and len(outs) == len(ins):
+        with closing(store._connect()) as conn:
+            snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+            snap_id = snap[0] if snap else 1
+            all_p_rows = conn.execute(
+                f"SELECT player_id, web_name, team_id, position_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({','.join('?' for _ in (list(outs) + list(ins)))})",
+                (snap_id, *(list(outs) + list(ins))),
+            ).fetchall()
+            p_info = {r[0]: {"name": r[1], "team": r[2], "pos": r[3], "price": r[4]} for r in all_p_rows}
+
+        unmatched_outs = list(outs)
+        unmatched_ins = list(ins)
+        reconciled = []
+        for o_id in list(unmatched_outs):
+            o_pos = p_info.get(o_id, {}).get("pos")
+            match_in = next((i_id for i_id in unmatched_ins if p_info.get(i_id, {}).get("pos") == o_pos), None)
+            if match_in is not None:
+                unmatched_outs.remove(o_id)
+                unmatched_ins.remove(match_in)
+                reconciled.append((o_id, match_in))
+        for o_id, i_id in zip(unmatched_outs, unmatched_ins):
+            reconciled.append((o_id, i_id))
+
+        for o_id, i_id in reconciled:
+            o_meta = p_info.get(o_id, {})
+            i_meta = p_info.get(i_id, {})
+            out_current_cost = o_meta.get("price", 50)
+            in_current_cost = i_meta.get("price", 50)
+            out_purchase = state.purchase_prices_tenths.get(o_id, out_current_cost)
+            gain = max(0, (out_current_cost - out_purchase) // 2)
+            selling_price = out_purchase + gain
+
+            tx_records.append({
+                "outgoing_id": o_id,
+                "outgoing_name": o_meta.get("name", f"ID {o_id}"),
+                "outgoing_team": o_meta.get("team", ""),
+                "incoming_id": i_id,
+                "incoming_name": i_meta.get("name", f"ID {i_id}"),
+                "incoming_team": i_meta.get("team", ""),
+                "selling_price_tenths": selling_price,
+                "purchase_price_tenths": in_current_cost,
+                "outgoing_purchase_price_tenths": out_purchase,
+            })
+
     # Record the gameweek decision in the database
     record_gameweek_decision(
         gameweek=gameweek,
@@ -1113,7 +1226,7 @@ def apply_wildcard_or_freehit(
         captain_id=captain_id,
         vice_captain_id=vice_captain_id,
         chip_played=chip_norm,
-        transfers=[],
+        transfers=tx_records,
         transfer_hits=0,
         team_id=team_id,
         season=season or state.season,

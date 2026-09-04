@@ -59,7 +59,7 @@ def decision_test_env(tmp_path: Path) -> tuple[Path, Path]:
         bootstrap["elements"].append({
             "id": p_id,
             "web_name": f"Player_{p_id}",
-            "team": 5 if p_id == 16 else (((p_id - 1) % 5) + 1),
+            "team": 5 if p_id == 16 else (4 if p_id == 17 else (((p_id - 1) % 5) + 1)),
             "element_type": pos_id,
             "now_cost": cost,
             "status": "a",
@@ -800,6 +800,159 @@ def test_undo_gameweek_changes_price_preservation_and_no_ft_inflation(decision_t
         assert res2["free_transfers"] == 1
         reverted2 = load_current_squad(squad_path)
         assert reverted2.free_transfers == 1
+
+
+def test_sequential_transfers_and_lineup_propagation(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.decision_log import get_gameweek_decision, log_decision_from_current_squad
+    from fpl_manager.squad_state import load_current_squad
+    from fpl_manager.transfers import execute_transfers
+
+    db_path, squad_path = decision_test_env
+
+    # Setup GW1 & GW2 decisions
+    log_decision_from_current_squad(
+        gameweek=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+    # GW2: 1 transfer made (15 -> 16), entering GW3 with 1 FT
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        transfers=["Player_15:Player_16"],
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 16],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # In GW3: user executes Transfer 1: Player 16 -> Player 15
+    tx1_res = execute_transfers(squad_path, [(16, 15)], database_path=db_path, gameweek=3)
+    assert tx1_res["success"] is True
+    assert len(tx1_res["transfers"]) == 1
+    assert tx1_res["transfers"][0]["outgoing_id"] == 16
+    assert tx1_res["transfers"][0]["incoming_id"] == 15
+    assert tx1_res["transfer_hits"] == 0
+    assert tx1_res["free_transfers"] == 0
+
+    # Verify decision record for GW3 was immediately created and contains Transfer 1
+    dec_gw3_after_tx1 = get_gameweek_decision(3, database_path=db_path)
+    assert dec_gw3_after_tx1 is not None
+    assert len(dec_gw3_after_tx1["transfers"]) == 1
+    assert dec_gw3_after_tx1["transfers"][0]["outgoing_id"] == 16
+    assert dec_gw3_after_tx1["transfers"][0]["incoming_id"] == 15
+    assert dec_gw3_after_tx1["transfer_hits"] == 0
+
+    # User executes Transfer 2: Player 14 -> Player 17 (triggers 1 hit because starting_ft was 1)
+    tx2_res = execute_transfers(squad_path, [(14, 17)], database_path=db_path, gameweek=3)
+    assert tx2_res["success"] is True
+    assert len(tx2_res["transfers"]) == 2
+    assert tx2_res["transfer_hits"] == 1
+    assert tx2_res["free_transfers"] == 0
+
+    # Verify decision record for GW3 contains BOTH transfers and 1 hit
+    dec_gw3_after_tx2 = get_gameweek_decision(3, database_path=db_path)
+    assert dec_gw3_after_tx2 is not None
+    assert len(dec_gw3_after_tx2["transfers"]) == 2
+    out_ids = [t["outgoing_id"] for t in dec_gw3_after_tx2["transfers"]]
+    in_ids = [t["incoming_id"] for t in dec_gw3_after_tx2["transfers"]]
+    assert out_ids == [16, 14]
+    assert in_ids == [15, 17]
+    assert dec_gw3_after_tx2["transfer_hits"] == 1
+
+    # User now saves lineup in Pitch / Decision Logger (transfers=None)
+    bank_before_lineup_save = load_current_squad(squad_path).bank_tenths
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15]
+    bench = [2, 6, 7, 17]
+    log_decision_from_current_squad(
+        gameweek=3,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=15,
+        vice_captain_id=8,
+        transfers=None,
+        overwrite=True,
+    )
+
+    # Verify decision record for GW3 STILL contains BOTH transfers and 1 hit!
+    dec_gw3_final = get_gameweek_decision(3, database_path=db_path)
+    assert dec_gw3_final is not None
+    assert len(dec_gw3_final["transfers"]) == 2
+    assert [t["outgoing_id"] for t in dec_gw3_final["transfers"]] == [16, 14]
+    assert [t["incoming_id"] for t in dec_gw3_final["transfers"]] == [15, 17]
+    assert dec_gw3_final["transfer_hits"] == 1
+    assert dec_gw3_final["captain_id"] == 15
+
+    # Verify bank was not deducted twice and free transfers remains 0
+    squad_final = load_current_squad(squad_path)
+    assert squad_final.bank_tenths == bank_before_lineup_save
+    assert squad_final.free_transfers == 0
+
+
+def test_automatic_squad_reconciliation_on_lineup_save(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.decision_log import get_gameweek_decision, log_decision_from_current_squad
+    from fpl_manager.squad_state import CurrentSquadState, save_current_squad
+
+    db_path, squad_path = decision_test_env
+
+    # GW1 logged with base squad (1-15)
+    log_decision_from_current_squad(
+        gameweek=1,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+
+    # Squad state in squad.json is modified outside decision logging (e.g. 15 replaced by 16)
+    new_squad = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16]
+    save_current_squad(
+        squad_path,
+        CurrentSquadState(
+            player_ids=tuple(new_squad),
+            purchase_prices_tenths={i: 50 for i in new_squad},
+            bank_tenths=15,
+            free_transfers=1,
+            chips_remaining=(),
+            season="2026/27",
+            gameweek=2,
+        ),
+    )
+
+    # User saves GW2 lineup directly with transfers=None
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 16],
+        captain_id=13,
+        vice_captain_id=8,
+        transfers=None,
+        overwrite=True,
+    )
+
+    # Decision for GW2 must automatically contain the reconciled transfer: 15 -> 16
+    dec2 = get_gameweek_decision(2, database_path=db_path)
+    assert dec2 is not None
+    assert len(dec2["transfers"]) == 1
+    assert dec2["transfers"][0]["outgoing_id"] == 15
+    assert dec2["transfers"][0]["incoming_id"] == 16
+    assert dec2["transfer_hits"] == 0
+
+
 
 
 

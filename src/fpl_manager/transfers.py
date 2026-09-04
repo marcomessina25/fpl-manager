@@ -195,18 +195,6 @@ def execute_transfers(
 
     num_tx = len(tx_objs)
     new_bank = val_res.bank_after_tenths if val_res.bank_after_tenths is not None else state.bank_tenths
-    new_ft = max(0, state.free_transfers - num_tx)
-
-    updated_state = CurrentSquadState(
-        player_ids=tuple(new_ids),
-        purchase_prices_tenths=new_prices,
-        bank_tenths=new_bank,
-        free_transfers=new_ft,
-        chips_remaining=state.chips_remaining,
-        season=state.season,
-        gameweek=state.gameweek,
-    )
-    save_current_squad(squad_path, updated_state)
 
     team_id = "default"
     try:
@@ -216,58 +204,140 @@ def execute_transfers(
         pass
 
     target_gw = gameweek or state.gameweek
+    merged_tx = list(records)
+    tx_hits = val_res.transfer_hits
+    starting_ft = max(1, state.free_transfers)
+
     if target_gw is not None:
         try:
-            from .decision_log import get_gameweek_decision, record_gameweek_decision
+            from .decision_log import (
+                compute_expected_free_transfers,
+                get_gameweek_decision,
+                record_gameweek_decision,
+            )
+
+            try:
+                starting_ft = compute_expected_free_transfers(
+                    target_gw,
+                    team_id=team_id,
+                    season=state.season,
+                    database_path=database_path,
+                )
+            except Exception:
+                starting_ft = max(1, state.free_transfers)
+
             existing_dec = get_gameweek_decision(target_gw, season=state.season, team_id=team_id, database_path=database_path)
             if existing_dec is not None:
                 existing_tx = existing_dec.get("transfers", [])
-                merged_tx = existing_tx + records
+                merged_tx = list(existing_tx) + list(records)
 
                 cur_starters = list(existing_dec.get("starting_player_ids", []))
                 cur_bench = list(existing_dec.get("bench_player_ids", []))
                 cur_cap = existing_dec.get("captain_id")
                 cur_vc = existing_dec.get("vice_captain_id")
+                chip_played = existing_dec.get("chip_played")
+                notes = existing_dec.get("notes", "")
+            else:
+                merged_tx = list(records)
+                prev_dec = None
+                if target_gw > 1:
+                    prev_dec = get_gameweek_decision(target_gw - 1, season=state.season, team_id=team_id, database_path=database_path)
+                if prev_dec is not None and len(prev_dec.get("starting_player_ids", [])) == 11 and len(prev_dec.get("bench_player_ids", [])) == 4:
+                    cur_starters = list(prev_dec.get("starting_player_ids", []))
+                    cur_bench = list(prev_dec.get("bench_player_ids", []))
+                    cur_cap = prev_dec.get("captain_id")
+                    cur_vc = prev_dec.get("vice_captain_id")
+                    chip_played = None
+                    notes = ""
+                else:
+                    cur_starters = []
+                    cur_bench = []
+                    cur_cap = None
+                    cur_vc = None
+                    chip_played = None
+                    notes = ""
 
-                for tx in tx_objs:
-                    if tx.outgoing_id in cur_starters:
-                        idx = cur_starters.index(tx.outgoing_id)
-                        cur_starters[idx] = tx.incoming_id
-                    elif tx.outgoing_id in cur_bench:
-                        idx = cur_bench.index(tx.outgoing_id)
-                        cur_bench[idx] = tx.incoming_id
-                    if cur_cap == tx.outgoing_id:
-                        cur_cap = tx.incoming_id
-                    if cur_vc == tx.outgoing_id:
-                        cur_vc = tx.incoming_id
+            for tx in tx_objs:
+                if tx.outgoing_id in cur_starters:
+                    idx = cur_starters.index(tx.outgoing_id)
+                    cur_starters[idx] = tx.incoming_id
+                elif tx.outgoing_id in cur_bench:
+                    idx = cur_bench.index(tx.outgoing_id)
+                    cur_bench[idx] = tx.incoming_id
+                if cur_cap == tx.outgoing_id:
+                    cur_cap = tx.incoming_id
+                if cur_vc == tx.outgoing_id:
+                    cur_vc = tx.incoming_id
 
-                record_gameweek_decision(
-                    gameweek=target_gw,
+            if set(cur_starters + cur_bench) != set(new_ids) or len(cur_starters) != 11 or len(cur_bench) != 4:
+                tmp_state = CurrentSquadState(
+                    player_ids=tuple(new_ids),
+                    purchase_prices_tenths=new_prices,
+                    bank_tenths=new_bank,
+                    free_transfers=max(0, starting_ft - len(merged_tx)),
+                    chips_remaining=state.chips_remaining,
                     season=state.season,
-                    team_id=team_id,
-                    squad_player_ids=new_ids,
-                    starting_player_ids=cur_starters,
-                    bench_player_ids=cur_bench,
-                    captain_id=cur_cap,
-                    vice_captain_id=cur_vc,
-                    transfers=merged_tx,
-                    transfer_hits=max(0, len(merged_tx) - state.free_transfers),
-                    chip_played=existing_dec.get("chip_played"),
-                    notes=existing_dec.get("notes", ""),
-                    database_path=database_path,
-                    overwrite=True,
+                    gameweek=state.gameweek,
                 )
-        except Exception:
-            pass
+                save_current_squad(squad_path, tmp_state)
+                from .lineup import select_starting_lineup
+                lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=target_gw)
+                cur_starters = [p["id"] for p in lineup_sol["starters"]]
+                cur_bench = [p["id"] for p in lineup_sol["bench"]]
+                cur_cap = lineup_sol["captain"]["id"]
+                cur_vc = lineup_sol["vice_captain"]["id"]
+
+            if cur_cap not in cur_starters:
+                cur_cap = cur_starters[0] if cur_starters else None
+            if cur_vc not in cur_starters or cur_vc == cur_cap:
+                other_starters = [p for p in cur_starters if p != cur_cap]
+                cur_vc = other_starters[0] if other_starters else cur_cap
+
+            if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+                tx_hits = 0
+            else:
+                tx_hits = max(0, len(merged_tx) - starting_ft)
+
+            record_gameweek_decision(
+                gameweek=target_gw,
+                season=state.season,
+                team_id=team_id,
+                squad_player_ids=new_ids,
+                starting_player_ids=cur_starters,
+                bench_player_ids=cur_bench,
+                captain_id=cur_cap,
+                vice_captain_id=cur_vc,
+                transfers=merged_tx,
+                transfer_hits=tx_hits,
+                chip_played=chip_played,
+                notes=notes,
+                database_path=database_path,
+                overwrite=True,
+            )
+        except Exception as ex:
+            import logging
+            logging.getLogger(__name__).warning("Failed to record decision in execute_transfers: %s", ex)
+
+    new_ft = max(0, starting_ft - len(merged_tx))
+    updated_state = CurrentSquadState(
+        player_ids=tuple(new_ids),
+        purchase_prices_tenths=new_prices,
+        bank_tenths=new_bank,
+        free_transfers=new_ft,
+        chips_remaining=state.chips_remaining,
+        season=state.season,
+        gameweek=max(state.gameweek or 1, target_gw or 1),
+    )
+    save_current_squad(squad_path, updated_state)
 
     return {
         "success": True,
         "team_id": team_id,
         "gameweek": target_gw,
-        "transfers": records,
+        "transfers": merged_tx,
         "bank_tenths": new_bank,
         "bank_fmt": f"£{new_bank / 10:.1f}m",
         "free_transfers": new_ft,
-        "transfer_hits": val_res.transfer_hits,
+        "transfer_hits": tx_hits,
         "new_player_ids": new_ids,
     }

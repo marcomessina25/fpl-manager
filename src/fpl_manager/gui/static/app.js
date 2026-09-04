@@ -302,9 +302,12 @@ function renderPitch(lineup) {
       const movesStr = (lineup.transfers && lineup.transfers.length)
         ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")
         : "No transfers";
+      const hitsStr = (lineup.transfer_hits && lineup.transfer_hits > 0)
+        ? ` (Hits: -${lineup.transfer_hits * 4}pt)`
+        : "";
       const chipStr = lineup.chip_played ? ` · Chip: ${lineup.chip_played.toUpperCase()}` : "";
 
-      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${chipStr}`;
+      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${hitsStr}${chipStr}`;
       if (toggleBtn) {
         toggleBtn.classList.remove("hidden");
         toggleBtn.textContent = "🔮 Show Model Recommended XI";
@@ -999,6 +1002,25 @@ async function loadDecisions() {
     const targetGw = parseInt(document.getElementById("dec-gw").value) || state.activeGameweek;
     const curDec = list.find(d => d.gameweek === targetGw);
     renderExecutedTransfersBox(curDec && curDec.transfers ? curDec.transfers : []);
+
+    if (curDec) {
+      const capSelect = document.getElementById("dec-captain");
+      const vcSelect = document.getElementById("dec-vc");
+      if (capSelect && curDec.captain_name && (!capSelect.value || capSelect.value === "")) {
+        capSelect.value = curDec.captain_name;
+      }
+      if (vcSelect && curDec.vice_captain_name && (!vcSelect.value || vcSelect.value === "")) {
+        vcSelect.value = curDec.vice_captain_name;
+      }
+      const chipSelect = document.getElementById("dec-chip");
+      if (chipSelect && curDec.chip_played && !chipSelect.value) {
+        chipSelect.value = curDec.chip_played;
+      }
+      const hitsInput = document.getElementById("dec-hits");
+      if (hitsInput && (!hitsInput.value || hitsInput.value === "")) {
+        hitsInput.placeholder = `Auto-calculated (${curDec.transfer_hits || 0})`;
+      }
+    }
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Failed to load decisions: ${err.message}</p>`;
   }
@@ -1812,6 +1834,19 @@ function initEventListeners() {
           const list = decData.decisions || [];
           const dec = list.find(d => d.gameweek === gw);
           renderExecutedTransfersBox(dec && dec.transfers ? dec.transfers : []);
+          if (dec) {
+            const capSelect = document.getElementById("dec-captain");
+            const vcSelect = document.getElementById("dec-vc");
+            if (capSelect && dec.captain_name) capSelect.value = dec.captain_name;
+            if (vcSelect && dec.vice_captain_name) vcSelect.value = dec.vice_captain_name;
+            const chipSelect = document.getElementById("dec-chip");
+            if (chipSelect) chipSelect.value = dec.chip_played || "";
+            const hitsInput = document.getElementById("dec-hits");
+            if (hitsInput) {
+              hitsInput.value = "";
+              hitsInput.placeholder = `Auto-calculated (${dec.transfer_hits || 0})`;
+            }
+          }
         } catch (err) {}
       }
     });
