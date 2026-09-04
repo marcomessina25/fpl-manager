@@ -88,6 +88,26 @@
           </div>
         </div>
 
+        <!-- Gameweek Navigation Pills Bar -->
+        <div class="gw-pill-nav-container">
+          <div class="gw-nav-label">Gameweek:</div>
+          <div class="gw-pill-nav" id="lineup-gw-pills"></div>
+        </div>
+
+        <!-- Matchday State Banner -->
+        <div id="lineup-status-banner" class="matchday-banner hidden">
+          <div class="banner-left">
+            <span id="banner-icon" class="banner-icon">🔒</span>
+            <div class="banner-text">
+              <strong id="banner-title">Gameweek State</strong>
+              <span id="banner-subtitle" class="banner-subtitle">-</span>
+            </div>
+          </div>
+          <div class="banner-actions">
+            <button id="btn-toggle-model-view" class="btn btn-sm btn-secondary">Show Model Recommended XI</button>
+          </div>
+        </div>
+
         <!-- Visual Football Pitch View -->
         <div class="pitch">
           <div class="pitch-line pitch-line-penalty-top"></div>
@@ -111,6 +131,36 @@
 
       <!-- Lineup Sidebar Stats -->
       <aside class="pitch-sidebar">
+        <!-- Matchday Performance Card (when logged) -->
+        <div id="panel-matchday-score" class="panel card hidden">
+          <div class="panel-header">
+            <h3>Matchday Result</h3>
+            <span id="badge-matchday-status" class="badge badge-success">Final Score</span>
+          </div>
+          <div class="panel-body">
+            <div class="stat-row">
+              <span>Actual Score</span>
+              <strong id="stat-actual-score" class="score-highlight">0 pts</strong>
+            </div>
+            <div class="stat-row">
+              <span>Model Predicted</span>
+              <strong id="stat-predicted-xp">0.0 xP</strong>
+            </div>
+            <div class="stat-row">
+              <span>Performance vs xP</span>
+              <strong id="stat-actual-delta" class="stat-diff-positive">+0.0 pts</strong>
+            </div>
+            <div class="stat-row">
+              <span>Transfers & Hits</span>
+              <strong id="stat-matchday-moves">None</strong>
+            </div>
+            <div class="stat-row">
+              <span>Active Chip</span>
+              <strong id="stat-matchday-chip">None</strong>
+            </div>
+          </div>
+        </div>
+
         <div class="panel card">
           <div class="panel-header">
             <h3>Armband & Key Roles</h3>

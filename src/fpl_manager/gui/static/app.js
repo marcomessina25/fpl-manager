@@ -6,6 +6,8 @@ const state = {
   currentSquad: null,
   currentLineup: null,
   activeGameweek: 1,
+  selectedGameweek: null,
+  lineupMode: "auto",
 };
 
 // Toast notification helper
@@ -119,6 +121,8 @@ async function switchTeam(teamId) {
       body: JSON.stringify({ team_id: teamId }),
     });
     state.activeTeamId = teamId;
+    state.selectedGameweek = null;
+    state.lineupMode = "auto";
     if (res.gameweek) {
       state.activeGameweek = res.gameweek;
     }
@@ -185,32 +189,164 @@ async function loadSquadHUD() {
 }
 
 // Pitch and Lineup Rendering
-async function loadLineup(gw = null) {
+async function loadLineup(gw = null, mode = "auto") {
   try {
-    const targetGw = gw !== null ? gw : state.activeGameweek;
-    const url = `/api/lineup?team=${state.activeTeamId}${targetGw ? `&gameweek=${targetGw}` : ""}`;
+    const targetGw = gw !== null ? gw : (state.selectedGameweek || state.activeGameweek);
+    state.selectedGameweek = targetGw;
+    state.lineupMode = mode;
+    const url = `/api/lineup?team=${state.activeTeamId}&gameweek=${targetGw}&mode=${mode}`;
     const data = await api(url);
     state.currentLineup = data;
     renderPitch(data);
+    await renderLineupGWPills(targetGw);
   } catch (err) {
-    showToast(`Failed to select lineup: ${err.message}`, true);
+    showToast(`Failed to load lineup: ${err.message}`, true);
+  }
+}
+
+async function renderLineupGWPills(currentGw) {
+  const container = document.getElementById("lineup-gw-pills");
+  if (!container) return;
+
+  try {
+    const decData = await api(`/api/decisions?team=${state.activeTeamId}`);
+    const decisions = decData.decisions || [];
+    const decMap = {};
+    decisions.forEach(d => { decMap[d.gameweek] = d; });
+
+    const maxGw = Math.max(3, state.activeGameweek || 1, ...decisions.map(d => d.gameweek));
+    container.innerHTML = "";
+
+    for (let g = 1; g <= Math.min(38, maxGw + 1); g++) {
+      const pill = document.createElement("button");
+      pill.className = `gw-pill ${g === currentGw ? "active" : ""}`;
+      const dec = decMap[g];
+
+      let badge = "";
+      if (dec) {
+        if (dec.actual_points !== null && dec.actual_points !== undefined) {
+          badge = `<span class="gw-pill-score">${dec.actual_points} pts</span>`;
+        } else {
+          badge = `<span class="gw-pill-tag">Logged</span>`;
+        }
+      } else if (g === state.activeGameweek) {
+        badge = `<span class="gw-pill-tag">Active</span>`;
+      }
+
+      pill.innerHTML = `<span>GW${g}</span> ${badge}`;
+      pill.addEventListener("click", () => {
+        state.lineupMode = "auto";
+        const gwInput = document.getElementById("lineup-gw-select");
+        if (gwInput) gwInput.value = g;
+        loadLineup(g, "auto");
+      });
+      container.appendChild(pill);
+    }
+  } catch (err) {
+    console.error("Failed to render GW pills:", err);
   }
 }
 
 function renderPitch(lineup) {
-  document.getElementById("lineup-headline").textContent = `Matchday Lineup (GW${lineup.gameweek})`;
-  document.getElementById("lineup-meta").textContent = `Formation: ${lineup.formation} | Projected: ${lineup.projected_points.total_xp.toFixed(1)} xP`;
+  const gwInput = document.getElementById("lineup-gw-select");
+  if (gwInput) gwInput.value = lineup.gameweek;
+
+  const isLogged = !!lineup.is_logged;
+  const hasActualScore = lineup.actual_points !== null && lineup.actual_points !== undefined;
+
+  const titleSuffix = isLogged
+    ? (hasActualScore ? " · Logged Matchday" : " · Logged Plan")
+    : (state.lineupMode === "model" ? " · Model Recommended" : "");
+  document.getElementById("lineup-headline").textContent = `Matchday Lineup (GW${lineup.gameweek})${titleSuffix}`;
+
+  const scoreText = hasActualScore
+    ? `Actual Score: ${lineup.actual_points} pts | Predicted: ${lineup.projected_points.total_xp.toFixed(1)} xP`
+    : `Projected: ${lineup.projected_points.total_xp.toFixed(1)} xP`;
+  document.getElementById("lineup-meta").textContent = `Formation: ${lineup.formation} | ${scoreText}`;
+
+  // Matchday Status Banner & Model Toggle
+  const bannerEl = document.getElementById("lineup-status-banner");
+  const toggleBtn = document.getElementById("btn-toggle-model-view");
+
+  if (bannerEl) {
+    if (isLogged) {
+      bannerEl.classList.remove("hidden");
+      bannerEl.classList.remove("model-view");
+      document.getElementById("banner-icon").textContent = "🔒";
+      document.getElementById("banner-title").textContent = `Gameweek ${lineup.gameweek} Logged Team State`;
+
+      const ptsStr = hasActualScore ? `<span class="banner-score-highlight">${lineup.actual_points} pts</span>` : "Upcoming";
+      const capPtsStr = (lineup.captain && lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined)
+        ? ` · ${lineup.captain.actual_points} pts`
+        : "";
+      const capStr = lineup.captain ? `${lineup.captain.name} (C)${capPtsStr}` : "-";
+      const movesStr = (lineup.transfers && lineup.transfers.length)
+        ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")
+        : "No transfers";
+      const chipStr = lineup.chip_played ? ` · Chip: ${lineup.chip_played.toUpperCase()}` : "";
+
+      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${chipStr}`;
+      if (toggleBtn) {
+        toggleBtn.classList.remove("hidden");
+        toggleBtn.textContent = "🔮 Show Model Recommended XI";
+        toggleBtn.onclick = () => loadLineup(lineup.gameweek, "model");
+      }
+    } else if (lineup.has_logged_decision && state.lineupMode === "model") {
+      bannerEl.classList.remove("hidden");
+      bannerEl.classList.add("model-view");
+      document.getElementById("banner-icon").textContent = "🔮";
+      document.getElementById("banner-title").textContent = `Gameweek ${lineup.gameweek} Model Recommendation`;
+      document.getElementById("banner-subtitle").textContent = `Displaying model optimal starting XI based on expected points.`;
+      if (toggleBtn) {
+        toggleBtn.classList.remove("hidden");
+        toggleBtn.textContent = "🔒 Show My Logged Lineup";
+        toggleBtn.onclick = () => loadLineup(lineup.gameweek, "auto");
+      }
+    } else {
+      bannerEl.classList.add("hidden");
+    }
+  }
+
+  // Matchday Performance panel in sidebar
+  const matchdayPanel = document.getElementById("panel-matchday-score");
+  if (matchdayPanel) {
+    if (isLogged && hasActualScore) {
+      matchdayPanel.classList.remove("hidden");
+      document.getElementById("stat-actual-score").textContent = `${lineup.actual_points} pts`;
+      document.getElementById("stat-predicted-xp").textContent = `${lineup.projected_points.total_xp.toFixed(1)} xP`;
+      const delta = lineup.actual_points - lineup.projected_points.total_xp;
+      const deltaEl = document.getElementById("stat-actual-delta");
+      deltaEl.textContent = `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} pts`;
+      deltaEl.className = delta >= 0 ? "stat-diff-positive" : "stat-diff-negative";
+
+      const movesDesc = (lineup.transfers && lineup.transfers.length)
+        ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ") + ` (-${lineup.transfer_hits * 4}pt)`
+        : `No transfers (0pt)`;
+      document.getElementById("stat-matchday-moves").textContent = movesDesc;
+      document.getElementById("stat-matchday-chip").textContent = lineup.chip_played ? lineup.chip_played.toUpperCase() : "None";
+    } else {
+      matchdayPanel.classList.add("hidden");
+    }
+  }
 
   // Update Captain and VC sidebar
   if (lineup.captain) {
     document.getElementById("cap-name").textContent = lineup.captain.name;
     document.getElementById("cap-sub").textContent = `${lineup.captain.team} (${lineup.captain.fixtures_summary})`;
-    document.getElementById("cap-xp").textContent = `${(lineup.captain.expected_points * 2).toFixed(1)} xP`;
+    if (lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined) {
+      document.getElementById("cap-xp").innerHTML = `<span class="score-highlight">${lineup.captain.actual_points} pts</span> <small>(${(lineup.captain.expected_points * 2).toFixed(1)} xP)</small>`;
+    } else {
+      document.getElementById("cap-xp").textContent = `${(lineup.captain.expected_points * 2).toFixed(1)} xP`;
+    }
   }
   if (lineup.vice_captain) {
     document.getElementById("vc-name").textContent = lineup.vice_captain.name;
     document.getElementById("vc-sub").textContent = `${lineup.vice_captain.team} (${lineup.vice_captain.fixtures_summary})`;
-    document.getElementById("vc-xp").textContent = `${lineup.vice_captain.expected_points.toFixed(1)} xP`;
+    if (lineup.vice_captain.actual_points !== null && lineup.vice_captain.actual_points !== undefined) {
+      document.getElementById("vc-xp").innerHTML = `<span class="score-highlight">${lineup.vice_captain.actual_points} pts</span> <small>(${lineup.vice_captain.expected_points.toFixed(1)} xP)</small>`;
+    } else {
+      document.getElementById("vc-xp").textContent = `${lineup.vice_captain.expected_points.toFixed(1)} xP`;
+    }
   }
 
   // Update Sidebar stats
@@ -282,12 +418,27 @@ function createPlayerCard(p, isBench = false, benchIdx = 0) {
 
   const benchLabel = isBench ? `<div class="player-sub">${p.role === 'GK_SUB' ? 'GK Sub' : `Sub ${benchIdx}`}</div>` : "";
 
+  let scoreHtml = "";
+  if (p.actual_points !== null && p.actual_points !== undefined) {
+    const multLabel = p.role === "CAPTAIN" ? '<span class="pts-unit">(x2)</span>' : "";
+    scoreHtml = `
+      <div class="player-actual-pts">
+        <span class="pts-val">${p.actual_points}</span>
+        <span class="pts-unit">pts</span>
+        ${multLabel}
+      </div>
+      <div class="player-xp-sub">${p.expected_points.toFixed(1)} xP</div>
+    `;
+  } else {
+    scoreHtml = `<div class="player-xp">${p.expected_points.toFixed(1)} xP</div>`;
+  }
+
   card.innerHTML = `
     ${badgeHtml}
     <div class="player-name" title="${p.name}">${p.name}</div>
     <div class="player-sub">${p.pos_abbr || ''} · ${p.team}</div>
     ${benchLabel}
-    <div class="player-xp">${p.expected_points.toFixed(1)} xP</div>
+    ${scoreHtml}
     <div class="player-fdr-badge fdr-${fdrVal}">${fixSummary}</div>
     ${eoHtml}
   `;
@@ -684,10 +835,20 @@ function initEventListeners() {
     }
   });
 
-  // Lineup Gameweek refresh
+  // Lineup Gameweek refresh and selector
+  const gwSelectInput = document.getElementById("lineup-gw-select");
+  if (gwSelectInput) {
+    gwSelectInput.addEventListener("change", e => {
+      const val = parseInt(e.target.value);
+      if (val && val >= 1 && val <= 38) {
+        loadLineup(val, "auto");
+      }
+    });
+  }
+
   document.getElementById("btn-refresh-lineup").addEventListener("click", () => {
-    const gw = parseInt(document.getElementById("lineup-gw-select").value);
-    loadLineup(gw);
+    const gw = parseInt(document.getElementById("lineup-gw-select").value) || state.activeGameweek;
+    loadLineup(gw, "model");
   });
 
   // Decision Logger Form

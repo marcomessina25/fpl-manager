@@ -21,7 +21,7 @@ from ..decision_log import (
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
-from ..lineup import select_starting_lineup
+from ..lineup import build_logged_lineup, select_starting_lineup
 from ..planner import generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
 from ..squad_report import generate_squad_report
@@ -118,20 +118,49 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 }
                 self._send_json(payload)
             elif path == "/api/squad":
-                tid = get_arg("team")
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
                 squad_path = get_team_squad_path(tid, self.config_dir)
-                rep = generate_squad_report(squad_path=squad_path, database_path=self.database_path)
-                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+                rep = generate_squad_report(
+                    squad_path=squad_path,
+                    database_path=self.database_path,
+                    gameweek=gw,
+                    team_id=tid,
+                )
+                rep["team_id"] = tid
                 if rep.get("gameweek") is None:
                     rep["gameweek"] = get_current_gameweek(SnapshotStore(self.database_path))
                 self._send_json(rep)
             elif path == "/api/lineup":
-                tid = get_arg("team")
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
                 gw_arg = get_arg("gameweek")
                 gw = int(gw_arg) if gw_arg else None
+                mode = get_arg("mode", "auto")
+                season = get_arg("season", "2026/27")
+
                 squad_path = get_team_squad_path(tid, self.config_dir)
-                rep = select_starting_lineup(squad_path=squad_path, database_path=self.database_path, gameweek=gw)
-                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+                if gw is None:
+                    try:
+                        from ..squad_state import load_current_squad
+                        state_obj = load_current_squad(squad_path)
+                        gw = state_obj.gameweek or get_current_gameweek(SnapshotStore(self.database_path))
+                    except Exception:
+                        gw = get_current_gameweek(SnapshotStore(self.database_path))
+
+                decision = None
+                if mode != "model":
+                    decision = get_gameweek_decision(gw, season=season, team_id=tid, database_path=self.database_path)
+
+                if decision is not None and mode != "model":
+                    rep = build_logged_lineup(decision, database_path=self.database_path)
+                else:
+                    rep = select_starting_lineup(squad_path=squad_path, database_path=self.database_path, gameweek=gw)
+                    rep["is_logged"] = False
+                    existing_dec = get_gameweek_decision(gw, season=season, team_id=tid, database_path=self.database_path)
+                    rep["has_logged_decision"] = existing_dec is not None
+
+                rep["team_id"] = tid
                 self._send_json(rep)
             elif path == "/api/transfers":
                 tid = get_arg("team")

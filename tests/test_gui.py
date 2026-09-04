@@ -248,6 +248,55 @@ def test_api_players_search(gui_test_server: str) -> None:
         assert len(res["players"]) >= 1
 
 
+def test_api_historical_logged_lineup(gui_test_server: str) -> None:
+    # 1. Log a custom past gameweek decision for GW2
+    dec_body = {
+        "gameweek": 2,
+        "starters": [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        "bench": [2, 6, 7, 15],
+        "captain": 13,
+        "vice_captain": 8,
+        "actual_points": 68,
+        "notes": "Historical GW2 logged state",
+        "overwrite": True,
+    }
+    post_req = urllib.request.Request(
+        f"{gui_test_server}/api/decisions",
+        data=json.dumps(dec_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(post_req) as resp:
+        assert resp.status == 200
+
+    # 2. GET /api/lineup?gameweek=2 -> returns logged matchday state
+    with urllib.request.urlopen(f"{gui_test_server}/api/lineup?gameweek=2") as resp:
+        lineup = json.loads(resp.read().decode("utf-8"))
+        assert lineup["is_logged"] is True
+        assert lineup["gameweek"] == 2
+        assert lineup["actual_points"] == 68
+        assert lineup["captain"]["id"] == 13
+        assert lineup["vice_captain"]["id"] == 8
+        assert len(lineup["starters"]) == 11
+        assert len(lineup["bench"]) == 4
+        starter_ids = [p["id"] for p in lineup["starters"]]
+        assert starter_ids == [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+
+    # 3. GET /api/lineup?gameweek=2&mode=model -> returns model recommendation
+    with urllib.request.urlopen(f"{gui_test_server}/api/lineup?gameweek=2&mode=model") as resp:
+        model_lineup = json.loads(resp.read().decode("utf-8"))
+        assert model_lineup["is_logged"] is False
+        assert model_lineup["has_logged_decision"] is True
+        assert len(model_lineup["starters"]) == 11
+
+    # 4. GET /api/squad?gameweek=2 -> reconstructs squad from logged decision
+    with urllib.request.urlopen(f"{gui_test_server}/api/squad?gameweek=2") as resp:
+        squad_rep = json.loads(resp.read().decode("utf-8"))
+        assert squad_rep["is_logged"] is True
+        assert squad_rep["gameweek"] == 2
+        assert squad_rep["squad_size"] == 15
+
+
 def test_cli_gui_help(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["gui", "--help"])
