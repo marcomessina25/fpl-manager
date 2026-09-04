@@ -724,8 +724,32 @@ def log_decision_from_current_squad(
                 new_bank += (selling_price - in_current_cost)
 
         new_chips = list(state.chips_remaining)
-        if chip_played and chip_played in new_chips:
-            new_chips.remove(chip_played)
+        if chip_played:
+            cp_norm = str(chip_played).lower().strip()
+            to_remove = None
+            for c in new_chips:
+                c_norm = str(c).lower().strip()
+                if c_norm == cp_norm:
+                    to_remove = c
+                    break
+                if cp_norm in ("wildcard", "wc"):
+                    if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
+                        to_remove = c
+                        break
+                    elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
+                        to_remove = c
+                        break
+                elif cp_norm in ("freehit", "free_hit", "fh") and c_norm in ("freehit", "free_hit"):
+                    to_remove = c
+                    break
+                elif cp_norm in ("benchboost", "bench_boost", "bb") and c_norm in ("benchboost", "bench_boost"):
+                    to_remove = c
+                    break
+                elif cp_norm in ("triplecaptain", "triple_captain", "tc", "3xc") and c_norm in ("triplecaptain", "triple_captain"):
+                    to_remove = c
+                    break
+            if to_remove and to_remove in new_chips:
+                new_chips.remove(to_remove)
 
         num_tx = len(parsed_transfers)
         if num_tx > 0:
@@ -864,4 +888,110 @@ def undo_gameweek_changes(
         "free_transfers": reverted_ft,
         "message": f"Successfully reset GW{target_gw} changes and reverted squad to GW{prev_gw} state.",
     }
+
+
+def apply_wildcard_or_freehit(
+    squad_path: Path,
+    gameweek: int,
+    mode: str,
+    squad_ids: list[int],
+    starter_ids: list[int],
+    bench_ids: list[int],
+    captain_id: int,
+    vice_captain_id: int,
+    bank_tenths: int,
+    team_id: str = "default",
+    season: str = "2026/27",
+    database_path: Path = DATABASE_PATH,
+) -> dict[str, Any]:
+    """Apply a Wildcard or Free Hit squad overhaul directly to squad state and decision log."""
+    if len(squad_ids) != 15:
+        raise ValueError(f"Squad must contain exactly 15 players; got {len(squad_ids)}.")
+    if len(starter_ids) != 11:
+        raise ValueError(f"Starting XI must contain exactly 11 players; got {len(starter_ids)}.")
+    if len(bench_ids) != 4:
+        raise ValueError(f"Bench must contain exactly 4 players; got {len(bench_ids)}.")
+    if captain_id not in starter_ids:
+        raise ValueError("Captain must be in the starting XI.")
+
+    store = SnapshotStore(database_path)
+    store.initialize()
+    state = load_current_squad(squad_path)
+
+    with closing(store._connect()) as conn:
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        snap_id = snap[0] if snap else 1
+        placeholders = ",".join("?" for _ in squad_ids)
+        p_rows = conn.execute(
+            f"SELECT player_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({placeholders})",
+            (snap_id, *squad_ids),
+        ).fetchall()
+        costs = {r[0]: r[1] for r in p_rows}
+
+    # Build new purchase prices: keep existing purchase price if already owned, else use current cost
+    new_prices = {}
+    for pid in squad_ids:
+        if pid in state.purchase_prices_tenths:
+            new_prices[pid] = state.purchase_prices_tenths[pid]
+        else:
+            new_prices[pid] = costs.get(pid, 50)
+
+    chip_norm = "wildcard" if mode.lower().strip() in ("wildcard", "wc") else "freehit"
+
+    # Deduct chip from chips_remaining
+    rem_chips = list(state.chips_remaining)
+    to_remove = None
+    for c in rem_chips:
+        c_norm = str(c).lower().strip()
+        if chip_norm == "wildcard":
+            if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
+                to_remove = c
+                break
+            elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
+                to_remove = c
+                break
+        elif chip_norm == "freehit" and c_norm in ("freehit", "free_hit", "fh"):
+            to_remove = c
+            break
+
+    if to_remove and to_remove in rem_chips:
+        rem_chips.remove(to_remove)
+
+    updated_state = CurrentSquadState(
+        player_ids=tuple(squad_ids),
+        purchase_prices_tenths=new_prices,
+        bank_tenths=max(0, bank_tenths),
+        free_transfers=1,
+        chips_remaining=tuple(rem_chips),
+        season=state.season,
+        gameweek=max(state.gameweek or 1, gameweek),
+    )
+    save_current_squad(squad_path, updated_state)
+
+    # Record the gameweek decision in the database
+    record_gameweek_decision(
+        gameweek=gameweek,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starter_ids,
+        bench_player_ids=bench_ids,
+        captain_id=captain_id,
+        vice_captain_id=vice_captain_id,
+        chip_played=chip_norm,
+        transfers=[],
+        transfer_hits=0,
+        team_id=team_id,
+        season=season or state.season,
+        database_path=database_path,
+        overwrite=True,
+    )
+
+    return {
+        "success": True,
+        "mode": chip_norm,
+        "gameweek": gameweek,
+        "message": f"Successfully applied {chip_norm.upper()} squad for GW{gameweek}!",
+        "squad_player_ids": squad_ids,
+        "bank_tenths": max(0, bank_tenths),
+    }
+
 

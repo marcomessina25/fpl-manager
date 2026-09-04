@@ -14,6 +14,7 @@ from typing import Any
 
 from ..chip_strategy import recommend_chip_strategy
 from ..decision_log import (
+    apply_wildcard_or_freehit,
     get_gameweek_decision,
     list_decisions,
     log_decision_from_current_squad,
@@ -256,6 +257,13 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 store = SnapshotStore(self.database_path)
                 matches = store.search_latest_players("" if all_flag else search) if (search or all_flag) else []
                 self._send_json({"players": matches})
+            elif path == "/api/player":
+                pid = int(get_arg("id") or get_arg("player_id", 0))
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
+                store = SnapshotStore(self.database_path)
+                details = store.get_player_details(pid, gameweek=gw)
+                self._send_json(details)
             else:
                 # Static file serving fallback
                 self._serve_static(path)
@@ -366,6 +374,34 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 res = undo_gameweek_changes(
                     squad_path=squad_path,
                     gameweek=int(gw_val) if gw_val is not None else None,
+                    team_id=tid,
+                    season=body.get("season", "2026/27"),
+                    database_path=self.database_path,
+                )
+                self._send_json(res)
+            elif path == "/api/wildcard/apply":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                gw_val = body.get("gameweek")
+                gw = int(gw_val) if gw_val is not None else 1
+                mode = body.get("mode", "wildcard")
+                squad_ids = [int(i) for i in body.get("squad_ids", [])]
+                starter_ids = [int(i) for i in body.get("starter_ids", [])]
+                bench_ids = [int(i) for i in body.get("bench_ids", [])]
+                cap_id = int(body.get("captain_id", starter_ids[0] if starter_ids else 0))
+                vc_id = int(body.get("vice_captain_id", starter_ids[1] if len(starter_ids) > 1 else cap_id))
+                bank_tenths = int(body.get("bank_tenths", 0))
+                squad_path = get_team_squad_path(tid, self.config_dir)
+
+                res = apply_wildcard_or_freehit(
+                    squad_path=squad_path,
+                    gameweek=gw,
+                    mode=mode,
+                    squad_ids=squad_ids,
+                    starter_ids=starter_ids,
+                    bench_ids=bench_ids,
+                    captain_id=cap_id,
+                    vice_captain_id=vc_id,
+                    bank_tenths=bank_tenths,
                     team_id=tid,
                     season=body.get("season", "2026/27"),
                     database_path=self.database_path,

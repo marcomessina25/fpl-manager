@@ -525,6 +525,30 @@
     </div>
   </div>
 
+  <!-- MODAL: PLAYER STATS & DETAILS -->
+  <div id="modal-player-stats" class="modal-overlay hidden">
+    <div class="modal-dialog" style="max-width: 660px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h3 id="ps-name" style="margin: 0;">Player Details</h3>
+          <span id="ps-pos-team" class="badge badge-info"></span>
+          <span id="ps-price" class="badge badge-warning" style="background: rgba(234, 179, 8, 0.2); color: #fbbf24;"></span>
+        </div>
+        <button class="modal-close" id="btn-close-player-stats">&times;</button>
+      </div>
+      <div class="modal-body" id="ps-body" style="max-height: 75vh; overflow-y: auto;">
+        <p class="text-muted">Loading player statistics...</p>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-ps-make-cap" title="Set this player as Captain">👑 Make Captain</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-ps-make-vc" title="Set this player as Vice-Captain">🥈 Make Vice-Captain</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-close-ps-footer">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

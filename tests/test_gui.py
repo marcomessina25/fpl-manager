@@ -391,6 +391,66 @@ def test_api_plan_steps(gui_test_server: str) -> None:
         assert "lineup_xp" in first_step
 
 
+def test_api_player_details(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/player?id=1&gameweek=2") as resp:
+        assert resp.status == 200
+        p = json.loads(resp.read().decode("utf-8"))
+        assert p["id"] == 1
+        assert p["name"] == "Player_1"
+        assert p["team_short"] == "ARS"
+        assert p["position"] == "Goalkeeper"
+        assert p["pos_abbr"] == "GKP"
+        assert p["price_fmt"] == "£5.0m"
+        assert "expected_goals" in p
+        assert "expected_assists" in p
+        assert "expected_points" in p
+        assert "fixtures" in p
+        assert len(p["fixtures"]) > 0
+
+
+def test_api_wildcard_apply(gui_test_server: str) -> None:
+    new_squad = list(range(1, 15)) + [16]
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 16]
+    body = {
+        "gameweek": 2,
+        "mode": "wildcard",
+        "squad_ids": new_squad,
+        "starter_ids": starters,
+        "bench_ids": bench,
+        "captain_id": 13,
+        "vice_captain_id": 8,
+        "bank_tenths": 15,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/wildcard/apply",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["success"] is True
+        assert res["mode"] == "wildcard"
+        assert 16 in res["squad_player_ids"]
+        assert 15 not in res["squad_player_ids"]
+
+    # Verify updated squad in /api/squad
+    with urllib.request.urlopen(f"{gui_test_server}/api/squad") as resp:
+        squad_rep = json.loads(resp.read().decode("utf-8"))
+        pids = [p["id"] for p in squad_rep["players"]]
+        assert 16 in pids
+        assert 15 not in pids
+
+    # Verify decision logged with chip_played = 'wildcard'
+    with urllib.request.urlopen(f"{gui_test_server}/api/decisions?gameweek=2") as resp:
+        dec_resp = json.loads(resp.read().decode("utf-8"))
+        dec = dec_resp["decision"]
+        assert dec is not None
+        assert dec["chip_played"] == "wildcard"
+
+
 def test_cli_gui_help(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["gui", "--help"])

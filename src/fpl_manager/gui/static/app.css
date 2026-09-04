@@ -1095,3 +1095,83 @@ body {
 }
 
 .text-muted { color: var(--text-muted); }
+
+/* Transfer Selection */
+.tx-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tx-card:hover {
+  border-color: var(--accent-gold);
+  transform: translateY(-2px);
+}
+.tx-card.selected-tx-card {
+  border: 2px solid var(--accent-gold) !important;
+  background: rgba(234, 179, 8, 0.07);
+  box-shadow: 0 0 15px rgba(234, 179, 8, 0.25);
+}
+
+/* Player Stats Modal Styles */
+.ps-section {
+  margin-bottom: 1.15rem;
+}
+.ps-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.3rem;
+}
+.ps-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.6rem;
+}
+.ps-stat-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  text-align: center;
+}
+.ps-stat-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.ps-stat-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.ps-fixtures-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.ps-fixture-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  min-width: 80px;
+}
+.ps-fix-gw {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.ps-fix-opp {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0.15rem 0;
+}
+

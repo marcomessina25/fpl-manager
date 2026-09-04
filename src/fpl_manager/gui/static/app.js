@@ -729,15 +729,151 @@ function createPlayerCard(p, isBench = false, benchIdx = 0) {
         executeSubstitution(state.subbingPlayer, p);
       }
     } else {
-      const decCap = document.getElementById("dec-captain");
-      if (decCap && !isBench) {
-        decCap.value = p.name;
-        showToast(`Selected ${p.name} as Captain in Decision Logger`);
-      }
+      openPlayerStatsModal(p.id, p);
     }
   });
 
   return card;
+}
+
+// Player Statistics & Details Modal
+let inspectingPlayerId = null;
+
+async function openPlayerStatsModal(playerId, initialData = null) {
+  inspectingPlayerId = playerId;
+  const modal = document.getElementById("modal-player-stats");
+  if (!modal) return;
+
+  const nameEl = document.getElementById("ps-name");
+  const metaEl = document.getElementById("ps-pos-team");
+  const priceEl = document.getElementById("ps-price");
+  const bodyEl = document.getElementById("ps-body");
+
+  nameEl.textContent = initialData ? initialData.name : `Player #${playerId}`;
+  metaEl.textContent = initialData ? `${initialData.pos_abbr || ''} · ${initialData.team || ''}` : "";
+  priceEl.textContent = initialData?.price_fmt || "";
+
+  bodyEl.innerHTML = '<p class="text-muted" style="padding: 1rem 0;">Loading detailed statistics, projections, and fixture calendar...</p>';
+  modal.classList.remove("hidden");
+
+  try {
+    const gw = state.selectedGameweek || state.activeGameweek || 1;
+    const p = await api(`/api/player?id=${playerId}&gameweek=${gw}`);
+
+    nameEl.textContent = p.name;
+    metaEl.textContent = `${p.position} (${p.pos_abbr}) · ${p.team_name} (${p.team_short})`;
+    priceEl.textContent = p.price_fmt;
+
+    let alertHtml = "";
+    if (p.status !== "a" || p.news) {
+      const chanceStr = p.chance_playing_next !== null ? `(${p.chance_playing_next}% chance)` : "";
+      alertHtml = `
+        <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid var(--accent-red); padding: 0.6rem 0.8rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.85rem;">
+          <strong style="color: var(--accent-red);">Status / News ${chanceStr}:</strong> ${p.news || 'Flagged / Doubtful'}
+        </div>
+      `;
+    }
+
+    const xpStr = p.expected_points !== null ? p.expected_points.toFixed(1) : "--";
+    const rangeStr = (p.xp_floor !== null && p.xp_ceiling !== null) ? `${p.xp_floor.toFixed(1)} – ${p.xp_ceiling.toFixed(1)}` : "--";
+    const minStr = p.expected_minutes !== null ? `${p.expected_minutes}m` : "--";
+    const probStr = p.start_probability !== null ? `${p.start_probability}%` : "--";
+    const eoStr = `${p.effective_ownership_pct}%`;
+    const catStr = p.strategic_category || "CORE";
+
+    const fixHtml = (p.fixtures || []).map(f => {
+      const diffClass = `fdr-${f.difficulty || 3}`;
+      return `
+        <div class="ps-fixture-pill">
+          <span class="ps-fix-gw">GW${f.gameweek}</span>
+          <span class="ps-fix-opp">${f.summary}</span>
+          <span class="player-fdr-badge ${diffClass}" style="margin: 0; padding: 1px 6px; font-size: 0.65rem;">FDR ${f.difficulty}</span>
+        </div>
+      `;
+    }).join("") || '<span class="text-muted">No upcoming fixtures scheduled.</span>';
+
+    bodyEl.innerHTML = `
+      ${alertHtml}
+      <div class="ps-section">
+        <div class="ps-section-title">Gameweek ${gw} Tactical Projection</div>
+        <div class="ps-stats-grid">
+          <div class="ps-stat-box" style="border-color: var(--accent-green);">
+            <div class="ps-stat-label">Expected xP</div>
+            <div class="ps-stat-value" style="color: var(--accent-green);">${xpStr}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Floor – Ceiling</div>
+            <div class="ps-stat-value" style="font-size: 0.92rem;">${rangeStr}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Start / Minutes</div>
+            <div class="ps-stat-value" style="font-size: 0.92rem;">${probStr} · ${minStr}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Effective Own.</div>
+            <div class="ps-stat-value" style="color: var(--accent-gold);">${eoStr}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Strategic Role</div>
+            <div class="ps-stat-value" style="font-size: 0.92rem;">${catStr}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ps-section">
+        <div class="ps-section-title">Season Performance & Underlyings</div>
+        <div class="ps-stats-grid">
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Total Points</div>
+            <div class="ps-stat-value">${p.total_points}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Form</div>
+            <div class="ps-stat-value">${p.form}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Pts / Match</div>
+            <div class="ps-stat-value">${p.points_per_game}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Mins (Starts)</div>
+            <div class="ps-stat-value" style="font-size: 0.92rem;">${p.minutes} (${p.starts})</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Expected Goals</div>
+            <div class="ps-stat-value">${p.expected_goals} <small style="font-size:0.65rem; color:var(--text-muted);">(${p.expected_goals_per_90}/90)</small></div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Expected Assists</div>
+            <div class="ps-stat-value">${p.expected_assists} <small style="font-size:0.65rem; color:var(--text-muted);">(${p.expected_assists_per_90}/90)</small></div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">xGI</div>
+            <div class="ps-stat-value">${p.expected_goal_involvements}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Clean Sheets/90</div>
+            <div class="ps-stat-value">${p.clean_sheets_per_90}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">ICT Index</div>
+            <div class="ps-stat-value">${p.ict_index}</div>
+          </div>
+          <div class="ps-stat-box">
+            <div class="ps-stat-label">Bonus (BPS)</div>
+            <div class="ps-stat-value">${p.bps}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ps-section" style="margin-bottom: 0.5rem;">
+        <div class="ps-section-title">Upcoming Fixtures</div>
+        <div class="ps-fixtures-row">${fixHtml}</div>
+      </div>
+    `;
+  } catch (err) {
+    bodyEl.innerHTML = `<p class="text-muted">Error loading player details: ${err.message}</p>`;
+  }
 }
 
 // Save Lineup directly from Pitch
@@ -1089,7 +1225,51 @@ async function runSuggestTransfers() {
           <span>Post-Move Bank:</span>
           <strong>£${(opt.bank_after_tenths / 10).toFixed(1)}m</strong>
         </div>
+        <button type="button" class="btn btn-primary btn-sm btn-apply-tx" style="margin-top: 0.5rem; width: 100%;">⚡ Apply Move</button>
       `;
+
+      // Select card on click
+      card.addEventListener("click", () => {
+        container.querySelectorAll(".tx-card").forEach(c => c.classList.remove("selected-tx-card"));
+        card.classList.add("selected-tx-card");
+      });
+
+      // Apply button handler
+      const btnApply = card.querySelector(".btn-apply-tx");
+      btnApply.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const movesSummary = opt.outgoing.map((o, i) => `${o.name} ➔ ${opt.incoming[i].name}`).join(", ");
+        const targetGw = state.selectedGameweek || state.activeGameweek || 1;
+        const confirmed = confirm(
+          `Apply transfer move #${idx + 1} (${movesSummary}) to your team for GW${targetGw}?`
+        );
+        if (!confirmed) return;
+
+        try {
+          const transfersPayload = opt.outgoing.map((outP, i) => ({
+            outgoing_id: outP.id,
+            incoming_id: opt.incoming[i].id,
+          }));
+
+          const res = await api("/api/transfers/execute", {
+            method: "POST",
+            body: JSON.stringify({
+              team_id: state.activeTeamId,
+              gameweek: targetGw,
+              transfers: transfersPayload,
+            }),
+          });
+
+          showToast(res.message || "Transfers applied successfully!");
+          await refreshActiveTeamData();
+          await loadDecisions();
+          await loadPitchAndLineup();
+          await runSuggestTransfers();
+        } catch (err) {
+          showToast(`Transfer failed: ${err.message}`, true);
+        }
+      });
+
       container.appendChild(card);
     });
   } catch (err) {
@@ -1120,9 +1300,14 @@ async function runWildcard() {
 
     container.innerHTML = `
       <div class="panel card" style="margin-top: 1rem;">
-        <div class="panel-header">
-          <h3>${mode.toUpperCase()} Optimized Squad (${totalCostFmt} spent | Remaining Bank: ${bankRemFmt})</h3>
-          <span class="badge badge-success">Projected XI: ${totalLineupXp.toFixed(1)} xP</span>
+        <div class="panel-header" style="flex-wrap: wrap; gap: 0.6rem;">
+          <div>
+            <h3 style="margin-bottom: 0.2rem;">${mode.toUpperCase()} Optimized Squad (${totalCostFmt} spent | Remaining Bank: ${bankRemFmt})</h3>
+            <span class="badge badge-success">Projected XI: ${totalLineupXp.toFixed(1)} xP</span>
+          </div>
+          <button id="btn-apply-wc-squad" class="btn btn-primary btn-sm">
+            ⚡ Apply ${mode.toUpperCase()} Squad
+          </button>
         </div>
         <div class="panel-body two-col-layout">
           <div>
@@ -1136,6 +1321,52 @@ async function runWildcard() {
         </div>
       </div>
     `;
+
+    const applyWcBtn = document.getElementById("btn-apply-wc-squad");
+    if (applyWcBtn) {
+      applyWcBtn.addEventListener("click", async () => {
+        const targetGw = state.selectedGameweek || state.activeGameweek || 1;
+        const confirmed = confirm(
+          `Apply this ${mode.toUpperCase()} squad for GW${targetGw}? This will play the ${mode} chip, overhaul your squad, and lock in your starting XI & captain.`
+        );
+        if (!confirmed) return;
+
+        try {
+          const allSquad = data.squad || [...xi, ...bench];
+          const squadIds = allSquad.map(p => p.id);
+          const starterIds = xi.map(p => p.id);
+          const benchIds = bench.map(p => p.id);
+          const capId = data.captain ? data.captain.id : starterIds[0];
+          const vcId = data.vice_captain ? data.vice_captain.id : (starterIds[1] || starterIds[0]);
+
+          const res = await api("/api/wildcard/apply", {
+            method: "POST",
+            body: JSON.stringify({
+              team_id: state.activeTeamId,
+              gameweek: targetGw,
+              mode: mode,
+              squad_ids: squadIds,
+              starter_ids: starterIds,
+              bench_ids: benchIds,
+              captain_id: capId,
+              vice_captain_id: vcId,
+              bank_tenths: data.bank_remaining_tenths || 0,
+            }),
+          });
+
+          showToast(res.message || `${mode.toUpperCase()} squad applied successfully!`);
+          await refreshActiveTeamData();
+          await loadDecisions();
+          await loadPitchAndLineup();
+          const chipTab = document.getElementById("tab-chips");
+          if (chipTab && chipTab.classList.contains("active")) {
+            await loadChipStrategy();
+          }
+        } catch (err) {
+          showToast(`Failed to apply ${mode}: ${err.message}`, true);
+        }
+      });
+    }
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Wildcard optimizer error: ${err.message}</p>`;
   }
@@ -1164,7 +1395,7 @@ async function runPlanner() {
       return;
     }
 
-    const stepsHtml = steps.map(step => {
+    const stepsHtml = steps.map((step, sIdx) => {
       let txText = '<span class="text-muted">Roll Transfer (Bank FT)</span>';
       if (step.transfers && step.transfers.length) {
         txText = step.transfers.map(t => {
@@ -1182,6 +1413,17 @@ async function runPlanner() {
       const capStr = step.captain ? `${step.captain.name} (C)` : "";
       const formStr = step.formation ? ` · Formation: ${step.formation}` : "";
 
+      let applyStep0Html = "";
+      if (sIdx === 0) {
+        applyStep0Html = `
+          <div style="margin-top: 0.6rem;">
+            <button type="button" class="btn btn-primary btn-sm btn-apply-plan-step0">
+              ⚡ Apply GW${step.gameweek} Move
+            </button>
+          </div>
+        `;
+      }
+
       return `
         <div class="decision-entry" style="margin-bottom: 0.8rem;">
           <div class="decision-entry-header">
@@ -1192,6 +1434,7 @@ async function runPlanner() {
           <div class="decision-entry-sub">
             Captain: <strong>${capStr}</strong> | FTs Available: <strong>${ft}</strong> | Post-Move Bank: <strong>${bankStr}</strong>
           </div>
+          ${applyStep0Html}
         </div>
       `;
     }).join("");
@@ -1208,6 +1451,53 @@ async function runPlanner() {
         <div class="panel-body">${stepsHtml}</div>
       </div>
     `;
+
+    // Apply Step 0 handler
+    const applyStep0Btn = container.querySelector(".btn-apply-plan-step0");
+    if (applyStep0Btn) {
+      applyStep0Btn.addEventListener("click", async () => {
+        const step0 = steps[0];
+        const txs = step0.transfers || [];
+        const txSummary = txs.length
+          ? txs.map(t => `${t.out ? t.out.name : (t.outgoing_name || 'Out')} ➔ ${t.in ? t.in.name : (t.incoming_name || 'In')}`).join(", ")
+          : "Roll Transfer (Bank FT)";
+        const capName = step0.captain ? step0.captain.name : "None";
+
+        const confirmed = confirm(
+          `Apply recommended plan move for GW${step0.gameweek}?\nTransfers: ${txSummary}\nCaptain: ${capName}`
+        );
+        if (!confirmed) return;
+
+        try {
+          if (txs.length > 0) {
+            const transfersPayload = txs.map(t => ({
+              outgoing_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing),
+              incoming_id: t.in ? t.in.id : (t.incoming_id || t.incoming),
+            }));
+            await api("/api/transfers/execute", {
+              method: "POST",
+              body: JSON.stringify({
+                team_id: state.activeTeamId,
+                gameweek: step0.gameweek,
+                transfers: transfersPayload,
+              }),
+            });
+          }
+
+          if (step0.captain) {
+            setPitchCaptain(step0.captain.id);
+          }
+
+          showToast(`GW${step0.gameweek} plan move applied successfully!`);
+          await refreshActiveTeamData();
+          await loadDecisions();
+          await loadPitchAndLineup();
+          await runPlanner();
+        } catch (err) {
+          showToast(`Failed to apply plan move: ${err.message}`, true);
+        }
+      });
+    }
   } catch (err) {
     container.innerHTML = `<p class="text-muted">Planner error: ${err.message}</p>`;
   }
@@ -1370,6 +1660,38 @@ function initModal() {
       showToast(`Error creating team: ${err.message}`, true);
     }
   });
+
+  // Player Stats Modal
+  const psModal = document.getElementById("modal-player-stats");
+  const psClose = document.getElementById("btn-close-player-stats");
+  const psFooterClose = document.getElementById("btn-close-ps-footer");
+  if (psModal) {
+    [psClose, psFooterClose].forEach(b => {
+      if (b) b.addEventListener("click", () => psModal.classList.add("hidden"));
+    });
+  }
+
+  const btnPsCap = document.getElementById("btn-ps-make-cap");
+  if (btnPsCap) {
+    btnPsCap.addEventListener("click", () => {
+      if (inspectingPlayerId) {
+        setPitchCaptain(inspectingPlayerId);
+        showToast("Player selected as Captain!");
+        if (psModal) psModal.classList.add("hidden");
+      }
+    });
+  }
+
+  const btnPsVc = document.getElementById("btn-ps-make-vc");
+  if (btnPsVc) {
+    btnPsVc.addEventListener("click", () => {
+      if (inspectingPlayerId) {
+        setPitchViceCaptain(inspectingPlayerId);
+        showToast("Player selected as Vice-Captain!");
+        if (psModal) psModal.classList.add("hidden");
+      }
+    });
+  }
 }
 
 // Global Event Listeners
