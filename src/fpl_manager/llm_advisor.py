@@ -1,6 +1,6 @@
 """LLM Advisory Layer with Deterministic Guardrails for FPL Manager V0.6.
 
-Integrates multi-provider LLM analysis (Gemini, OpenAI, OpenRouter, Heuristic)
+Integrates multi-provider LLM analysis (Gemini, OpenAI, Heuristic)
 with specialized personas (Devil's Advocate, Tactical Analyst, Strategic Planner).
 Deterministic validation ensures that all LLM advice is strictly verified against
 FPL budget, squad quota, and formation constraints before presentation.
@@ -498,7 +498,6 @@ def generate_llm_advisory(
 
     gemini_key = (raw_key if resolved_provider in ("gemini", "auto") else None) or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     openai_key = (raw_key if resolved_provider in ("openai", "auto") else None) or os.environ.get("OPENAI_API_KEY")
-    openrouter_key = (raw_key if resolved_provider in ("openrouter", "auto") else None) or os.environ.get("OPENROUTER_API_KEY")
 
     if resolved_provider == "heuristic":
         heuristic_res = _heuristic_advisory(dossier, persona)
@@ -530,18 +529,8 @@ def generate_llm_advisory(
         raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
         provider_used = "openai"
 
-    elif resolved_provider == "openrouter":
-        if not openrouter_key:
-            raise ValueError(
-                "OpenRouter API key is required when selecting the OpenRouter engine. "
-                "Please enter an API key in the toolbar, pass '--api-key', or set the "
-                "OPENROUTER_API_KEY environment variable."
-            )
-        raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
-        provider_used = "openrouter"
-
     elif resolved_provider == "auto":
-        # Auto mode: try Gemini if key present, else OpenAI if key present, else OpenRouter, else heuristic
+        # Auto mode: try Gemini if key present, else OpenAI if key present, else heuristic
         if gemini_key:
             try:
                 raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash-latest")
@@ -556,13 +545,6 @@ def generate_llm_advisory(
             except Exception:
                 pass
 
-        if raw_response is None and openrouter_key:
-            try:
-                raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
-                provider_used = "openrouter"
-            except Exception:
-                pass
-
         if raw_response is None:
             heuristic_res = _heuristic_advisory(dossier, persona)
             analysis_markdown = heuristic_res["analysis_markdown"]
@@ -573,11 +555,11 @@ def generate_llm_advisory(
             proposed_transfers = heuristic_res["proposed_transfers"]
             provider_used = "heuristic (auto-fallback)"
             tactical_notes.append(
-                "ℹ️ Auto-routed to offline heuristic engine (no API key configured for Gemini/OpenAI/OpenRouter)."
+                "ℹ️ Auto-routed to offline heuristic engine (no API key configured for Gemini/OpenAI)."
             )
     else:
         raise ValueError(
-            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai', 'openrouter'."
+            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai'."
         )
 
     if raw_response is not None:

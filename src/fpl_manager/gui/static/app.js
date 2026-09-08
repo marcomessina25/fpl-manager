@@ -1932,7 +1932,6 @@ function initEventListeners() {
       try {
         if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", val);
         else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", val);
-        else if (provider === "openrouter") localStorage.setItem("fpl_advisor_api_key_openrouter", val);
       } catch (_) {}
     });
   }
@@ -2155,12 +2154,9 @@ function updateProviderKeyPlaceholder() {
   if (!provSelect || !keyInput) return;
   const val = provSelect.value;
 
-  // Clean up legacy URL strings from older versions
+  // Clean up legacy URL strings from older versions and remove openrouter key if present
   try {
-    const orKey = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
-    if (orKey.startsWith("http") || orKey.startsWith("AIza")) {
-      localStorage.removeItem("fpl_advisor_api_key_openrouter");
-    }
+    localStorage.removeItem("fpl_advisor_api_key_openrouter");
     const legacyKey = localStorage.getItem("fpl_advisor_api_key") || "";
     if (legacyKey.startsWith("http")) {
       localStorage.removeItem("fpl_advisor_api_key");
@@ -2182,12 +2178,6 @@ function updateProviderKeyPlaceholder() {
     keyInput.disabled = false;
     try {
       keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || "";
-    } catch (_) {}
-  } else if (val === "openrouter") {
-    keyInput.placeholder = "OpenRouter Key (sk-or-...)";
-    keyInput.disabled = false;
-    try {
-      keyInput.value = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
     } catch (_) {}
   } else {
     keyInput.placeholder = "Optional API Key";
@@ -2227,7 +2217,6 @@ async function runAdvisor() {
     try {
       if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
       else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
-      else if (provider === "openrouter") localStorage.setItem("fpl_advisor_api_key_openrouter", apiKey);
     } catch (_) {}
   }
 
@@ -2258,7 +2247,7 @@ async function runAdvisor() {
     if (err.message && (err.message.includes("401") || err.message.toLowerCase().includes("authentication") || err.message.toLowerCase().includes("unauthorized"))) {
       extraTip = `
         <div style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
-          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key (OpenRouter keys typically start with <code>sk-or-v1-</code>). If the key was set via an environment variable, ensure this field is left empty.</em>
+          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key. If the key was set via an environment variable, ensure this field is left empty.</em>
         </div>
       `;
     }
