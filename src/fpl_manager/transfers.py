@@ -120,6 +120,7 @@ def execute_transfers(
     gameweek: int | None = None,
 ) -> dict[str, Any]:
     """Execute and persist proposed transfers directly to the squad state file and decision records."""
+    orig_state_text = squad_path.read_text(encoding="utf-8") if squad_path.exists() else None
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     store.initialize()
@@ -208,8 +209,8 @@ def execute_transfers(
     tx_hits = val_res.transfer_hits
     starting_ft = max(1, state.free_transfers)
 
-    if target_gw is not None:
-        try:
+    try:
+        if target_gw is not None:
             from .decision_log import (
                 compute_expected_free_transfers,
                 get_gameweek_decision,
@@ -314,21 +315,22 @@ def execute_transfers(
                 database_path=database_path,
                 overwrite=True,
             )
-        except Exception as ex:
-            import logging
-            logging.getLogger(__name__).warning("Failed to record decision in execute_transfers: %s", ex)
 
-    new_ft = max(0, starting_ft - len(merged_tx))
-    updated_state = CurrentSquadState(
-        player_ids=tuple(new_ids),
-        purchase_prices_tenths=new_prices,
-        bank_tenths=new_bank,
-        free_transfers=new_ft,
-        chips_remaining=state.chips_remaining,
-        season=state.season,
-        gameweek=max(state.gameweek or 1, target_gw or 1),
-    )
-    save_current_squad(squad_path, updated_state)
+        new_ft = max(0, starting_ft - len(merged_tx))
+        updated_state = CurrentSquadState(
+            player_ids=tuple(new_ids),
+            purchase_prices_tenths=new_prices,
+            bank_tenths=new_bank,
+            free_transfers=new_ft,
+            chips_remaining=state.chips_remaining,
+            season=state.season,
+            gameweek=max(state.gameweek or 1, target_gw or 1),
+        )
+        save_current_squad(squad_path, updated_state)
+    except Exception:
+        if orig_state_text is not None:
+            squad_path.write_text(orig_state_text, encoding="utf-8")
+        raise
 
     return {
         "success": True,

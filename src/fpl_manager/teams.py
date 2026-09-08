@@ -123,14 +123,13 @@ def get_team_id_from_squad_path(squad_path: Path, config_dir: Path = CONFIG_DIR)
     resolved = squad_path.resolve()
     teams_dir = (config_dir / "teams").resolve()
 
-    if str(resolved).startswith(str(teams_dir)):
-        try:
-            rel = resolved.relative_to(teams_dir)
-            parts = rel.parts
-            if parts:
-                return parts[0]
-        except Exception:
-            pass
+    try:
+        rel = resolved.relative_to(teams_dir)
+        parts = rel.parts
+        if parts:
+            return parts[0]
+    except ValueError:
+        pass
 
     if resolved == (config_dir / "current_squad.json").resolve():
         return "default"
@@ -154,13 +153,21 @@ def create_team(
 
     ensure_teams_initialized(config_dir)
     clean_name = name.strip()
-    tid = slugify_team_id(team_id) if team_id else slugify_team_id(clean_name)
-
     teams_dir = config_dir / "teams"
-    team_dir = teams_dir / tid
-    if team_dir.exists():
-        raise ValueError(f"Team '{tid}' already exists.")
 
+    if team_id:
+        tid = slugify_team_id(team_id)
+        if (teams_dir / tid).exists():
+            raise ValueError(f"Team '{tid}' already exists.")
+    else:
+        base_tid = slugify_team_id(clean_name)
+        tid = base_tid
+        counter = 2
+        while (teams_dir / tid).exists():
+            tid = f"{base_tid}-{counter}"
+            counter += 1
+
+    team_dir = teams_dir / tid
     team_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine initial squad state

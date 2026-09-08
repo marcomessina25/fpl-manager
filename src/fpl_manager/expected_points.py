@@ -14,7 +14,8 @@ V0.3 Model Pillars:
    - Bonus point expectation: scaled from expected attacking involvements and clean sheets.
    - Disciplinary deduction: expected cards deduction (-0.15 pts per 90).
 3. Uncertainty & Variance:
-   - Floor (10th percentile safe floor) and Ceiling (90th percentile haul potential).
+   - Estimated Floor and Ceiling: heuristic estimates of lower-bound baseline and haul potential.
+     Note: these are mathematical heuristic projections rather than empirically calibrated quantiles.
    - Standard deviation (sigma) distinguishing steady floor assets from high-upside differentials.
 
 See `docs/expected_points.md` for full mathematical documentation.
@@ -308,8 +309,8 @@ def calculate_component_xp(
     cs_prob = max(0.05, min(0.65, base_cs_prob * fdr_def * (1.15 if is_home else 0.85)))
     if position in (Position.GOALKEEPER, Position.DEFENDER):
         xp_cs = 4.0 * cs_prob * prob_60_plus
-        xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15)) * mins_ratio
-        xp_gc = -0.5 * max(0.0, xgc - 0.5) * prob_60_plus
+        team_xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15))
+        xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
         xp_def = xp_cs + xp_gc
     elif position == Position.MIDFIELDER:
         xp_def = 1.0 * cs_prob * prob_60_plus
@@ -317,7 +318,7 @@ def calculate_component_xp(
         xp_def = 0.0
 
     # 4. Bonus
-    xp_bonus = min(1.8, 0.35 * xp_att + (0.25 if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
+    xp_bonus = min(1.8, 0.35 * xp_att + (0.25 * prob_60_plus if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
 
     # 5. Deduction
     xp_deduct = 0.15 * mins_ratio

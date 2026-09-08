@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.6 has been implemented on the `v6` branch, but it is **not yet considered PR-ready**. The current v0.6 OpenRouter integration must be removed from the release candidate before merging. V0.65 is the stabilization/bug-fix milestone following that removal. A future free LLM provider should be integrated only after a real end-to-end API test proves that it works with the application.
+> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is delivered on the `v065` branch, providing release stabilization, bug fixes, atomic transfer persistence with rollback, formation-legal autosubs, xP calibration, multi-team isolation, and a comprehensive 159-test verification suite. OpenRouter remains safely deferred pending a live provider acceptance test.
 
 See `docs/architecture.md` and `docs/expected_points.md` for the deeper architecture and projection-model design.
 
@@ -471,7 +471,7 @@ OpenRouter currently exposes an OpenAI-compatible `/api/v1/chat/completions` API
 
 # V0.65 — Stabilization, bug audit, and release hardening
 
-**Status: planned immediately after the V0.6 PR.**
+**Status: completed and verified on `v065` branch.**
 
 See `docs/v065_potential_bugs.md`.
 
@@ -479,7 +479,7 @@ V0.65 is intentionally smaller than a feature release.
 
 The goal is:
 
-> **Make V0.6 trustworthy before adding major new intelligence.**
+> **Make V0.6 trustworthy before adding major new intelligence.** Delivered comprehensive stabilization with 159 tests passing.
 
 ### Priority A — release-blocking correctness
 

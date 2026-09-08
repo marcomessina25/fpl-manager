@@ -51,6 +51,10 @@ def record_gameweek_decision(
         raise ValueError(f"Starting XI must have exactly 11 players; received {len(starting_player_ids)}.")
     if len(bench_player_ids) != 4:
         raise ValueError(f"Bench must have exactly 4 players; received {len(bench_player_ids)}.")
+    if set(starting_player_ids).intersection(set(bench_player_ids)):
+        raise ValueError("Starting XI and bench cannot contain overlapping players.")
+    if set(starting_player_ids) | set(bench_player_ids) != set(squad_player_ids):
+        raise ValueError("Starting XI and bench must comprise all 15 squad players.")
     if captain_id not in starting_player_ids:
         raise ValueError(f"Captain ID {captain_id} must be in the starting XI.")
     if vice_captain_id not in starting_player_ids:
