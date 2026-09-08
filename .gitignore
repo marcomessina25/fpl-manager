@@ -8,6 +8,7 @@ __pycache__/
 data/*.sqlite3
 data/raw/
 reports/*.json
+reports/*.md
 config/current_squad.json
 config/teams/*
 !config/teams/.gitkeep

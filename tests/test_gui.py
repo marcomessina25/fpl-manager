@@ -97,6 +97,7 @@ def test_serve_static_files(gui_test_server: str) -> None:
         assert "text/html" in resp.headers.get("Content-Type", "")
         content = resp.read().decode("utf-8")
         assert "FPL Manager Pro" in content
+        assert "adv-gw" in content
 
     # app.css
     with urllib.request.urlopen(f"{gui_test_server}/app.css") as resp:
@@ -111,6 +112,8 @@ def test_serve_static_files(gui_test_server: str) -> None:
         assert "javascript" in resp.headers.get("Content-Type", "")
         js = resp.read().decode("utf-8")
         assert "loadTeams" in js
+        assert "escapeHtml" in js
+        assert "formatMarkdown" in js
 
 
 def test_api_health(gui_test_server: str) -> None:
@@ -458,3 +461,62 @@ def test_cli_gui_help(capsys: pytest.CaptureFixture[str]) -> None:
     out, _ = capsys.readouterr()
     assert "--port" in out
     assert "--no-browser" in out
+
+
+def test_api_briefing(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/briefing?gameweek=2") as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["gameweek"] == 2
+        assert "financials" in data
+        assert "lineup" in data
+        assert "markdown" in data
+
+
+def test_api_live(gui_test_server: str) -> None:
+    with urllib.request.urlopen(f"{gui_test_server}/api/live?gameweek=2") as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["gameweek"] == 2
+        assert "net_points" in data
+        assert "starters" in data
+        assert "bench" in data
+        assert "captain" in data
+
+
+def test_api_advise(gui_test_server: str) -> None:
+    # 1. GET /api/advise
+    with urllib.request.urlopen(f"{gui_test_server}/api/advise?gameweek=2&persona=devil_advocate&provider=heuristic") as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["gameweek"] == 2
+        assert data["persona"] == "devil_advocate"
+        assert data["validation"]["is_legal"] is True
+
+    # 2. POST /api/advise
+    body = {
+        "gameweek": 2,
+        "persona": "tactical_analyst",
+        "provider": "heuristic",
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/advise",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["gameweek"] == 2
+        assert data["persona"] == "tactical_analyst"
+        assert "markdown" in data
+
+
+def test_cli_v6_help(capsys: pytest.CaptureFixture[str]) -> None:
+    for cmd in ["briefing", "live", "advise"]:
+        with pytest.raises(SystemExit) as exc:
+            main([cmd, "--help"])
+        assert exc.value.code == 0
+        out, _ = capsys.readouterr()
+        assert "--help" in out
