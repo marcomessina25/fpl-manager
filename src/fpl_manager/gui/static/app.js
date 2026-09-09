@@ -1962,7 +1962,21 @@ function initEventListeners() {
       try {
         if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", val);
         else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", val);
+        else if (provider === "openrouter" || val.startsWith("sk-or-")) localStorage.setItem("fpl_advisor_api_key_openrouter", val);
       } catch (_) {}
+    });
+  }
+
+  const advModel = document.getElementById("adv-model");
+  if (advModel) {
+    advModel.addEventListener("change", () => {
+      const provSelect = document.getElementById("adv-provider");
+      const provider = provSelect ? provSelect.value : "";
+      if (provider && advModel.value) {
+        try {
+          localStorage.setItem(`fpl_advisor_model_${provider}`, advModel.value);
+        } catch (_) {}
+      }
     });
   }
 }
@@ -2178,25 +2192,73 @@ function renderLiveMatchday(data) {
 // TAB 8: AI ADVISOR & ANALYTICAL DOSSIER
 // ==========================================
 
+const PROVIDER_MODELS = {
+  openrouter: [
+    { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B (Default)" },
+    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning)" },
+    { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
+    { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+    { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash (Free)" },
+    { id: "mistralai/mistral-large-2411", name: "Mistral Large" },
+  ],
+  gemini: [
+    { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash (Default)" },
+    { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro" },
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+  ],
+  openai: [
+    { id: "gpt-4o-mini", name: "GPT-4o Mini (Default)" },
+    { id: "gpt-4o", name: "GPT-4o" },
+    { id: "o3-mini", name: "o3-mini" },
+  ],
+};
+
 function updateProviderKeyPlaceholder() {
   const provSelect = document.getElementById("adv-provider");
   const keyInput = document.getElementById("adv-api-key");
+  const modelSelect = document.getElementById("adv-model");
+  const modelGroup = document.getElementById("adv-model-group");
   if (!provSelect || !keyInput) return;
   const val = provSelect.value;
 
-  // Clean up legacy URL strings from older versions and remove openrouter key if present
+  // Clean up legacy URL strings if any
   try {
-    localStorage.removeItem("fpl_advisor_api_key_openrouter");
     const legacyKey = localStorage.getItem("fpl_advisor_api_key") || "";
     if (legacyKey.startsWith("http")) {
       localStorage.removeItem("fpl_advisor_api_key");
     }
   } catch (_) {}
 
+  // Populate model selector
+  if (modelSelect && modelGroup) {
+    if (val === "heuristic") {
+      modelGroup.style.display = "none";
+    } else {
+      modelGroup.style.display = "inline-flex";
+      modelSelect.innerHTML = '<option value="">Default Model</option>';
+      const models = PROVIDER_MODELS[val] || [];
+      const savedModel = localStorage.getItem(`fpl_advisor_model_${val}`) || "";
+      models.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (m.id === savedModel) opt.selected = true;
+        modelSelect.appendChild(opt);
+      });
+    }
+  }
+
   if (val === "heuristic") {
     keyInput.placeholder = "(Not required)";
     keyInput.disabled = true;
     keyInput.value = "";
+  } else if (val === "openrouter") {
+    keyInput.placeholder = "OpenRouter Key (sk-or-v1-...)";
+    keyInput.disabled = false;
+    try {
+      keyInput.value = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
+    } catch (_) {}
   } else if (val === "gemini") {
     keyInput.placeholder = "Gemini API Key (AIza...)";
     keyInput.disabled = false;
@@ -2210,7 +2272,7 @@ function updateProviderKeyPlaceholder() {
       keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || "";
     } catch (_) {}
   } else {
-    keyInput.placeholder = "Optional API Key";
+    keyInput.placeholder = "Optional API Key (AIza / sk- / sk-or-)";
     keyInput.disabled = false;
     keyInput.value = "";
   }
@@ -2231,6 +2293,7 @@ async function runAdvisor() {
   const personaSelect = document.getElementById("adv-persona");
   const providerSelect = document.getElementById("adv-provider");
   const apiKeyInput = document.getElementById("adv-api-key");
+  const modelSelect = document.getElementById("adv-model");
   const gwInput = document.getElementById("adv-gw") || document.getElementById("live-gw");
   let gw = gwInput ? parseInt(gwInput.value) : null;
   if (!gw) gw = state.activeGameweek;
@@ -2243,9 +2306,17 @@ async function runAdvisor() {
     apiKey = null;
   }
 
+  const selectedModel = modelSelect ? modelSelect.value : "";
+  if (selectedModel) {
+    try {
+      localStorage.setItem(`fpl_advisor_model_${provider}`, selectedModel);
+    } catch (_) {}
+  }
+
   if (apiKey) {
     try {
-      if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
+      if (provider === "openrouter" || apiKey.startsWith("sk-or-")) localStorage.setItem("fpl_advisor_api_key_openrouter", apiKey);
+      else if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
       else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
     } catch (_) {}
   }
@@ -2253,7 +2324,7 @@ async function runAdvisor() {
   container.innerHTML = `
     <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
       <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor using ${provider.toUpperCase()} engine...</p>
+      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor using ${provider.toUpperCase()} engine${selectedModel ? ` (${selectedModel})` : ''}...</p>
     </div>
   `;
 
@@ -2265,6 +2336,7 @@ async function runAdvisor() {
       provider: provider,
     };
     if (apiKey) payload.api_key = apiKey;
+    if (selectedModel) payload.model = selectedModel;
 
     const data = await api("/api/advise", {
       method: "POST",
@@ -2277,7 +2349,7 @@ async function runAdvisor() {
     if (err.message && (err.message.includes("401") || err.message.toLowerCase().includes("authentication") || err.message.toLowerCase().includes("unauthorized"))) {
       extraTip = `
         <div style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
-          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key. If the key was set via an environment variable, ensure this field is left empty.</em>
+          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key. If using OpenRouter, ensure your key begins with <code>sk-or-v1-</code>.</em>
         </div>
       `;
     }

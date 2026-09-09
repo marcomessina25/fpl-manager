@@ -525,12 +525,19 @@
           <select id="adv-provider" class="input-sm" style="width: 140px;">
             <option value="auto">Auto (Smart Fallback)</option>
             <option value="heuristic">Heuristic Engine (Local)</option>
+            <option value="openrouter">OpenRouter (Multi-Model)</option>
             <option value="gemini">Google Gemini</option>
             <option value="openai">OpenAI</option>
           </select>
         </div>
+        <div class="tool-group" id="adv-model-group">
+          <label>Model:</label>
+          <select id="adv-model" class="input-sm" style="width: 180px;" title="Target LLM model for the selected engine">
+            <option value="">Default Model</option>
+          </select>
+        </div>
         <div class="tool-group" style="position: relative; display: inline-flex; align-items: center;">
-          <input type="password" id="adv-api-key" placeholder="Optional API Key" class="input-sm" style="width: 170px; padding-right: 26px;" title="API Key for Gemini or OpenAI (leave blank if set via environment variable)">
+          <input type="password" id="adv-api-key" placeholder="Optional API Key" class="input-sm" style="width: 170px; padding-right: 26px;" title="API Key for OpenRouter, Gemini, or OpenAI (leave blank if set via environment variable)">
           <button type="button" id="btn-toggle-key-visibility" style="position: absolute; right: 4px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.85rem; padding: 2px 4px;" title="Show/Hide API Key">👁️</button>
         </div>
         <button id="btn-run-advisor" class="btn btn-primary btn-sm">🤖 Generate Advisory</button>
