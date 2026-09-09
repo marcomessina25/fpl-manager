@@ -30,7 +30,15 @@ def generate_squad_report(
     If gameweek is provided and has a logged decision, reconstructs the squad representation
     from that point in time.
     """
-    state: CurrentSquadState = load_current_squad(squad_path)
+    if gameweek is None:
+        try:
+            from .teams import sync_squad_with_current_gameweek
+            state = sync_squad_with_current_gameweek(squad_path, team_id=team_id or "default", database_path=database_path)
+        except Exception:
+            state = load_current_squad(squad_path)
+    else:
+        state = load_current_squad(squad_path)
+
     store = SnapshotStore(database_path)
 
     active_player_ids = state.player_ids

@@ -141,8 +141,13 @@ async function loadTeams() {
     });
 
     const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
+    if (data.current_gameweek) {
+      state.currentGameweek = data.current_gameweek;
+    }
     if (activeObj && activeObj.gameweek) {
       state.activeGameweek = activeObj.gameweek;
+    } else if (data.current_gameweek) {
+      state.activeGameweek = data.current_gameweek;
     }
 
     await refreshActiveTeamData();
@@ -200,7 +205,7 @@ async function loadSquadHUD() {
     const data = await api(`/api/squad?team=${state.activeTeamId}`);
     state.currentSquad = data;
     const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
-    state.activeGameweek = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || 3;
+    state.activeGameweek = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || state.currentGameweek || 4;
 
     const fin = data.financials || {};
     const st = data.state || {};
@@ -275,12 +280,16 @@ async function renderLineupGWPills(currentGw) {
       const dec = decMap[g];
 
       let badge = "";
-      if (dec) {
-        if (dec.actual_points !== null && dec.actual_points !== undefined) {
-          badge = `<span class="gw-pill-score">${dec.actual_points} pts</span>`;
-        } else {
-          badge = `<span class="gw-pill-tag">Logged</span>`;
-        }
+      const pts = (dec && dec.actual_points !== null && dec.actual_points !== undefined)
+        ? dec.actual_points
+        : (state.currentLineup && state.currentLineup.gameweek === g && state.currentLineup.actual_points !== null && state.currentLineup.actual_points !== undefined
+            ? state.currentLineup.actual_points
+            : null);
+
+      if (pts !== null) {
+        badge = `<span class="gw-pill-score">${pts} pts</span>`;
+      } else if (dec) {
+        badge = `<span class="gw-pill-tag">Logged</span>`;
       } else if (g === state.activeGameweek) {
         badge = `<span class="gw-pill-tag">Active</span>`;
       }
@@ -331,7 +340,8 @@ function renderPitch(lineup) {
       const capPtsStr = (lineup.captain && lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined)
         ? ` · ${lineup.captain.actual_points} pts`
         : "";
-      const capStr = lineup.captain ? `${lineup.captain.name} (C)${capPtsStr}` : "-";
+      const capNote = lineup.captain_promoted ? ` <span class="badge-promoted-vc">(VC Promoted)</span>` : "";
+      const capStr = lineup.captain ? `${lineup.captain.name} (C)${capPtsStr}${capNote}` : "-";
       const movesStr = (lineup.transfers && lineup.transfers.length)
         ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")
         : "No transfers";
@@ -340,7 +350,13 @@ function renderPitch(lineup) {
         : "";
       const chipStr = lineup.chip_played ? ` · Chip: ${lineup.chip_played.toUpperCase()}` : "";
 
-      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${hitsStr}${chipStr}`;
+      let autosubStr = "";
+      if (lineup.autosubs && lineup.autosubs.length > 0) {
+        const subDetails = lineup.autosubs.map(s => `${s.out.name} OUT ➔ ${s.in.name} IN (+${s.in.points} pts)`).join(", ");
+        autosubStr = ` | <span class="banner-autosub-badge">🔄 Auto-Subs: ${escapeHtml(subDetails)}</span>`;
+      }
+
+      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${hitsStr}${chipStr}${autosubStr}`;
       if (toggleBtn) {
         toggleBtn.classList.remove("hidden");
         toggleBtn.textContent = "🔮 Show Model Recommended XI";
@@ -384,9 +400,9 @@ function renderPitch(lineup) {
     }
   }
 
-  // Update Captain and VC sidebar
   if (lineup.captain) {
-    document.getElementById("cap-name").textContent = lineup.captain.name;
+    const capTitle = lineup.captain.name + (lineup.captain_promoted ? " (VC Promoted)" : "");
+    document.getElementById("cap-name").textContent = capTitle;
     document.getElementById("cap-sub").textContent = `${lineup.captain.team} (${lineup.captain.fixtures_summary})`;
     if (lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined) {
       document.getElementById("cap-xp").innerHTML = `<span class="score-highlight">${lineup.captain.actual_points} pts</span> <small>(${(lineup.captain.expected_points * 2).toFixed(1)} xP)</small>`;
@@ -670,8 +686,22 @@ function createPlayerCard(p, isBench = false, benchIdx = 0) {
 
   // Role Badge (Captain / Vice)
   let badgeHtml = "";
-  if (p.role === "CAPTAIN") badgeHtml = '<div class="player-badge-role badge-cap">C</div>';
-  if (p.role === "VICE_CAPTAIN") badgeHtml = '<div class="player-badge-role badge-vc">V</div>';
+  if (p.role === "CAPTAIN") {
+    const title = p.promoted_from_vice ? "Captain (Promoted from Vice-Captain)" : "Captain";
+    const label = p.promoted_from_vice ? "C*" : "C";
+    badgeHtml = `<div class="player-badge-role badge-cap" title="${title}">${label}</div>`;
+  } else if (p.role === "VICE_CAPTAIN") {
+    badgeHtml = '<div class="player-badge-role badge-vc" title="Vice-Captain">V</div>';
+  }
+
+  // Auto-Sub Badges
+  if (p.subbed_out) {
+    badgeHtml += '<div class="player-badge-sub subbed-out" title="Auto-subbed out (0 mins played)">OUT</div>';
+    card.classList.add("player-subbed-out");
+  } else if (p.subbed_in) {
+    badgeHtml += '<div class="player-badge-sub subbed-in" title="Auto-subbed in from bench">IN</div>';
+    card.classList.add("player-subbed-in");
+  }
 
   // FDR Badge
   const fdrVal = p.next_fixture_fdr || 3;
@@ -2526,11 +2556,30 @@ function renderManagerDossier(dossier) {
   container.innerHTML = html;
 }
 
+// Startup sync: auto-check gameweek and sync scores
+async function syncGameweekAndScoresAtStartup() {
+  try {
+    const gwData = await api("/api/gameweek");
+    if (gwData && gwData.current_gameweek) {
+      state.currentGameweek = gwData.current_gameweek;
+      state.activeGameweek = gwData.current_gameweek;
+    }
+    // Auto-hit scores update at start of GUI
+    const scoreRes = await api("/api/update-scores", { method: "POST" });
+    if (scoreRes && scoreRes.players_updated !== undefined) {
+      showToast(`Gameweek ${state.activeGameweek || 4} verified · Scores synchronized (${scoreRes.players_updated} players).`);
+    }
+  } catch (err) {
+    console.warn("Startup gameweek and score sync:", err);
+  }
+}
+
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   initModal();
   initEventListeners();
+  await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();
 });

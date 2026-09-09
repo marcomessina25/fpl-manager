@@ -330,11 +330,26 @@ def evaluate_gameweek_decision(
     hvm_eval = compare_human_vs_model(decision, recommended_lineup, actual_scores, players_by_id)
 
     # Actual lineup score
-    actual_lineup = (
-        sum(actual_scores.get(pid, 0.0) for pid in starters)
-        + actual_scores.get(cap_id, 0.0)
-        - (decision.get("transfer_hits", 0) * 4)
-    )
+    try:
+        from .live_matchday import compute_matchday_lineup_performance
+        perf = compute_matchday_lineup_performance(
+            gameweek=gameweek,
+            starting_ids=starters,
+            bench_ids=bench,
+            captain_id=cap_id,
+            vice_captain_id=vc_id,
+            chip_played=decision.get("chip_played"),
+            transfer_hits=decision.get("transfer_hits", 0),
+            database_path=database_path,
+            custom_scores=actual_scores,
+        )
+        actual_lineup = float(perf["net_points"])
+    except Exception:
+        actual_lineup = (
+            sum(actual_scores.get(pid, 0.0) for pid in starters)
+            + actual_scores.get(cap_id, 0.0)
+            - (decision.get("transfer_hits", 0) * 4)
+        )
 
     xp_delta = round(actual_lineup - decision["predicted_lineup_xp"], 2)
 
@@ -372,25 +387,32 @@ def evaluate_season_decisions(
     decisions = list_decisions(season=season, team_id=team_id, database_path=database_path)
 
     # Auto-finalize any unfinalized decisions if scores are available
-    from .scores import get_or_fetch_gameweek_scores
     for d in decisions:
         if d.get("actual_points") is None:
-            gw_scores = get_or_fetch_gameweek_scores(d["gameweek"], database_path=database_path)
-            if gw_scores:
-                starters = d["starting_player_ids"]
-                cap_id = d["captain_id"]
-                hits = d.get("transfer_hits", 0)
-                actual_lineup = (
-                    sum(gw_scores.get(pid, 0.0) for pid in starters)
-                    + gw_scores.get(cap_id, 0.0)
-                    - (hits * 4)
+            starters = d["starting_player_ids"]
+            bench = d["bench_player_ids"]
+            cap_id = d["captain_id"]
+            vc_id = d["vice_captain_id"]
+            hits = d.get("transfer_hits", 0)
+            try:
+                from .live_matchday import compute_matchday_lineup_performance
+                perf = compute_matchday_lineup_performance(
+                    gameweek=d["gameweek"],
+                    starting_ids=starters,
+                    bench_ids=bench,
+                    captain_id=cap_id,
+                    vice_captain_id=vc_id,
+                    chip_played=d.get("chip_played"),
+                    transfer_hits=hits,
+                    database_path=database_path,
                 )
-                try:
+                if perf.get("has_match_data"):
+                    actual_lineup = perf["net_points"]
                     from .decision_log import record_actual_gameweek_score
                     record_actual_gameweek_score(d["gameweek"], round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
                     d["actual_points"] = round(actual_lineup)
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
     finalized = [d for d in decisions if d.get("actual_points") is not None]
 

@@ -105,11 +105,28 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         try:
             # API Endpoints
             if path == "/api/health":
-                self._send_json({"status": "ok", "version": "0.5.0-dev"})
+                self._send_json({"status": "ok", "version": "0.6.5"})
+            elif path in ("/api/gameweek", "/api/current-gameweek"):
+                from contextlib import closing
+                store = SnapshotStore(self.database_path)
+                curr_gw = get_current_gameweek(store)
+                with closing(store._connect()) as conn:
+                    snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+                    snap_id = snap[0] if snap else 1
+                    fin_row = conn.execute(
+                        "SELECT MAX(event) FROM fixtures WHERE snapshot_id = ? AND finished = 1 AND event IS NOT NULL",
+                        (snap_id,),
+                    ).fetchone()
+                    latest_fin = int(fin_row[0]) if fin_row and fin_row[0] is not None else 0
+                self._send_json({
+                    "current_gameweek": curr_gw,
+                    "latest_finished_gameweek": latest_fin,
+                })
             elif path == "/api/teams":
-                teams_data = list_teams(self.config_dir)
+                teams_data = list_teams(self.config_dir, database_path=self.database_path)
                 active_id = get_active_team_id(self.config_dir)
-                self._send_json({"teams": teams_data, "active_team_id": active_id})
+                curr_gw = get_current_gameweek(SnapshotStore(self.database_path))
+                self._send_json({"teams": teams_data, "active_team_id": active_id, "current_gameweek": curr_gw})
             elif path.startswith("/api/teams/") and len(path.split("/")) == 4:
                 tid = path.split("/")[3]
                 team_info = get_team(tid, self.config_dir)
@@ -147,12 +164,13 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
 
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 if gw is None:
+                    curr_gw = get_current_gameweek(SnapshotStore(self.database_path))
                     try:
                         from ..squad_state import load_current_squad
                         state_obj = load_current_squad(squad_path)
-                        gw = state_obj.gameweek or get_current_gameweek(SnapshotStore(self.database_path))
+                        gw = state_obj.gameweek if (state_obj.gameweek and state_obj.gameweek >= curr_gw) else curr_gw
                     except Exception:
-                        gw = get_current_gameweek(SnapshotStore(self.database_path))
+                        gw = curr_gw
 
                 decision = None
                 if mode != "model":
@@ -465,8 +483,26 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     gw = int(gw)
                 else:
                     from ..fixtures import get_current_gameweek
-                    gw = get_current_gameweek(SnapshotStore(self.database_path))
+                    from contextlib import closing
+                    store = SnapshotStore(self.database_path)
+                    curr_gw = get_current_gameweek(store)
+                    with closing(store._connect()) as conn:
+                        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+                        snap_id = snap[0] if snap else 1
+                        started_row = conn.execute(
+                            "SELECT COUNT(*) FROM fixtures WHERE snapshot_id = ? AND event = ? AND (finished = 1 OR kickoff_time <= datetime('now'))",
+                            (snap_id, curr_gw),
+                        ).fetchone()
+                        started_count = started_row[0] if started_row else 0
+                    if started_count > 0:
+                        gw = curr_gw
+                    else:
+                        gw = max(1, curr_gw - 1)
+
                 res = update_gameweek_scores(gameweek=gw, database_path=self.database_path)
+                from ..scores import finalize_completed_gameweek_scores
+                finalized = finalize_completed_gameweek_scores(database_path=self.database_path)
+                res["finalized_decisions"] = finalized
                 self._send_json(res)
             elif path == "/api/advise":
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
@@ -558,6 +594,22 @@ def create_gui_server(
     """Instantiate and configure the GUI ThreadingHTTPServer."""
     actual_port = find_available_port(host, port)
 
+    # Automatically check gameweek and finalize completed decision scores at server startup
+    try:
+        from ..scores import finalize_completed_gameweek_scores
+        finalize_completed_gameweek_scores(database_path=database_path)
+    except Exception:
+        pass
+
+    try:
+        from ..teams import sync_squad_with_current_gameweek, get_active_squad_path, get_active_team_id
+        active_tid = get_active_team_id(config_dir)
+        sq_path = get_active_squad_path(config_dir)
+        if sq_path.exists():
+            sync_squad_with_current_gameweek(sq_path, team_id=active_tid, config_dir=config_dir, database_path=database_path)
+    except Exception:
+        pass
+
     class CustomHandler(FPLRequestHandler):
         pass
 
@@ -587,7 +639,7 @@ def start_gui_server(
     )
     url = f"http://{host}:{actual_port}"
     print(f"==================================================")
-    print(f"  FPL Manager Interactive Dashboard (V0.5)")
+    print(f"  FPL Manager Interactive Dashboard (V0.6.5)")
     print(f"  Local Server: {url}")
     print(f"  Press Ctrl+C to stop the server")
     print(f"==================================================")
