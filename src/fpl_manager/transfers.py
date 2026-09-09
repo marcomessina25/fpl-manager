@@ -1,5 +1,6 @@
 """Deterministic transfer validation using current prices and saved squad state."""
 
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -209,6 +210,33 @@ def execute_transfers(
     tx_hits = val_res.transfer_hits
     starting_ft = max(1, state.free_transfers)
 
+    orig_decision_row = None
+    orig_recommendation_row = None
+    if target_gw is not None:
+        try:
+            with closing(store._connect()) as conn:
+                orig_decision_row = conn.execute(
+                    """
+                    SELECT id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                           transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                           predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                    FROM decisions
+                    WHERE team_id = ? AND season = ? AND gameweek = ?
+                    """,
+                    (team_id, state.season, target_gw),
+                ).fetchone()
+                if orig_decision_row:
+                    orig_recommendation_row = conn.execute(
+                        """
+                        SELECT recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                        FROM decision_recommendations
+                        WHERE decision_id = ?
+                        """,
+                        (orig_decision_row[0],),
+                    ).fetchone()
+        except Exception:
+            pass
+
     try:
         if target_gw is not None:
             from .decision_log import (
@@ -328,8 +356,61 @@ def execute_transfers(
         )
         save_current_squad(squad_path, updated_state)
     except Exception:
-        if orig_state_text is not None:
-            squad_path.write_text(orig_state_text, encoding="utf-8")
+        # Explicit compensating rollback across both persistence systems
+        # 1. Restore squad state file
+        try:
+            if orig_state_text is not None:
+                squad_path.write_text(orig_state_text, encoding="utf-8")
+            elif squad_path.exists():
+                squad_path.unlink()
+        except Exception:
+            pass
+
+        # 2. Restore decision record in database
+        try:
+            with closing(store._connect()) as conn, conn:
+                if orig_decision_row is not None:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO decisions (
+                            id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                            transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                            predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        orig_decision_row,
+                    )
+                    if orig_recommendation_row is not None:
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO decision_recommendations (
+                                decision_id, recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                            ) VALUES (?, ?, ?, ?)
+                            """,
+                            (orig_decision_row[0], *orig_recommendation_row),
+                        )
+                    else:
+                        conn.execute(
+                            "DELETE FROM decision_recommendations WHERE decision_id = ?",
+                            (orig_decision_row[0],),
+                        )
+                elif target_gw is not None:
+                    conn.execute(
+                        """
+                        DELETE FROM decision_recommendations
+                        WHERE decision_id IN (
+                            SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?
+                        )
+                        """,
+                        (team_id, state.season, target_gw),
+                    )
+                    conn.execute(
+                        "DELETE FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+                        (team_id, state.season, target_gw),
+                    )
+        except Exception:
+            pass
+
         raise
 
     return {

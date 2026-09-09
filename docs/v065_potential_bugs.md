@@ -388,6 +388,18 @@ transaction fails completely
 
 Prefer the latter.
 
+### V0.65 Resolution
+
+Implemented an explicit compensating rollback pattern across the squad file (JSON) and decision audit log (SQLite):
+1. Snapshot original squad state text (`orig_state_text`).
+2. Snapshot existing decision record (`orig_decision_row`) and recommendations (`orig_recommendation_row`) prior to mutation.
+3. If decision recording fails: squad file is restored to `orig_state_text` and pre-existing decision record remains unchanged.
+4. If final squad write fails: squad file is restored to `orig_state_text` and decision record is restored to `orig_decision_row` (or deleted if no record existed previously).
+5. Tested bidirectionally in `tests/test_v065_stabilization.py`:
+   - `test_execute_transfers_rollback_when_decision_write_fails`
+   - `test_execute_transfers_rollback_when_final_squad_write_fails`
+   - `test_execute_transfers_rollback_deletes_new_decision_when_final_squad_write_fails`
+
 ---
 
 ## BUG-TX-004 — Purchase-price preservation across chained transfers

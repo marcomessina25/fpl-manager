@@ -290,18 +290,115 @@ def test_ft_rollover_boundary(stabilization_env: tuple[Path, Path, Path]) -> Non
     assert compute_expected_free_transfers(8, database_path=db_path) == 5
 
 
-def test_execute_transfers_rollback_on_failure(stabilization_env: tuple[Path, Path, Path]) -> None:
+def test_execute_transfers_rollback_when_decision_write_fails(stabilization_env: tuple[Path, Path, Path]) -> None:
+    """Direction 1: decision write fails -> squad restored, decision unchanged."""
     _, db_path, squad_path = stabilization_env
     orig_text = squad_path.read_text(encoding="utf-8")
 
+    # Pre-record an existing baseline decision for GW2
+    record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=[1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 17],
+        starting_player_ids=[1, 3, 4, 5, 9, 10, 11, 12, 13, 15, 16],
+        bench_player_ids=[2, 6, 7, 17],
+        captain_id=15,
+        vice_captain_id=9,
+        transfers=[],
+        notes="Pre-existing decision before failure",
+        database_path=db_path,
+        overwrite=True,
+    )
+    pre_dec = get_gameweek_decision(2, database_path=db_path)
+    assert pre_dec is not None
+    assert pre_dec["notes"] == "Pre-existing decision before failure"
+
     # Force record_gameweek_decision to fail during execute_transfers
-    with patch("fpl_manager.decision_log.record_gameweek_decision", side_effect=RuntimeError("Simulated DB lock")):
-        with pytest.raises(RuntimeError, match="Simulated DB lock"):
+    with patch("fpl_manager.decision_log.record_gameweek_decision", side_effect=RuntimeError("Simulated DB lock during decision write")):
+        with pytest.raises(RuntimeError, match="Simulated DB lock during decision write"):
             execute_transfers(squad_path, [(15, 18)], database_path=db_path, gameweek=2)
 
-    # Verify squad file was rolled back exactly to original state
+    # 1. Verify squad file was rolled back exactly to original state
     after_failed_text = squad_path.read_text(encoding="utf-8")
     assert after_failed_text == orig_text
+
+    # 2. Verify pre-existing decision record is unchanged in the database
+    dec = get_gameweek_decision(2, database_path=db_path)
+    assert dec is not None
+    assert dec["notes"] == "Pre-existing decision before failure"
+    assert dec["transfers"] == []
+    assert dec["captain_id"] == 15
+
+
+def test_execute_transfers_rollback_when_final_squad_write_fails(stabilization_env: tuple[Path, Path, Path]) -> None:
+    """Direction 2: final squad write fails -> squad restored, decision restored."""
+    _, db_path, squad_path = stabilization_env
+    orig_text = squad_path.read_text(encoding="utf-8")
+
+    # Pre-record a decision for GW2 with player 15 as captain
+    record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=[1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 17],
+        starting_player_ids=[1, 3, 4, 5, 9, 10, 11, 12, 13, 15, 16],
+        bench_player_ids=[2, 6, 7, 17],
+        captain_id=15,
+        vice_captain_id=9,
+        transfers=[],
+        notes="Pre-existing GW2 decision",
+        database_path=db_path,
+        overwrite=True,
+    )
+    pre_dec = get_gameweek_decision(2, database_path=db_path)
+    assert pre_dec is not None
+    assert pre_dec["notes"] == "Pre-existing GW2 decision"
+
+    # Simulate failure on the final squad save after record_gameweek_decision has succeeded
+    orig_save = save_current_squad
+
+    def failing_save(path: Path, state: CurrentSquadState) -> None:
+        if state.gameweek == 2 and 18 in state.player_ids:
+            raise IOError("Simulated disk full during final squad save")
+        return orig_save(path, state)
+
+    with patch("fpl_manager.transfers.save_current_squad", side_effect=failing_save):
+        with pytest.raises(IOError, match="Simulated disk full"):
+            execute_transfers(squad_path, [(15, 18)], database_path=db_path, gameweek=2)
+
+    # 1. Verify squad file was rolled back
+    assert squad_path.read_text(encoding="utf-8") == orig_text
+
+    # 2. Verify pre-existing decision record was restored exactly (compensating rollback in DB)
+    restored_dec = get_gameweek_decision(2, database_path=db_path)
+    assert restored_dec is not None
+    assert restored_dec["notes"] == "Pre-existing GW2 decision"
+    assert restored_dec["transfers"] == []
+    assert restored_dec["captain_id"] == 15
+
+
+def test_execute_transfers_rollback_deletes_new_decision_when_final_squad_write_fails(stabilization_env: tuple[Path, Path, Path]) -> None:
+    """When no prior decision existed, final squad write failure deletes the newly created decision."""
+    _, db_path, squad_path = stabilization_env
+    orig_text = squad_path.read_text(encoding="utf-8")
+
+    # Confirm no decision exists for GW2 initially
+    assert get_gameweek_decision(2, database_path=db_path) is None
+
+    # Simulate failure on final squad save
+    orig_save = save_current_squad
+
+    def failing_save(path: Path, state: CurrentSquadState) -> None:
+        if state.gameweek == 2 and 18 in state.player_ids:
+            raise IOError("Simulated disk full during final squad save")
+        return orig_save(path, state)
+
+    with patch("fpl_manager.transfers.save_current_squad", side_effect=failing_save):
+        with pytest.raises(IOError, match="Simulated disk full"):
+            execute_transfers(squad_path, [(15, 18)], database_path=db_path, gameweek=2)
+
+    # 1. Squad restored
+    assert squad_path.read_text(encoding="utf-8") == orig_text
+
+    # 2. Decision created during execution was rolled back (deleted)
+    assert get_gameweek_decision(2, database_path=db_path) is None
 
 
 # ==============================================================================
