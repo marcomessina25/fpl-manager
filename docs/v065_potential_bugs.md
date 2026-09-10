@@ -360,6 +360,14 @@ execute same logical transfer
 duplicate accounting
 ```
 
+### Resolution & Transfer Policy
+
+Implemented `resolve_chained_transfers()` in `src/fpl_manager/transfers.py` and integrated into `validate_transfers()`, `execute_transfers()`, `parse_and_apply_transfers()`, and `compute_expected_free_transfers()`.
+- **Policy Rule:** When transfers are executed sequentially within the same gameweek (e.g. Player A -> Player B, and subsequently Player B -> Player C), the transaction is logically consolidated into a single net transfer: Player A -> Player C.
+- **Identity Flow Invariant:** Chained logical paths are strictly maintained by player identity flow ($A \to B \to C \implies A \to C$). Distinct transactions (e.g. $D \to E$) are never transformed or cross-paired with other chains.
+- **Reversal & Cancellation:** $A \to B$ followed by $B \to A$ cancels out to 0 net transfers, restoring the free transfer count, pre-transfer purchase prices, and clearing transfer hits.
+- **Tests:** `test_resolve_chained_transfers_single_chain`, `test_chained_logical_transactions_preserve_identities_without_transformation`, `test_resolve_chained_transfers_cancellation_and_splice`, `test_validate_transfers_with_chained_transfers`, `test_execute_transfers_chained_sequential_in_same_gameweek`, `test_execute_transfers_chained_multi_player_preserves_transfer_set`.
+
 ---
 
 ## BUG-TX-003 — Failure during decision persistence must not look like successful execution

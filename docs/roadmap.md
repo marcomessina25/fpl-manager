@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is delivered on the `v065` branch, providing release stabilization, bug fixes, atomic transfer persistence with rollback, formation-legal autosubs, xP calibration, multi-team isolation, and a comprehensive 159-test verification suite. OpenRouter remains safely deferred pending a live provider acceptance test.
+> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is delivered on the `v065` branch, providing release stabilization, bug fixes, atomic transfer persistence with rollback, formation-legal autosubs, xP calibration, multi-team isolation, and a comprehensive 163-test verification suite. OpenRouter has been restored with empirically verified models (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1*); non-working endpoints have been pruned and deferred to V1.1 for deeper provider and model investigation.
 
 See `docs/architecture.md` and `docs/expected_points.md` for the deeper architecture and projection-model design.
 
@@ -74,7 +74,7 @@ v0.65
         ├── state-transition hardening
         ├── integration tests
         ├── xP correctness audit
-        └── optional validated OpenRouter restoration
+        └── validated OpenRouter restoration (Llama 3.3, DeepSeek V3, GPT-4o Mini, DeepSeek R1*)
         │
         ↓
 v0.7
@@ -100,6 +100,11 @@ v0.9
         ↓
 v1.0
         └── stable FPL decision-support platform
+        │
+        ↓
+v1.1
+        ├── multi-provider expansion (Groq, Cerebras, direct APIs)
+        └── extended OpenRouter model validation & routing
 ```
 
 ---
@@ -564,13 +569,15 @@ Create complete end-to-end scenarios:
 - Ensure partial failures do not leave stale UI state.
 - Verify all "Apply" buttons have deterministic success/failure feedback.
 
-### V0.65 optional OpenRouter track
+### V0.65 validated OpenRouter track
 
-OpenRouter may be restored in V0.65 **only if it passes a real provider acceptance test**.
+OpenRouter was restored in V0.65 following live endpoint verification. The active model selector in V0.65 was pruned to expose only verified, working models:
+- **Llama 3.3 70B (`meta-llama/llama-3.3-70b-instruct`)** — default recommended, fully verified;
+- **DeepSeek V3 (`deepseek/deepseek-chat`)** — fully verified;
+- **GPT-4o Mini (`openai/gpt-4o-mini`)** — fully verified;
+- **DeepSeek R1 (`deepseek/deepseek-r1`)** — verified with paid credits (marked with `*`).
 
-If it does not, defer it to V0.7 or later.
-
-Do not allow the provider to block the stabilization release.
+Endpoints that failed with OpenRouter HTTP 404 (`No endpoints found for <model>`), including Claude 3.5 Sonnet, Gemini Flash Free, and Mistral Large, have been removed from the active options in V0.65. Deeper investigation of these endpoints and alternative providers is formally queued for **V1.1**.
 
 ---
 
@@ -1020,6 +1027,37 @@ It should mean:
 
 ---
 
+# V1.1 — Multi-provider expansion & extended LLM model research
+
+**Status: Planned post-V1.0.**
+
+Following the stabilization of the V1.0 decision-support platform, V1.1 focuses on expanding the LLM provider matrix and investigating additional models.
+
+### Motivation
+
+During V0.65 live testing of OpenRouter, several models (e.g. `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-exp:free`, and `mistralai/mistral-large-2411`) failed with OpenRouter HTTP 404: `"No endpoints found for <model>"`. To preserve a clean, zero-error user experience, these were pruned from the V0.65 selector in favor of confirmed working endpoints (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1 with paid credits `*`).
+
+V1.1 will systematically investigate model availability, endpoint routing, and alternative providers.
+
+### V1.1 Scope & Objectives
+
+#### 1. OpenRouter model roster investigation & dynamic discovery
+- Investigate OpenRouter routing configurations and availability prerequisites (account tier requirements, routing flags, slug updates) for Anthropic Claude (3.5 / 3.7 Sonnet), Google Gemini (2.0 Flash / Pro), and Mistral Large endpoints.
+- Address root causes of OpenRouter 404 `"No endpoints found"` errors.
+- Query OpenRouter's `/api/v1/models` endpoint dynamically to discover active, operational endpoints at runtime rather than relying solely on static hardcoded lists.
+- Differentiate clearly in the UI between free-tier, low-cost, and premium-credit models (e.g., DeepSeek R1).
+
+#### 2. Multi-provider expansion
+- Evaluate and integrate additional direct and OpenAI-compatible providers:
+  - **Groq Free Tier:** OpenAI-compatible API with high inference speed and explicit free-tier quotas.
+  - **Cerebras:** Ultra-fast inference for open-weight models.
+  - **DeepSeek Direct API:** Native integration for DeepSeek V3 and R1, bypassing third-party routing hops.
+  - **Mistral AI Direct API:** Native integration for Mistral Large and Codestral models.
+  - **Hugging Face Inference:** Alternative zero-cost / open endpoint candidate.
+- Ensure all new providers adhere strictly to the deterministic validation pipeline, transparent fallback logging, and offline heuristic engine fallback.
+
+---
+
 # Long-term research tracks
 
 These are intentionally not tied to a specific version.
@@ -1341,7 +1379,10 @@ The provider-selection strategy should be:
 
 ### Candidate 1 — OpenRouter free models
 
-Keep as a candidate because OpenRouter currently exposes free models and a free-model router, but availability and rate limits are dynamic.
+Keep as a candidate because OpenRouter exposes open/free models and multi-model routing.
+- **Empirically verified in V0.65:** Llama 3.3 70B (`meta-llama/llama-3.3-70b-instruct`), DeepSeek V3 (`deepseek/deepseek-chat`), and GPT-4o Mini (`openai/gpt-4o-mini`) function reliably. DeepSeek R1 (`deepseek/deepseek-r1`) functions with paid account credits (marked with `*`).
+- **Pruned in V0.65:** Endpoints returning 404 No Endpoints Found (`anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-exp:free`, `mistralai/mistral-large-2411`) were removed from the UI.
+- **V1.1 Investigation:** Deep investigation of routing configurations, API tiers, and dynamic model discovery (`/api/v1/models`) will occur in V1.1.
 
 ### Candidate 2 — Google Gemini free tier
 
@@ -1349,14 +1390,16 @@ Useful as a provider candidate, but it should not be treated as universally free
 
 ### Candidate 3 — Groq free tier
 
-Strong candidate for experimentation because its API is OpenAI-compatible and has explicit free-plan rate limits.
+Strong candidate for experimentation because its API is OpenAI-compatible and has explicit free-plan rate limits. Scheduled for integration in **V1.1**.
 
 ### Candidate 4 — other providers
 
-Periodically investigate:
+Periodically investigate (scheduled for **V1.1**):
 
+- DeepSeek Direct API;
+- Mistral AI Direct API;
+- Cerebras ultra-fast inference;
 - Hugging Face inference;
-- Cerebras;
 - other free/open-model inference APIs.
 
 The acceptance criterion is not "the website says free."

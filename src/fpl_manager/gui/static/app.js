@@ -2195,12 +2195,9 @@ function renderLiveMatchday(data) {
 const PROVIDER_MODELS = {
   openrouter: [
     { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B (Default)" },
-    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning)" },
     { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
-    { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
     { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
-    { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash (Free)" },
-    { id: "mistralai/mistral-large-2411", name: "Mistral Large" },
+    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning) *" },
   ],
   gemini: [
     { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash (Default)" },
@@ -2239,11 +2236,19 @@ function updateProviderKeyPlaceholder() {
       modelSelect.innerHTML = '<option value="">Default Model</option>';
       const models = PROVIDER_MODELS[val] || [];
       const savedModel = localStorage.getItem(`fpl_advisor_model_${val}`) || "";
+      const validModelIds = new Set(models.map(m => m.id));
+      if (savedModel && !validModelIds.has(savedModel)) {
+        localStorage.removeItem(`fpl_advisor_model_${val}`);
+      }
+      const activeSaved = validModelIds.has(savedModel) ? savedModel : "";
       models.forEach(m => {
         const opt = document.createElement("option");
         opt.value = m.id;
         opt.textContent = m.name;
-        if (m.id === savedModel) opt.selected = true;
+        if (m.name.includes("*")) {
+          opt.title = "Requires paid account credits on OpenRouter";
+        }
+        if (m.id === activeSaved) opt.selected = true;
         modelSelect.appendChild(opt);
       });
     }

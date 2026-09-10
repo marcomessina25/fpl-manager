@@ -20,6 +20,7 @@ from .models import Player, Position
 from .rules import validate_squad, validate_starting_lineup
 from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
+from .transfers import resolve_chained_transfers
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = PROJECT_ROOT / "data"
@@ -458,7 +459,7 @@ def parse_and_apply_transfers(
             "incoming_name": p_names.get(in_id, f"ID {in_id}"),
         })
 
-    return squad_ids, transfer_records
+    return squad_ids, resolve_chained_transfers(transfer_records)
 
 
 def log_decision_from_current_squad(
@@ -913,7 +914,7 @@ def compute_expected_free_transfers(
                 if chip_str in ("wildcard", "freehit", "free_hit", "wc", "fh"):
                     ft = 1
                 else:
-                    tx_count = len(tx_list)
+                    tx_count = len(resolve_chained_transfers(tx_list))
                     ft = min(5, max(0, ft - tx_count) + 1)
             else:
                 ft = 1
