@@ -224,16 +224,46 @@ def test_missing_api_key_raises_error_for_gemini_and_openai(advisor_test_env: tu
                 save_reports=False,
             )
 
-    # OpenRouter is removed from v0.6 release candidate
-    with pytest.raises(ValueError, match="Unknown provider 'openrouter'"):
+    # OpenRouter requires API key
+    with pytest.raises(ValueError, match="OpenRouter API key is required"):
         generate_llm_advisory(
             gameweek=1,
             squad_path=squad_path,
             database_path=db_path,
             provider="openrouter",
-            api_key="any-key",
+            api_key=None,
             save_reports=False,
         )
+
+
+def test_provider_openrouter_mocked(advisor_test_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = advisor_test_env
+
+    mock_response = """
+    Tactical breakdown:
+    ```json
+    {
+      "critique_points": ["Rotation risk for mid"],
+      "tactical_notes": ["Direct winger matchups"],
+      "captain": "Player_2",
+      "vice_captain": "Player_1",
+      "transfers": []
+    }
+    ```
+    """
+
+    with patch("fpl_manager.llm_advisor._call_openrouter_api", return_value=mock_response):
+        advisory_or = generate_llm_advisory(
+            gameweek=1,
+            squad_path=squad_path,
+            database_path=db_path,
+            provider="openrouter",
+            api_key="sk-or-v1-fake-key",
+            save_reports=False,
+        )
+        assert advisory_or["provider_used"] == "openrouter"
+        assert advisory_or["proposed_captain"] == "Player_2"
+        assert "Rotation risk for mid" in advisory_or["critique_points"]
 
 
 def test_provider_openai_mocked(advisor_test_env: tuple[Path, Path]) -> None:
@@ -340,7 +370,6 @@ def test_gemini_model_fallback_between_latest_and_001() -> None:
         assert any("gemini-1.5-flash-001" in c for c in calls)
 
 
-@pytest.mark.skip(reason="Deferred to v0.65 stabilization acceptance testing")
 def test_openrouter_auth_error_and_key_sanitization() -> None:
     from fpl_manager.llm_advisor import _call_openrouter_api
     import io

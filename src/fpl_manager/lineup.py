@@ -206,6 +206,9 @@ def _serialize_lineup_player(
     cap_map: dict[int, float],
     actual_scores: dict[int, float] | None = None,
     chip_played: str | None = None,
+    subbed_in: bool = False,
+    subbed_out: bool = False,
+    promoted_from_vice: bool = False,
 ) -> dict[str, Any]:
     """Serialize player projection with tactical, strategic, and matchday scoring attributes."""
     own = ownership_map.get(proj.player_id, 0.0)
@@ -251,6 +254,9 @@ def _serialize_lineup_player(
         "net_exposure_pct": net_exposure,
         "fixtures_summary": _format_fixture_summary(proj),
         "role": role,
+        "subbed_in": subbed_in,
+        "subbed_out": subbed_out,
+        "promoted_from_vice": promoted_from_vice,
     }
 
 
@@ -297,14 +303,58 @@ def build_logged_lineup(
         ownership_map = {}
         cap_map = {}
 
+    # Calculate matchday lineup performance with autosubs and vice-captain swap
+    perf = None
+    try:
+        from .live_matchday import compute_matchday_lineup_performance
+        perf = compute_matchday_lineup_performance(
+            gameweek=gameweek,
+            starting_ids=starting_ids,
+            bench_ids=bench_ids,
+            captain_id=captain_id,
+            vice_captain_id=vice_captain_id,
+            chip_played=chip_played,
+            transfer_hits=transfer_hits,
+            database_path=database_path,
+            custom_scores=actual_scores if actual_scores else None,
+        )
+    except Exception:
+        perf = None
+
+    has_live_data = bool(perf and perf.get("has_match_data"))
+    autosubs = perf.get("autosubs", []) if perf else []
+    subbed_out_ids = set(perf.get("subbed_out_ids", [])) if perf else set()
+    subbed_in_ids = set(perf.get("subbed_in_ids", [])) if perf else set()
+    cap_promoted = bool(perf.get("cap_promoted", False)) if perf else False
+    active_cap_id = perf.get("active_cap_id", captain_id) if perf else captain_id
+
+    if decision.get("actual_points") is not None:
+        total_actual_points = decision["actual_points"]
+    elif has_live_data:
+        total_actual_points = perf["net_points"]
+        try:
+            from .decision_log import record_actual_gameweek_score
+            record_actual_gameweek_score(
+                gameweek=gameweek,
+                actual_points=total_actual_points,
+                season=decision.get("season", "2026/27"),
+                team_id=decision.get("team_id", "default"),
+                database_path=database_path,
+            )
+            decision["actual_points"] = total_actual_points
+        except Exception:
+            pass
+    else:
+        total_actual_points = None
+
     starting_projs = [proj_map[pid] for pid in starting_ids if pid in proj_map]
     defs = sum(1 for p in starting_projs if p.position == Position.DEFENDER)
     mids = sum(1 for p in starting_projs if p.position == Position.MIDFIELDER)
     fwds = sum(1 for p in starting_projs if p.position == Position.FORWARD)
     formation_name = f"{defs}-{mids}-{fwds}"
 
-    cap_proj = proj_map.get(captain_id)
-    vc_proj = proj_map.get(vice_captain_id)
+    cap_proj = proj_map.get(active_cap_id) or proj_map.get(captain_id)
+    vc_proj = proj_map.get(vice_captain_id) if not cap_promoted else proj_map.get(captain_id)
 
     starters_serialized = []
     for pid in starting_ids:
@@ -312,12 +362,23 @@ def build_logged_lineup(
         if not p:
             continue
         role = "STARTER"
-        if pid == captain_id:
+        if pid == active_cap_id:
             role = "CAPTAIN"
-        elif pid == vice_captain_id:
+        elif pid == vice_captain_id and not cap_promoted:
             role = "VICE_CAPTAIN"
+
         starters_serialized.append(
-            _serialize_lineup_player(p, role, ownership_map, cap_map, actual_scores, chip_played)
+            _serialize_lineup_player(
+                p,
+                role,
+                ownership_map,
+                cap_map,
+                actual_scores,
+                chip_played,
+                subbed_in=(pid in subbed_in_ids),
+                subbed_out=(pid in subbed_out_ids),
+                promoted_from_vice=(pid == active_cap_id and cap_promoted),
+            )
         )
 
     bench_serialized = []
@@ -334,7 +395,17 @@ def build_logged_lineup(
             bench_role = f"SUB_{sub_count}"
             sub_count += 1
         bench_serialized.append(
-            _serialize_lineup_player(p, bench_role, ownership_map, cap_map, actual_scores, chip_played)
+            _serialize_lineup_player(
+                p,
+                bench_role,
+                ownership_map,
+                cap_map,
+                actual_scores,
+                chip_played,
+                subbed_in=(pid in subbed_in_ids),
+                subbed_out=(pid in subbed_out_ids),
+                promoted_from_vice=False,
+            )
         )
 
     starters_xp = round(sum(p.expected_points for p in starting_projs), 2)
@@ -343,20 +414,24 @@ def build_logged_lineup(
     total_floor = decision.get("predicted_floor_xp") or round(sum(p.xp_floor for p in starting_projs) + (cap_proj.xp_floor if cap_proj else 0.0), 2)
     total_ceiling = decision.get("predicted_ceiling_xp") or round(sum(p.xp_ceiling for p in starting_projs) + (cap_proj.xp_ceiling if cap_proj else 0.0), 2)
 
-    # Actual total points calculation if not stored
-    if decision.get("actual_points") is not None:
-        total_actual_points = decision["actual_points"]
-    elif actual_scores and any(pid in actual_scores for pid in starting_ids):
-        cap_mult = 2 if chip_played in ("triplecaptain", "triple_captain", "3xc") else 1
-        starters_score = sum(actual_scores.get(pid, 0.0) for pid in starting_ids)
-        cap_bonus_pts = actual_scores.get(captain_id, 0.0) * cap_mult
-        bench_score = sum(actual_scores.get(pid, 0.0) for pid in bench_ids) if chip_played in ("benchboost", "bench_boost", "bboost") else 0.0
-        total_actual_points = round(starters_score + cap_bonus_pts + bench_score - (transfer_hits * 4))
-    else:
-        total_actual_points = None
+    captain_serialized = _serialize_lineup_player(
+        cap_proj,
+        "CAPTAIN",
+        ownership_map,
+        cap_map,
+        actual_scores,
+        chip_played,
+        promoted_from_vice=cap_promoted,
+    ) if cap_proj else None
 
-    captain_serialized = _serialize_lineup_player(cap_proj, "CAPTAIN", ownership_map, cap_map, actual_scores, chip_played) if cap_proj else None
-    vc_serialized = _serialize_lineup_player(vc_proj, "VICE_CAPTAIN", ownership_map, cap_map, actual_scores, chip_played) if vc_proj else None
+    vc_serialized = _serialize_lineup_player(
+        vc_proj,
+        "VICE_CAPTAIN",
+        ownership_map,
+        cap_map,
+        actual_scores,
+        chip_played,
+    ) if vc_proj else None
 
     return {
         "gameweek": gameweek,
@@ -367,6 +442,10 @@ def build_logged_lineup(
         "decision_id": decision.get("decision_id"),
         "formation": formation_name,
         "actual_points": total_actual_points,
+        "gross_points": perf.get("gross_points") if perf else None,
+        "hit_cost": perf.get("hit_cost", transfer_hits * 4) if perf else (transfer_hits * 4),
+        "autosubs": autosubs,
+        "captain_promoted": cap_promoted,
         "chip_played": chip_played,
         "transfers": transfers,
         "transfer_hits": transfer_hits,

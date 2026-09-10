@@ -28,25 +28,41 @@ LIVE_REPORT_PATH = REPORTS_DIRECTORY / "live_matchday.json"
 LIVE_MD_PATH = REPORTS_DIRECTORY / "live_matchday.md"
 
 
-def get_live_gameweek_matchday_summary(
-    gameweek: int | None = None,
-    squad_path: Path = DEFAULT_SQUAD_PATH,
-    team_id: str = "default",
-    season: str = "2026/27",
+def compute_matchday_lineup_performance(
+    gameweek: int,
+    starting_ids: list[int],
+    bench_ids: list[int],
+    captain_id: int,
+    vice_captain_id: int,
+    chip_played: str | None = None,
+    transfer_hits: int = 0,
     database_path: Path = DATABASE_PATH,
     force_fetch: bool = False,
-    save_reports: bool = True,
+    custom_scores: dict[int, float] | None = None,
 ) -> dict[str, Any]:
-    """Calculate real-time matchday performance with autosubs, captain multiplier, and rank simulation."""
+    """Calculate matchday lineup points, automatic substitutions, and captain promotion."""
     store = SnapshotStore(database_path)
     store.initialize()
 
-    state: CurrentSquadState = load_current_squad(squad_path)
-    if gameweek is None:
-        gameweek = state.gameweek or get_current_gameweek(store)
-
     # 1. Fetch detailed player live matchday stats
     live_stats = get_detailed_player_gameweek_stats(gameweek, database_path=database_path, force_fetch=force_fetch)
+    if custom_scores:
+        for pid, pts in custom_scores.items():
+            if pid in live_stats:
+                live_stats[pid]["total_points"] = int(pts)
+                if pts > 0 and live_stats[pid]["minutes"] == 0:
+                    live_stats[pid]["minutes"] = 90
+            else:
+                live_stats[pid] = {
+                    "total_points": int(pts),
+                    "minutes": 90 if pts > 0 else 0,
+                    "goals_scored": 0,
+                    "assists": 0,
+                    "clean_sheets": 0,
+                    "goals_conceded": 0,
+                    "bonus": 0,
+                    "bps": 0,
+                }
 
     # 2. Fetch fixture statuses for this gameweek
     finished_teams = set()
@@ -75,48 +91,50 @@ def get_live_gameweek_matchday_summary(
                 started_teams.add(th)
                 started_teams.add(ta)
 
+    if custom_scores and not finished_teams:
+        finished_teams = set(range(1, 21))
+        started_teams = set(range(1, 21))
+
     # 3. Fetch player metadata (web_name, position_id, team_id)
     player_meta = {}
     with closing(store._connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT p.player_id, p.web_name, p.position_id, t.short_name, p.team_id
-            FROM players p
-            JOIN teams t ON p.snapshot_id = t.snapshot_id AND p.team_id = t.team_id
-            WHERE p.snapshot_id = ?
-            """,
-            (snap_id,),
-        ).fetchall()
-        for pid, name, pos_id, team_code, tid in rows:
-            pos_enum = Position(pos_id)
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        snap_id = snap[0] if snap else 1
+        all_ids = set(starting_ids + bench_ids + [captain_id, vice_captain_id])
+        if all_ids:
+            placeholders = ",".join("?" for _ in all_ids)
+            rows = conn.execute(
+                f"""
+                SELECT p.player_id, p.web_name, p.position_id, COALESCE(t.short_name, ''), p.team_id
+                FROM players p
+                LEFT JOIN teams t ON p.snapshot_id = t.snapshot_id AND p.team_id = t.team_id
+                WHERE p.snapshot_id = ? AND p.player_id IN ({placeholders})
+                """,
+                (snap_id, *all_ids),
+            ).fetchall()
+            for pid, name, pos_id, team_code, tid in rows:
+                pos_enum = Position(pos_id) if pos_id in (1, 2, 3, 4) else Position.MIDFIELDER
+                player_meta[pid] = {
+                    "id": pid,
+                    "name": name,
+                    "position": pos_enum,
+                    "pos_name": pos_enum.name,
+                    "pos_abbr": {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(pos_id, "MID"),
+                    "team": team_code or "PL",
+                    "team_id": tid,
+                }
+
+    for pid in all_ids:
+        if pid not in player_meta:
             player_meta[pid] = {
                 "id": pid,
-                "name": name,
-                "position": pos_enum,
-                "pos_name": pos_enum.name,
-                "pos_abbr": {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(pos_id, "MID"),
-                "team": team_code,
-                "team_id": tid,
+                "name": f"Player {pid}",
+                "position": Position.MIDFIELDER,
+                "pos_name": "MIDFIELDER",
+                "pos_abbr": "MID",
+                "team": "PL",
+                "team_id": 1,
             }
-
-    # 4. Resolve lineup decision
-    decision = get_gameweek_decision(gameweek, season=season, team_id=team_id, database_path=database_path)
-    if decision is not None:
-        starting_ids = list(decision.get("starting_player_ids", []))
-        bench_ids = list(decision.get("bench_player_ids", []))
-        captain_id = decision.get("captain_id")
-        vice_captain_id = decision.get("vice_captain_id")
-        chip_played = decision.get("chip_played")
-        transfer_hits = decision.get("transfer_hits", 0)
-    else:
-        from .lineup import select_starting_lineup
-        lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
-        starting_ids = [p["id"] for p in lineup_sol["starters"]]
-        bench_ids = [p["id"] for p in lineup_sol["bench"]]
-        captain_id = lineup_sol["captain"]["id"]
-        vice_captain_id = lineup_sol["vice_captain"]["id"]
-        chip_played = None
-        transfer_hits = 0
 
     chip_norm = str(chip_played).lower().strip() if chip_played else None
     is_triple_cap = chip_norm in ("triplecaptain", "triple_captain", "tc", "3xc")
@@ -130,8 +148,8 @@ def get_live_gameweek_matchday_summary(
             "total_points": 0, "minutes": 0, "goals_scored": 0, "assists": 0,
             "clean_sheets": 0, "goals_conceded": 0, "bonus": 0, "bps": 0,
         })
-        is_fin = tid in finished_teams if tid else False
-        is_start = is_fin or (tid in started_teams if tid else False)
+        is_fin = (tid in finished_teams) if tid else (bool(finished_teams) or stats["minutes"] > 0)
+        is_start = is_fin or ((tid in started_teams) if tid else False)
         return {
             **meta,
             **stats,
@@ -142,7 +160,7 @@ def get_live_gameweek_matchday_summary(
     starters_info = [_get_player_match_status(pid) for pid in starting_ids]
     bench_info = [_get_player_match_status(pid) for pid in bench_ids]
 
-    # 5. Captaincy Promotion
+    # Captaincy Promotion
     # If captain played 0 mins AND match is finished -> promote vice captain!
     cap_info = next((p for p in starters_info if p["id"] == captain_id), None)
     cap_promoted = False
@@ -153,8 +171,7 @@ def get_live_gameweek_matchday_summary(
 
     cap_multiplier = 3 if is_triple_cap else 2
 
-    # 6. Automatic Substitutions (only relevant if not Bench Boost)
-    # Track starters and autosub swaps
+    # Automatic Substitutions (only relevant if not Bench Boost)
     autosubs = []
     active_starters = list(starters_info)
     available_bench = [dict(b) for b in bench_info]
@@ -165,7 +182,6 @@ def get_live_gameweek_matchday_summary(
         if gk_starter and gk_starter["match_finished"] and gk_starter["minutes"] == 0:
             gk_bench = next((b for b in available_bench if b["position"] == Position.GOALKEEPER), None)
             if gk_bench and (gk_bench["minutes"] > 0 or not gk_bench["match_finished"]):
-                # Swap GK
                 idx = active_starters.index(gk_starter)
                 active_starters[idx] = gk_bench
                 available_bench.remove(gk_bench)
@@ -175,8 +191,6 @@ def get_live_gameweek_matchday_summary(
                     "reason": "Goalkeeper played 0 minutes and match finished",
                 })
 
-        # Check Outfield Starters
-        # Count outfield positions
         def _get_formation(starters_list: list[dict[str, Any]]) -> tuple[int, int, int]:
             d = sum(1 for p in starters_list if p["position"] == Position.DEFENDER)
             m = sum(1 for p in starters_list if p["position"] == Position.MIDFIELDER)
@@ -187,14 +201,12 @@ def get_live_gameweek_matchday_summary(
             if s["position"] == Position.GOALKEEPER:
                 continue
             if s["match_finished"] and s["minutes"] == 0:
-                # Need an outfield sub from available bench in order
                 outfield_bench = [b for b in available_bench if b["position"] != Position.GOALKEEPER]
                 sub_found = None
                 for b in outfield_bench:
                     if b["minutes"] == 0 and b["match_finished"]:
                         continue  # Bench player also didn't play
 
-                    # Test formation legality: minimum 3 DEF, 2 MID, 1 FWD
                     tentative = list(active_starters)
                     idx = tentative.index(s)
                     tentative[idx] = b
@@ -213,7 +225,7 @@ def get_live_gameweek_matchday_summary(
                         "reason": f"{s['pos_abbr']} played 0 minutes and match finished",
                     })
 
-    # 7. Points Calculation
+    # Points Calculation
     gross_points = 0
     starters_serialized = []
     subbed_out_ids = set(sub["out"]["id"] for sub in autosubs)
@@ -250,6 +262,7 @@ def get_live_gameweek_matchday_summary(
             "bps": p["bps"],
             "match_finished": p["match_finished"],
             "subbed_in": pid in subbed_in_ids,
+            "promoted_from_vice": (pid == active_cap_id and cap_promoted),
         })
 
     bench_serialized = []
@@ -278,12 +291,95 @@ def get_live_gameweek_matchday_summary(
             "bps": p["bps"],
             "match_finished": p["match_finished"],
             "subbed_in": is_subbed_in,
+            "subbed_out": pid in subbed_out_ids,
         })
 
     hit_cost = transfer_hits * 4
     net_points = gross_points - hit_cost
 
-    # 8. Effective Ownership & Live Rank Momentum Simulation
+    cap_entry = next((p for p in starters_serialized if p["id"] == active_cap_id), None)
+    cap_points = cap_entry["points"] if cap_entry else (live_stats.get(active_cap_id, {}).get("total_points", 0) * cap_multiplier)
+
+    has_match_data = bool(live_stats and any(s.get("minutes", 0) > 0 or s.get("total_points", 0) > 0 for s in live_stats.values()))
+
+    return {
+        "gameweek": gameweek,
+        "gross_points": gross_points,
+        "hit_cost": hit_cost,
+        "transfer_hits": transfer_hits,
+        "net_points": net_points,
+        "captain": {
+            "id": active_cap_id,
+            "name": player_meta.get(active_cap_id, {}).get("name", f"ID {active_cap_id}"),
+            "multiplier": cap_multiplier,
+            "promoted_from_vice": cap_promoted,
+            "points": cap_points,
+        },
+        "active_cap_id": active_cap_id,
+        "cap_promoted": cap_promoted,
+        "cap_multiplier": cap_multiplier,
+        "autosubs": autosubs,
+        "starters": starters_serialized,
+        "bench": bench_serialized,
+        "subbed_out_ids": subbed_out_ids,
+        "subbed_in_ids": subbed_in_ids,
+        "active_starters": active_starters,
+        "available_bench": available_bench,
+        "chip_played": chip_norm,
+        "has_match_data": has_match_data,
+        "player_meta": player_meta,
+        "live_stats": live_stats,
+    }
+
+
+def get_live_gameweek_matchday_summary(
+    gameweek: int | None = None,
+    squad_path: Path = DEFAULT_SQUAD_PATH,
+    team_id: str = "default",
+    season: str = "2026/27",
+    database_path: Path = DATABASE_PATH,
+    force_fetch: bool = False,
+    save_reports: bool = True,
+) -> dict[str, Any]:
+    """Calculate real-time matchday performance with autosubs, captain multiplier, and rank simulation."""
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    state: CurrentSquadState = load_current_squad(squad_path)
+    if gameweek is None:
+        gameweek = state.gameweek or get_current_gameweek(store)
+
+    decision = get_gameweek_decision(gameweek, season=season, team_id=team_id, database_path=database_path)
+    if decision is not None:
+        starting_ids = list(decision.get("starting_player_ids", []))
+        bench_ids = list(decision.get("bench_player_ids", []))
+        captain_id = decision.get("captain_id")
+        vice_captain_id = decision.get("vice_captain_id")
+        chip_played = decision.get("chip_played")
+        transfer_hits = decision.get("transfer_hits", 0)
+    else:
+        from .lineup import select_starting_lineup
+        lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
+        starting_ids = [p["id"] for p in lineup_sol["starters"]]
+        bench_ids = [p["id"] for p in lineup_sol["bench"]]
+        captain_id = lineup_sol["captain"]["id"]
+        vice_captain_id = lineup_sol["vice_captain"]["id"]
+        chip_played = None
+        transfer_hits = 0
+
+    perf = compute_matchday_lineup_performance(
+        gameweek=gameweek,
+        starting_ids=starting_ids,
+        bench_ids=bench_ids,
+        captain_id=captain_id,
+        vice_captain_id=vice_captain_id,
+        chip_played=chip_played,
+        transfer_hits=transfer_hits,
+        database_path=database_path,
+        force_fetch=force_fetch,
+    )
+
+    # Effective Ownership & Live Rank Momentum Simulation
     ownership_map = get_player_ownership_map(database_path)
     projections = []
     try:
@@ -294,12 +390,11 @@ def get_live_gameweek_matchday_summary(
     captaincy_map = estimate_captaincy_shares(projections, ownership_map)
 
     owned_accelerators = []
-    for p in starters_serialized:
+    for p in perf["starters"]:
         pid = p["id"]
         own_pct = ownership_map.get(pid, 0.0)
         cap_pct = captaincy_map.get(pid, 0.0)
         eo_pct = own_pct + cap_pct
-        # Positive leverage swing: points scored * (1 - EO/100)
         leverage = p["points"] * (1.0 - (eo_pct / 100.0))
         if p["points"] > 0:
             owned_accelerators.append({
@@ -318,19 +413,13 @@ def get_live_gameweek_matchday_summary(
         "season": season,
         "chip_played": chip_played,
         "transfer_hits": transfer_hits,
-        "hit_cost": hit_cost,
-        "gross_points": gross_points,
-        "net_points": net_points,
-        "captain": {
-            "id": active_cap_id,
-            "name": player_meta.get(active_cap_id, {}).get("name", f"ID {active_cap_id}"),
-            "multiplier": cap_multiplier,
-            "promoted_from_vice": cap_promoted,
-            "points": (cap_info["total_points"] if not cap_promoted and cap_info else (live_stats.get(active_cap_id, {}).get("total_points", 0))) * cap_multiplier,
-        },
-        "starters": starters_serialized,
-        "bench": bench_serialized,
-        "autosubs": autosubs,
+        "hit_cost": perf["hit_cost"],
+        "gross_points": perf["gross_points"],
+        "net_points": perf["net_points"],
+        "captain": perf["captain"],
+        "starters": perf["starters"],
+        "bench": perf["bench"],
+        "autosubs": perf["autosubs"],
         "rank_accelerators": owned_accelerators[:5],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

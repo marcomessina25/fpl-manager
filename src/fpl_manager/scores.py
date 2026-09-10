@@ -134,9 +134,130 @@ def update_gameweek_scores(
     live_payload = fetch_gameweek_live_data(gameweek)
     write_raw_snapshot(RAW_DIRECTORY, f"event-{gameweek}-live", live_payload, fetched_at)
     saved_count = store.save_gameweek_scores(gameweek, live_payload, fetched_at)
+    finalized_count = finalize_completed_gameweek_scores(gameweek, database_path=database_path)
 
     return {
         "gameweek": gameweek,
         "players_updated": saved_count,
+        "finalized_decisions": finalized_count,
         "fetched_at": fetched_at,
     }
+
+
+def is_gameweek_completed(
+    gameweek: int,
+    database_path: Path = DATABASE_PATH,
+) -> bool:
+    """Check if all scheduled fixtures for a gameweek are completed.
+
+    A gameweek is only considered completed when:
+    1. At least one fixture is scheduled for this gameweek (COUNT(*) > 0).
+    2. Every scheduled fixture has finished == 1.
+    If any fixture is pending (finished == 0), ongoing, postponed without being played,
+    or if the gameweek has no fixtures, the gameweek is NOT completed.
+    In double gameweeks, all fixtures assigned to that gameweek must be finished.
+    """
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    with closing(store._connect()) as conn:
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        if not snap:
+            return False
+        snap_id = snap[0]
+
+        row = conn.execute(
+            """
+            SELECT COUNT(*), SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END)
+            FROM fixtures
+            WHERE snapshot_id = ? AND event = ?
+            """,
+            (snap_id, gameweek),
+        ).fetchone()
+
+        if not row or row[0] == 0:
+            return False
+        total_fixtures, finished_fixtures = row[0], row[1] or 0
+        return total_fixtures == finished_fixtures
+
+
+def finalize_completed_gameweek_scores(
+    gameweek: int | None = None,
+    database_path: Path = DATABASE_PATH,
+) -> int:
+    """Auto-finalize actual scores for completed gameweeks across all decisions in SQLite."""
+    import json
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    with closing(store._connect()) as conn:
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        snap_id = snap[0] if snap else 1
+
+        if gameweek is not None:
+            completed_gws = [gameweek] if is_gameweek_completed(gameweek, database_path=database_path) else []
+        else:
+            rows = conn.execute(
+                """
+                SELECT event, COUNT(*), SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END)
+                FROM fixtures
+                WHERE snapshot_id = ? AND event IS NOT NULL
+                GROUP BY event
+                HAVING COUNT(*) = SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END) AND COUNT(*) > 0
+                ORDER BY event
+                """,
+                (snap_id,),
+            ).fetchall()
+            completed_gws = [r[0] for r in rows]
+
+        if not completed_gws:
+            return 0
+
+        placeholders = ",".join("?" for _ in completed_gws)
+        dec_rows = conn.execute(
+            f"""
+            SELECT id, team_id, season, gameweek, actual_points, starting_ids_json, bench_ids_json,
+                   captain_id, vice_captain_id, chip_played, transfer_hits
+            FROM decisions
+            WHERE gameweek IN ({placeholders})
+            """,
+            (*completed_gws,),
+        ).fetchall()
+
+    if not dec_rows:
+        return 0
+
+    from .live_matchday import compute_matchday_lineup_performance
+    from .decision_log import record_actual_gameweek_score
+
+    updated_count = 0
+    for row in dec_rows:
+        dec_id, tid, season, gw, act_pts, start_json, bench_json, cap_id, vc_id, chip, hits = row
+        starters = json.loads(start_json) if start_json else []
+        bench = json.loads(bench_json) if bench_json else []
+        try:
+            perf = compute_matchday_lineup_performance(
+                gameweek=gw,
+                starting_ids=starters,
+                bench_ids=bench,
+                captain_id=cap_id,
+                vice_captain_id=vc_id,
+                chip_played=chip,
+                transfer_hits=hits or 0,
+                database_path=database_path,
+            )
+            if perf.get("has_match_data"):
+                correct_pts = perf["net_points"]
+                if act_pts != correct_pts:
+                    record_actual_gameweek_score(
+                        gameweek=gw,
+                        actual_points=correct_pts,
+                        team_id=tid,
+                        season=season,
+                        database_path=database_path,
+                    )
+                    updated_count += 1
+        except Exception:
+            continue
+
+    return updated_count

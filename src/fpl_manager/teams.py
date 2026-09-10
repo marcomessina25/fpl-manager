@@ -123,14 +123,13 @@ def get_team_id_from_squad_path(squad_path: Path, config_dir: Path = CONFIG_DIR)
     resolved = squad_path.resolve()
     teams_dir = (config_dir / "teams").resolve()
 
-    if str(resolved).startswith(str(teams_dir)):
-        try:
-            rel = resolved.relative_to(teams_dir)
-            parts = rel.parts
-            if parts:
-                return parts[0]
-        except Exception:
-            pass
+    try:
+        rel = resolved.relative_to(teams_dir)
+        parts = rel.parts
+        if parts:
+            return parts[0]
+    except ValueError:
+        pass
 
     if resolved == (config_dir / "current_squad.json").resolve():
         return "default"
@@ -154,13 +153,21 @@ def create_team(
 
     ensure_teams_initialized(config_dir)
     clean_name = name.strip()
-    tid = slugify_team_id(team_id) if team_id else slugify_team_id(clean_name)
-
     teams_dir = config_dir / "teams"
-    team_dir = teams_dir / tid
-    if team_dir.exists():
-        raise ValueError(f"Team '{tid}' already exists.")
 
+    if team_id:
+        tid = slugify_team_id(team_id)
+        if (teams_dir / tid).exists():
+            raise ValueError(f"Team '{tid}' already exists.")
+    else:
+        base_tid = slugify_team_id(clean_name)
+        tid = base_tid
+        counter = 2
+        while (teams_dir / tid).exists():
+            tid = f"{base_tid}-{counter}"
+            counter += 1
+
+    team_dir = teams_dir / tid
     team_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine initial squad state
@@ -205,7 +212,41 @@ def create_team(
     return result
 
 
-def list_teams(config_dir: Path = CONFIG_DIR) -> list[dict[str, Any]]:
+def sync_squad_with_current_gameweek(
+    squad_file: Path,
+    team_id: str = "default",
+    config_dir: Path = CONFIG_DIR,
+    database_path: Path | None = None,
+) -> CurrentSquadState:
+    """Check and synchronize squad state gameweek and free transfers with the database."""
+    state = load_current_squad(squad_file)
+    db_path = database_path or (config_dir.parent / "data" / "fpl.sqlite3")
+    if db_path.exists():
+        try:
+            from .storage import SnapshotStore
+            from .fixtures import get_current_gameweek
+            from .decision_log import compute_expected_free_transfers
+            store = SnapshotStore(db_path)
+            curr_gw = get_current_gameweek(store)
+            if state.gameweek is None or state.gameweek < curr_gw:
+                new_ft = compute_expected_free_transfers(curr_gw, team_id=team_id, season=state.season, database_path=db_path)
+                updated_state = CurrentSquadState(
+                    player_ids=state.player_ids,
+                    purchase_prices_tenths=state.purchase_prices_tenths,
+                    bank_tenths=state.bank_tenths,
+                    free_transfers=new_ft,
+                    chips_remaining=state.chips_remaining,
+                    season=state.season,
+                    gameweek=curr_gw,
+                )
+                save_current_squad(squad_file, updated_state)
+                return updated_state
+        except Exception:
+            pass
+    return state
+
+
+def list_teams(config_dir: Path = CONFIG_DIR, database_path: Path | None = None) -> list[dict[str, Any]]:
     """List all configured teams, their metadata, squad summaries, and active status."""
     ensure_teams_initialized(config_dir)
     teams_dir = config_dir / "teams"
@@ -229,7 +270,12 @@ def list_teams(config_dir: Path = CONFIG_DIR) -> list[dict[str, Any]]:
                     meta = {"team_id": tid, "name": tid.replace("-", " ").title()}
 
                 try:
-                    state = load_current_squad(item / "squad.json")
+                    state = sync_squad_with_current_gameweek(
+                        item / "squad.json",
+                        team_id=tid,
+                        config_dir=config_dir,
+                        database_path=database_path,
+                    )
                     bank = state.bank_tenths / 10.0
                     total_spent = sum(state.purchase_prices_tenths.values()) / 10.0
                     gw = state.gameweek
@@ -262,7 +308,12 @@ def list_teams(config_dir: Path = CONFIG_DIR) -> list[dict[str, Any]]:
     legacy_squad = config_dir / "current_squad.json"
     if "default" not in seen_ids and legacy_squad.exists():
         try:
-            state = load_current_squad(legacy_squad)
+            state = sync_squad_with_current_gameweek(
+                legacy_squad,
+                team_id="default",
+                config_dir=config_dir,
+                database_path=database_path,
+            )
             bank = state.bank_tenths / 10.0
             total_spent = sum(state.purchase_prices_tenths.values()) / 10.0
             results.insert(0, {
@@ -285,19 +336,28 @@ def list_teams(config_dir: Path = CONFIG_DIR) -> list[dict[str, Any]]:
     return results
 
 
-def get_team(team_id: str | None = None, config_dir: Path = CONFIG_DIR) -> dict[str, Any]:
+def get_team(
+    team_id: str | None = None,
+    config_dir: Path = CONFIG_DIR,
+    database_path: Path | None = None,
+) -> dict[str, Any]:
     """Retrieve full team metadata and squad state for a given team ID or active team."""
     ensure_teams_initialized(config_dir)
     target_id = team_id or get_active_team_id(config_dir)
 
-    teams = list_teams(config_dir)
+    teams = list_teams(config_dir, database_path=database_path)
     matching = [t for t in teams if t["team_id"] == target_id]
     if not matching:
         raise ValueError(f"Team '{target_id}' not found.")
 
     team_data = matching[0]
     squad_path = Path(team_data["squad_path"])
-    squad_state = load_current_squad(squad_path)
+    squad_state = sync_squad_with_current_gameweek(
+        squad_path,
+        team_id=target_id,
+        config_dir=config_dir,
+        database_path=database_path,
+    )
 
     return {
         "metadata": team_data,

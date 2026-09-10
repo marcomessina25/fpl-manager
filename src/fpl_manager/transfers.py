@@ -1,5 +1,6 @@
 """Deterministic transfer validation using current prices and saved squad state."""
 
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -29,6 +30,104 @@ def selling_price(purchase_price_tenths: int, current_price_tenths: int) -> int:
     return purchase_price_tenths + ((current_price_tenths - purchase_price_tenths) // 2)
 
 
+def resolve_chained_transfers(
+    transfers: Iterable[Transfer | dict[str, Any] | tuple[int, int]],
+) -> list[Any]:
+    """Resolve and logically consolidate chained transfers within a gameweek.
+
+    If Player A is transferred for Player B, and subsequently Player B is
+    transferred for Player C, the net result is a single transfer Player A -> Player C.
+    Self-loops (e.g. A -> B followed by B -> A) cancel out completely.
+    Distinct logical chains are strictly preserved by player identity so they
+    cannot accidentally swap or transform into an incorrect transfer set.
+    """
+    tx_list = list(transfers)
+    if not tx_list:
+        return []
+
+    def _extract_ids(tx: Any) -> tuple[int, int]:
+        if isinstance(tx, Transfer):
+            return tx.outgoing_id, tx.incoming_id
+        if isinstance(tx, dict):
+            out_val = tx.get("outgoing_id", tx.get("outgoing", 0))
+            in_val = tx.get("incoming_id", tx.get("incoming", 0))
+            return int(out_val), int(in_val)
+        if isinstance(tx, (tuple, list)):
+            return int(tx[0]), int(tx[1])
+        raise TypeError(f"Unsupported transfer item type: {type(tx)}")
+
+    # active_chains: list of [initial_out_id, current_in_id, first_raw_item, last_raw_item]
+    active_chains: list[list[Any]] = []
+
+    for item in tx_list:
+        out_id, in_id = _extract_ids(item)
+        if out_id == in_id:
+            continue
+
+        # Find existing chain where current_incoming_id == out_id (predecessor)
+        pred_chain = next(
+            (c for c in active_chains if c[1] == out_id),
+            None,
+        )
+        # Find existing chain where initial_outgoing_id == in_id (successor)
+        succ_chain = next(
+            (c for c in active_chains if c[0] == in_id),
+            None,
+        )
+
+        if pred_chain is not None and succ_chain is not None:
+            if pred_chain is succ_chain:
+                active_chains.remove(pred_chain)
+            else:
+                new_out = pred_chain[0]
+                new_in = succ_chain[1]
+                last_raw = succ_chain[3]
+                if new_out == new_in:
+                    active_chains.remove(pred_chain)
+                    active_chains.remove(succ_chain)
+                else:
+                    pred_chain[1] = new_in
+                    pred_chain[3] = last_raw
+                    active_chains.remove(succ_chain)
+        elif pred_chain is not None:
+            if pred_chain[0] == in_id:
+                active_chains.remove(pred_chain)
+            else:
+                pred_chain[1] = in_id
+                pred_chain[3] = item
+        elif succ_chain is not None:
+            if succ_chain[1] == out_id:
+                active_chains.remove(succ_chain)
+            else:
+                succ_chain[0] = out_id
+                succ_chain[2] = item
+        else:
+            active_chains.append([out_id, in_id, item, item])
+
+    results: list[Any] = []
+    for init_out, cur_in, first_raw, last_raw in active_chains:
+        if isinstance(first_raw, dict):
+            merged_dict = dict(first_raw)
+            merged_dict["outgoing_id"] = init_out
+            merged_dict["incoming_id"] = cur_in
+            if isinstance(last_raw, dict):
+                if "incoming_name" in last_raw:
+                    merged_dict["incoming_name"] = last_raw["incoming_name"]
+                if "incoming_team" in last_raw:
+                    merged_dict["incoming_team"] = last_raw["incoming_team"]
+                if "purchase_price_tenths" in last_raw:
+                    merged_dict["purchase_price_tenths"] = last_raw["purchase_price_tenths"]
+            results.append(merged_dict)
+        elif isinstance(first_raw, Transfer):
+            results.append(Transfer(outgoing_id=init_out, incoming_id=cur_in))
+        elif isinstance(first_raw, tuple):
+            results.append((init_out, cur_in))
+        else:
+            results.append(Transfer(outgoing_id=init_out, incoming_id=cur_in))
+
+    return results
+
+
 def validate_transfers(
     state: CurrentSquadState,
     players: Iterable[Player],
@@ -36,7 +135,7 @@ def validate_transfers(
 ) -> TransferValidationResult:
     """Validate a position-preserving transfer set against state, bank, and squad rules."""
     player_by_id = {player.id: player for player in players}
-    proposed = tuple(transfers)
+    proposed = tuple(resolve_chained_transfers(transfers))
     errors: list[str] = []
     outgoing_ids = [transfer.outgoing_id for transfer in proposed]
     incoming_ids = [transfer.incoming_id for transfer in proposed]
@@ -120,6 +219,7 @@ def execute_transfers(
     gameweek: int | None = None,
 ) -> dict[str, Any]:
     """Execute and persist proposed transfers directly to the squad state file and decision records."""
+    orig_state_text = squad_path.read_text(encoding="utf-8") if squad_path.exists() else None
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     store.initialize()
@@ -134,6 +234,10 @@ def execute_transfers(
             out_id = int(t.get("outgoing_id", t.get("outgoing", 0)))
             in_id = int(t.get("incoming_id", t.get("incoming", 0)))
             tx_objs.append(Transfer(outgoing_id=out_id, incoming_id=in_id))
+
+    tx_objs = resolve_chained_transfers(tx_objs)
+    if not tx_objs:
+        raise ValueError("No net transfers to execute.")
 
     all_players = store.latest_players()
     all_player_map = {p.id: p for p in all_players}
@@ -163,6 +267,25 @@ def execute_transfers(
     if not val_res.is_valid:
         raise ValueError(f"Transfer validation failed: {'; '.join(val_res.errors)}")
 
+    team_id = "default"
+    try:
+        from .teams import get_team_id_from_squad_path
+        team_id = get_team_id_from_squad_path(squad_path)
+    except Exception:
+        pass
+
+    target_gw = gameweek or state.gameweek
+    existing_dec = None
+    existing_tx: list[dict[str, Any]] = []
+    if target_gw is not None:
+        try:
+            from .decision_log import get_gameweek_decision
+            existing_dec = get_gameweek_decision(target_gw, season=state.season, team_id=team_id, database_path=database_path)
+            if existing_dec is not None:
+                existing_tx = existing_dec.get("transfers", [])
+        except Exception:
+            pass
+
     player_map = {p.id: p for p in all_players}
     new_ids = list(state.player_ids)
     new_prices = dict(state.purchase_prices_tenths)
@@ -179,7 +302,13 @@ def execute_transfers(
         new_ids.append(tx.incoming_id)
 
         new_prices.pop(tx.outgoing_id, None)
-        new_prices[tx.incoming_id] = in_p.price_tenths
+        # Restore pre-transfer purchase price if player is being re-acquired within the same gameweek
+        orig_p_purchase = None
+        for ptx in existing_tx:
+            if ptx.get("outgoing_id") == tx.incoming_id:
+                orig_p_purchase = ptx.get("outgoing_purchase_price_tenths")
+                break
+        new_prices[tx.incoming_id] = orig_p_purchase if orig_p_purchase is not None else in_p.price_tenths
 
         records.append({
             "outgoing_id": tx.outgoing_id,
@@ -196,23 +325,41 @@ def execute_transfers(
     num_tx = len(tx_objs)
     new_bank = val_res.bank_after_tenths if val_res.bank_after_tenths is not None else state.bank_tenths
 
-    team_id = "default"
-    try:
-        from .teams import get_team_id_from_squad_path
-        team_id = get_team_id_from_squad_path(squad_path)
-    except Exception:
-        pass
-
-    target_gw = gameweek or state.gameweek
-    merged_tx = list(records)
+    merged_tx = resolve_chained_transfers(list(existing_tx) + list(records)) if existing_tx else resolve_chained_transfers(records)
     tx_hits = val_res.transfer_hits
     starting_ft = max(1, state.free_transfers)
 
+    orig_decision_row = None
+    orig_recommendation_row = None
     if target_gw is not None:
         try:
+            with closing(store._connect()) as conn:
+                orig_decision_row = conn.execute(
+                    """
+                    SELECT id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                           transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                           predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                    FROM decisions
+                    WHERE team_id = ? AND season = ? AND gameweek = ?
+                    """,
+                    (team_id, state.season, target_gw),
+                ).fetchone()
+                if orig_decision_row:
+                    orig_recommendation_row = conn.execute(
+                        """
+                        SELECT recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                        FROM decision_recommendations
+                        WHERE decision_id = ?
+                        """,
+                        (orig_decision_row[0],),
+                    ).fetchone()
+        except Exception:
+            pass
+
+    try:
+        if target_gw is not None:
             from .decision_log import (
                 compute_expected_free_transfers,
-                get_gameweek_decision,
                 record_gameweek_decision,
             )
 
@@ -226,11 +373,7 @@ def execute_transfers(
             except Exception:
                 starting_ft = max(1, state.free_transfers)
 
-            existing_dec = get_gameweek_decision(target_gw, season=state.season, team_id=team_id, database_path=database_path)
             if existing_dec is not None:
-                existing_tx = existing_dec.get("transfers", [])
-                merged_tx = list(existing_tx) + list(records)
-
                 cur_starters = list(existing_dec.get("starting_player_ids", []))
                 cur_bench = list(existing_dec.get("bench_player_ids", []))
                 cur_cap = existing_dec.get("captain_id")
@@ -238,7 +381,7 @@ def execute_transfers(
                 chip_played = existing_dec.get("chip_played")
                 notes = existing_dec.get("notes", "")
             else:
-                merged_tx = list(records)
+                from .decision_log import get_gameweek_decision
                 prev_dec = None
                 if target_gw > 1:
                     prev_dec = get_gameweek_decision(target_gw - 1, season=state.season, team_id=team_id, database_path=database_path)
@@ -314,21 +457,75 @@ def execute_transfers(
                 database_path=database_path,
                 overwrite=True,
             )
-        except Exception as ex:
-            import logging
-            logging.getLogger(__name__).warning("Failed to record decision in execute_transfers: %s", ex)
 
-    new_ft = max(0, starting_ft - len(merged_tx))
-    updated_state = CurrentSquadState(
-        player_ids=tuple(new_ids),
-        purchase_prices_tenths=new_prices,
-        bank_tenths=new_bank,
-        free_transfers=new_ft,
-        chips_remaining=state.chips_remaining,
-        season=state.season,
-        gameweek=max(state.gameweek or 1, target_gw or 1),
-    )
-    save_current_squad(squad_path, updated_state)
+        new_ft = max(0, starting_ft - len(merged_tx))
+        updated_state = CurrentSquadState(
+            player_ids=tuple(new_ids),
+            purchase_prices_tenths=new_prices,
+            bank_tenths=new_bank,
+            free_transfers=new_ft,
+            chips_remaining=state.chips_remaining,
+            season=state.season,
+            gameweek=max(state.gameweek or 1, target_gw or 1),
+        )
+        save_current_squad(squad_path, updated_state)
+    except Exception:
+        # Explicit compensating rollback across both persistence systems
+        # 1. Restore squad state file
+        try:
+            if orig_state_text is not None:
+                squad_path.write_text(orig_state_text, encoding="utf-8")
+            elif squad_path.exists():
+                squad_path.unlink()
+        except Exception:
+            pass
+
+        # 2. Restore decision record in database
+        try:
+            with closing(store._connect()) as conn, conn:
+                if orig_decision_row is not None:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO decisions (
+                            id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                            transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                            predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        orig_decision_row,
+                    )
+                    if orig_recommendation_row is not None:
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO decision_recommendations (
+                                decision_id, recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                            ) VALUES (?, ?, ?, ?)
+                            """,
+                            (orig_decision_row[0], *orig_recommendation_row),
+                        )
+                    else:
+                        conn.execute(
+                            "DELETE FROM decision_recommendations WHERE decision_id = ?",
+                            (orig_decision_row[0],),
+                        )
+                elif target_gw is not None:
+                    conn.execute(
+                        """
+                        DELETE FROM decision_recommendations
+                        WHERE decision_id IN (
+                            SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?
+                        )
+                        """,
+                        (team_id, state.season, target_gw),
+                    )
+                    conn.execute(
+                        "DELETE FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+                        (team_id, state.season, target_gw),
+                    )
+        except Exception:
+            pass
+
+        raise
 
     return {
         "success": True,

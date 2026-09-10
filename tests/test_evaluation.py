@@ -2,10 +2,15 @@
 
 import json
 from pathlib import Path
+from typing import Any
 import pytest
 
 from fpl_manager.cli import _parse_scores_argument, format_evaluation_concise
-from fpl_manager.decision_log import record_actual_gameweek_score, record_gameweek_decision
+from fpl_manager.decision_log import (
+    get_gameweek_decision,
+    record_actual_gameweek_score,
+    record_gameweek_decision,
+)
 from fpl_manager.evaluation import (
     compare_human_vs_model,
     evaluate_bench_decision,
@@ -234,3 +239,66 @@ def test_scores_parser_and_formatters(tmp_path: Path) -> None:
     assert "Gameweek 2" in concise
     assert "MAE: 1.45 pts" in concise
     assert "Regret: 0.0 pts" in concise
+
+
+def test_evaluate_gameweek_decision_authoritative_and_fallback_semantics(
+    eval_test_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Evaluation surfaces authoritative vs fallback status and prevents fallback from contaminating DB."""
+    db_path = eval_test_env
+    squad_ids = list(range(1, 16))
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 15]
+
+    record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        database_path=db_path,
+        overwrite=True,
+    )
+
+    actual_scores = {pid: 4.0 for pid in squad_ids}
+    actual_scores[13] = 10.0
+
+    # 1. Normal evaluation returns authoritative status and no warning
+    res_auth = evaluate_gameweek_decision(2, actual_scores=actual_scores, database_path=db_path)
+    assert res_auth["evaluation_status"] == "authoritative"
+    assert res_auth["evaluation_warning"] is None
+
+    # 2. When matchday computation fails and strict_matchday=True, error is raised
+    def mock_failure(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Synthetic matchday computation engine failure")
+
+    monkeypatch.setattr(
+        "fpl_manager.live_matchday.compute_matchday_lineup_performance",
+        mock_failure,
+    )
+
+    with pytest.raises(RuntimeError, match="Synthetic matchday computation engine failure"):
+        evaluate_gameweek_decision(
+            2,
+            actual_scores=actual_scores,
+            database_path=db_path,
+            strict_matchday=True,
+        )
+
+    # 3. When strict_matchday=False, fallback is explicitly marked with warning
+    # and MUST NOT auto-record actual_points to SQLite decision record
+    res_fallback = evaluate_gameweek_decision(
+        2,
+        actual_scores=actual_scores,
+        database_path=db_path,
+        strict_matchday=False,
+    )
+    assert res_fallback["evaluation_status"] == "fallback"
+    assert "Synthetic matchday computation engine failure" in res_fallback["evaluation_warning"]
+
+    # Verify SQLite decision record actual_points remains None (not contaminated by fallback)
+    dec = get_gameweek_decision(2, database_path=db_path)
+    assert dec is not None
+    assert dec["actual_points"] is None
+

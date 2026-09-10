@@ -141,8 +141,13 @@ async function loadTeams() {
     });
 
     const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
+    if (data.current_gameweek) {
+      state.currentGameweek = data.current_gameweek;
+    }
     if (activeObj && activeObj.gameweek) {
       state.activeGameweek = activeObj.gameweek;
+    } else if (data.current_gameweek) {
+      state.activeGameweek = data.current_gameweek;
     }
 
     await refreshActiveTeamData();
@@ -200,7 +205,7 @@ async function loadSquadHUD() {
     const data = await api(`/api/squad?team=${state.activeTeamId}`);
     state.currentSquad = data;
     const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
-    state.activeGameweek = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || 3;
+    state.activeGameweek = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || state.currentGameweek || 4;
 
     const fin = data.financials || {};
     const st = data.state || {};
@@ -275,12 +280,16 @@ async function renderLineupGWPills(currentGw) {
       const dec = decMap[g];
 
       let badge = "";
-      if (dec) {
-        if (dec.actual_points !== null && dec.actual_points !== undefined) {
-          badge = `<span class="gw-pill-score">${dec.actual_points} pts</span>`;
-        } else {
-          badge = `<span class="gw-pill-tag">Logged</span>`;
-        }
+      const pts = (dec && dec.actual_points !== null && dec.actual_points !== undefined)
+        ? dec.actual_points
+        : (state.currentLineup && state.currentLineup.gameweek === g && state.currentLineup.actual_points !== null && state.currentLineup.actual_points !== undefined
+            ? state.currentLineup.actual_points
+            : null);
+
+      if (pts !== null) {
+        badge = `<span class="gw-pill-score">${pts} pts</span>`;
+      } else if (dec) {
+        badge = `<span class="gw-pill-tag">Logged</span>`;
       } else if (g === state.activeGameweek) {
         badge = `<span class="gw-pill-tag">Active</span>`;
       }
@@ -331,7 +340,8 @@ function renderPitch(lineup) {
       const capPtsStr = (lineup.captain && lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined)
         ? ` · ${lineup.captain.actual_points} pts`
         : "";
-      const capStr = lineup.captain ? `${lineup.captain.name} (C)${capPtsStr}` : "-";
+      const capNote = lineup.captain_promoted ? ` <span class="badge-promoted-vc">(VC Promoted)</span>` : "";
+      const capStr = lineup.captain ? `${lineup.captain.name} (C)${capPtsStr}${capNote}` : "-";
       const movesStr = (lineup.transfers && lineup.transfers.length)
         ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")
         : "No transfers";
@@ -340,7 +350,13 @@ function renderPitch(lineup) {
         : "";
       const chipStr = lineup.chip_played ? ` · Chip: ${lineup.chip_played.toUpperCase()}` : "";
 
-      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${hitsStr}${chipStr}`;
+      let autosubStr = "";
+      if (lineup.autosubs && lineup.autosubs.length > 0) {
+        const subDetails = lineup.autosubs.map(s => `${s.out.name} OUT ➔ ${s.in.name} IN (+${s.in.points} pts)`).join(", ");
+        autosubStr = ` | <span class="banner-autosub-badge">🔄 Auto-Subs: ${escapeHtml(subDetails)}</span>`;
+      }
+
+      document.getElementById("banner-subtitle").innerHTML = `Matchday Result: ${ptsStr} | Captain: <strong>${capStr}</strong> | Moves: ${movesStr}${hitsStr}${chipStr}${autosubStr}`;
       if (toggleBtn) {
         toggleBtn.classList.remove("hidden");
         toggleBtn.textContent = "🔮 Show Model Recommended XI";
@@ -384,9 +400,9 @@ function renderPitch(lineup) {
     }
   }
 
-  // Update Captain and VC sidebar
   if (lineup.captain) {
-    document.getElementById("cap-name").textContent = lineup.captain.name;
+    const capTitle = lineup.captain.name + (lineup.captain_promoted ? " (VC Promoted)" : "");
+    document.getElementById("cap-name").textContent = capTitle;
     document.getElementById("cap-sub").textContent = `${lineup.captain.team} (${lineup.captain.fixtures_summary})`;
     if (lineup.captain.actual_points !== null && lineup.captain.actual_points !== undefined) {
       document.getElementById("cap-xp").innerHTML = `<span class="score-highlight">${lineup.captain.actual_points} pts</span> <small>(${(lineup.captain.expected_points * 2).toFixed(1)} xP)</small>`;
@@ -670,8 +686,22 @@ function createPlayerCard(p, isBench = false, benchIdx = 0) {
 
   // Role Badge (Captain / Vice)
   let badgeHtml = "";
-  if (p.role === "CAPTAIN") badgeHtml = '<div class="player-badge-role badge-cap">C</div>';
-  if (p.role === "VICE_CAPTAIN") badgeHtml = '<div class="player-badge-role badge-vc">V</div>';
+  if (p.role === "CAPTAIN") {
+    const title = p.promoted_from_vice ? "Captain (Promoted from Vice-Captain)" : "Captain";
+    const label = p.promoted_from_vice ? "C*" : "C";
+    badgeHtml = `<div class="player-badge-role badge-cap" title="${title}">${label}</div>`;
+  } else if (p.role === "VICE_CAPTAIN") {
+    badgeHtml = '<div class="player-badge-role badge-vc" title="Vice-Captain">V</div>';
+  }
+
+  // Auto-Sub Badges
+  if (p.subbed_out) {
+    badgeHtml += '<div class="player-badge-sub subbed-out" title="Auto-subbed out (0 mins played)">OUT</div>';
+    card.classList.add("player-subbed-out");
+  } else if (p.subbed_in) {
+    badgeHtml += '<div class="player-badge-sub subbed-in" title="Auto-subbed in from bench">IN</div>';
+    card.classList.add("player-subbed-in");
+  }
 
   // FDR Badge
   const fdrVal = p.next_fixture_fdr || 3;
@@ -1932,7 +1962,21 @@ function initEventListeners() {
       try {
         if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", val);
         else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", val);
+        else if (provider === "openrouter" || val.startsWith("sk-or-")) localStorage.setItem("fpl_advisor_api_key_openrouter", val);
       } catch (_) {}
+    });
+  }
+
+  const advModel = document.getElementById("adv-model");
+  if (advModel) {
+    advModel.addEventListener("change", () => {
+      const provSelect = document.getElementById("adv-provider");
+      const provider = provSelect ? provSelect.value : "";
+      if (provider && advModel.value) {
+        try {
+          localStorage.setItem(`fpl_advisor_model_${provider}`, advModel.value);
+        } catch (_) {}
+      }
     });
   }
 }
@@ -2148,25 +2192,78 @@ function renderLiveMatchday(data) {
 // TAB 8: AI ADVISOR & ANALYTICAL DOSSIER
 // ==========================================
 
+const PROVIDER_MODELS = {
+  openrouter: [
+    { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B (Default)" },
+    { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
+    { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning) *" },
+  ],
+  gemini: [
+    { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash (Default)" },
+    { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro" },
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+  ],
+  openai: [
+    { id: "gpt-4o-mini", name: "GPT-4o Mini (Default)" },
+    { id: "gpt-4o", name: "GPT-4o" },
+    { id: "o3-mini", name: "o3-mini" },
+  ],
+};
+
 function updateProviderKeyPlaceholder() {
   const provSelect = document.getElementById("adv-provider");
   const keyInput = document.getElementById("adv-api-key");
+  const modelSelect = document.getElementById("adv-model");
+  const modelGroup = document.getElementById("adv-model-group");
   if (!provSelect || !keyInput) return;
   const val = provSelect.value;
 
-  // Clean up legacy URL strings from older versions and remove openrouter key if present
+  // Clean up legacy URL strings if any
   try {
-    localStorage.removeItem("fpl_advisor_api_key_openrouter");
     const legacyKey = localStorage.getItem("fpl_advisor_api_key") || "";
     if (legacyKey.startsWith("http")) {
       localStorage.removeItem("fpl_advisor_api_key");
     }
   } catch (_) {}
 
+  // Populate model selector
+  if (modelSelect && modelGroup) {
+    if (val === "heuristic") {
+      modelGroup.style.display = "none";
+    } else {
+      modelGroup.style.display = "inline-flex";
+      modelSelect.innerHTML = '<option value="">Default Model</option>';
+      const models = PROVIDER_MODELS[val] || [];
+      const savedModel = localStorage.getItem(`fpl_advisor_model_${val}`) || "";
+      const validModelIds = new Set(models.map(m => m.id));
+      if (savedModel && !validModelIds.has(savedModel)) {
+        localStorage.removeItem(`fpl_advisor_model_${val}`);
+      }
+      const activeSaved = validModelIds.has(savedModel) ? savedModel : "";
+      models.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (m.name.includes("*")) {
+          opt.title = "Requires paid account credits on OpenRouter";
+        }
+        if (m.id === activeSaved) opt.selected = true;
+        modelSelect.appendChild(opt);
+      });
+    }
+  }
+
   if (val === "heuristic") {
     keyInput.placeholder = "(Not required)";
     keyInput.disabled = true;
     keyInput.value = "";
+  } else if (val === "openrouter") {
+    keyInput.placeholder = "OpenRouter Key (sk-or-v1-...)";
+    keyInput.disabled = false;
+    try {
+      keyInput.value = localStorage.getItem("fpl_advisor_api_key_openrouter") || "";
+    } catch (_) {}
   } else if (val === "gemini") {
     keyInput.placeholder = "Gemini API Key (AIza...)";
     keyInput.disabled = false;
@@ -2180,7 +2277,7 @@ function updateProviderKeyPlaceholder() {
       keyInput.value = localStorage.getItem("fpl_advisor_api_key_openai") || "";
     } catch (_) {}
   } else {
-    keyInput.placeholder = "Optional API Key";
+    keyInput.placeholder = "Optional API Key (AIza / sk- / sk-or-)";
     keyInput.disabled = false;
     keyInput.value = "";
   }
@@ -2201,6 +2298,7 @@ async function runAdvisor() {
   const personaSelect = document.getElementById("adv-persona");
   const providerSelect = document.getElementById("adv-provider");
   const apiKeyInput = document.getElementById("adv-api-key");
+  const modelSelect = document.getElementById("adv-model");
   const gwInput = document.getElementById("adv-gw") || document.getElementById("live-gw");
   let gw = gwInput ? parseInt(gwInput.value) : null;
   if (!gw) gw = state.activeGameweek;
@@ -2213,9 +2311,17 @@ async function runAdvisor() {
     apiKey = null;
   }
 
+  const selectedModel = modelSelect ? modelSelect.value : "";
+  if (selectedModel) {
+    try {
+      localStorage.setItem(`fpl_advisor_model_${provider}`, selectedModel);
+    } catch (_) {}
+  }
+
   if (apiKey) {
     try {
-      if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
+      if (provider === "openrouter" || apiKey.startsWith("sk-or-")) localStorage.setItem("fpl_advisor_api_key_openrouter", apiKey);
+      else if (provider === "gemini") localStorage.setItem("fpl_advisor_api_key_gemini", apiKey);
       else if (provider === "openai") localStorage.setItem("fpl_advisor_api_key_openai", apiKey);
     } catch (_) {}
   }
@@ -2223,7 +2329,7 @@ async function runAdvisor() {
   container.innerHTML = `
     <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted);">
       <div class="spinner" style="margin: 0 auto 1rem auto; width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor using ${provider.toUpperCase()} engine...</p>
+      <p>Synthesizing briefing dossier and consulting ${persona.replace(/_/g, ' ').toUpperCase()} advisor using ${provider.toUpperCase()} engine${selectedModel ? ` (${selectedModel})` : ''}...</p>
     </div>
   `;
 
@@ -2235,6 +2341,7 @@ async function runAdvisor() {
       provider: provider,
     };
     if (apiKey) payload.api_key = apiKey;
+    if (selectedModel) payload.model = selectedModel;
 
     const data = await api("/api/advise", {
       method: "POST",
@@ -2247,7 +2354,7 @@ async function runAdvisor() {
     if (err.message && (err.message.includes("401") || err.message.toLowerCase().includes("authentication") || err.message.toLowerCase().includes("unauthorized"))) {
       extraTip = `
         <div style="margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.4; color: var(--text-secondary);">
-          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key. If the key was set via an environment variable, ensure this field is left empty.</em>
+          💡 <em>Authentication error for <strong>${escapeHtml(provider.toUpperCase())}</strong>. Click 👁️ in the toolbar to verify the entered API key. If using OpenRouter, ensure your key begins with <code>sk-or-v1-</code>.</em>
         </div>
       `;
     }
@@ -2526,11 +2633,30 @@ function renderManagerDossier(dossier) {
   container.innerHTML = html;
 }
 
+// Startup sync: auto-check gameweek and sync scores
+async function syncGameweekAndScoresAtStartup() {
+  try {
+    const gwData = await api("/api/gameweek");
+    if (gwData && gwData.current_gameweek) {
+      state.currentGameweek = gwData.current_gameweek;
+      state.activeGameweek = gwData.current_gameweek;
+    }
+    // Auto-hit scores update at start of GUI
+    const scoreRes = await api("/api/update-scores", { method: "POST" });
+    if (scoreRes && scoreRes.players_updated !== undefined) {
+      showToast(`Gameweek ${state.activeGameweek || 4} verified · Scores synchronized (${scoreRes.players_updated} players).`);
+    }
+  } catch (err) {
+    console.warn("Startup gameweek and score sync:", err);
+  }
+}
+
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   initModal();
   initEventListeners();
+  await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();
 });

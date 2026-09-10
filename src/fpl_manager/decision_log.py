@@ -20,6 +20,7 @@ from .models import Player, Position
 from .rules import validate_squad, validate_starting_lineup
 from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
+from .transfers import resolve_chained_transfers
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = PROJECT_ROOT / "data"
@@ -51,6 +52,10 @@ def record_gameweek_decision(
         raise ValueError(f"Starting XI must have exactly 11 players; received {len(starting_player_ids)}.")
     if len(bench_player_ids) != 4:
         raise ValueError(f"Bench must have exactly 4 players; received {len(bench_player_ids)}.")
+    if set(starting_player_ids).intersection(set(bench_player_ids)):
+        raise ValueError("Starting XI and bench cannot contain overlapping players.")
+    if set(starting_player_ids) | set(bench_player_ids) != set(squad_player_ids):
+        raise ValueError("Starting XI and bench must comprise all 15 squad players.")
     if captain_id not in starting_player_ids:
         raise ValueError(f"Captain ID {captain_id} must be in the starting XI.")
     if vice_captain_id not in starting_player_ids:
@@ -454,7 +459,7 @@ def parse_and_apply_transfers(
             "incoming_name": p_names.get(in_id, f"ID {in_id}"),
         })
 
-    return squad_ids, transfer_records
+    return squad_ids, resolve_chained_transfers(transfer_records)
 
 
 def log_decision_from_current_squad(
@@ -909,7 +914,7 @@ def compute_expected_free_transfers(
                 if chip_str in ("wildcard", "freehit", "free_hit", "wc", "fh"):
                     ft = 1
                 else:
-                    tx_count = len(tx_list)
+                    tx_count = len(resolve_chained_transfers(tx_list))
                     ft = min(5, max(0, ft - tx_count) + 1)
             else:
                 ft = 1

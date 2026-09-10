@@ -1,6 +1,6 @@
 """LLM Advisory Layer with Deterministic Guardrails for FPL Manager V0.6.
 
-Integrates multi-provider LLM analysis (Gemini, OpenAI, Heuristic)
+Integrates multi-provider LLM analysis (Gemini, OpenAI, OpenRouter, Heuristic)
 with specialized personas (Devil's Advocate, Tactical Analyst, Strategic Planner).
 Deterministic validation ensures that all LLM advice is strictly verified against
 FPL budget, squad quota, and formation constraints before presentation.
@@ -238,9 +238,14 @@ def _call_openrouter_api(
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             res = json.loads(resp.read().decode("utf-8"))
+            if "error" in res:
+                err_msg = res["error"].get("message", json.dumps(res["error"]))
+                raise RuntimeError(f"OpenRouter API returned error: {err_msg}")
             choices = res.get("choices", [])
             if choices and "message" in choices[0]:
-                return choices[0]["message"].get("content", "")
+                content = choices[0]["message"].get("content") or choices[0].get("text") or ""
+                if content:
+                    return content
     except urllib.error.HTTPError as e:
         body = ""
         try:
@@ -253,6 +258,10 @@ def _call_openrouter_api(
             raise RuntimeError(
                 f"OpenRouter authentication failed (HTTP 401: {msg}). "
                 "Ensure your OpenRouter API key is valid (keys typically start with 'sk-or-v1-')."
+            ) from e
+        if e.code == 429:
+            raise RuntimeError(
+                f"OpenRouter rate limit exceeded (HTTP 429: {msg})."
             ) from e
         raise RuntimeError(f"OpenRouter API error (HTTP {e.code}): {msg}") from e
     except urllib.error.URLError as e:
@@ -370,7 +379,18 @@ def validate_proposed_advisory_actions(
             return None
         if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
             return player_by_id.get(int(identifier))
-        return player_by_name.get(str(identifier).strip().lower())
+        clean = str(identifier).strip().lower()
+        if clean in player_by_name:
+            return player_by_name[clean]
+        # Punctuation / space / underscore normalized
+        norm_id = re.sub(r"[^a-zA-Z0-9]", "", clean)
+        for p in all_players:
+            if re.sub(r"[^a-zA-Z0-9]", "", p.name.lower()) == norm_id:
+                return p
+        matches = [p for p in all_players if clean in p.name.lower() or p.name.lower() in clean]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     # 1. Validate Captain / Vice
     cap_player = _resolve_player(proposed_captain)
@@ -496,8 +516,14 @@ def generate_llm_advisory(
     if raw_key and (raw_key.startswith("http://") or raw_key.startswith("https://")):
         raw_key = None
 
-    gemini_key = (raw_key if resolved_provider in ("gemini", "auto") else None) or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    openai_key = (raw_key if resolved_provider in ("openai", "auto") else None) or os.environ.get("OPENAI_API_KEY")
+    is_openrouter_key = bool(raw_key and (raw_key.startswith("sk-or-") or "openrouter" in raw_key.lower()))
+
+    gemini_key = (raw_key if resolved_provider in ("gemini", "auto") and not is_openrouter_key else None) or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    openai_key = (raw_key if resolved_provider in ("openai", "auto") and not is_openrouter_key else None) or os.environ.get("OPENAI_API_KEY")
+    openrouter_key = (raw_key if resolved_provider in ("openrouter", "auto") else None) or os.environ.get("OPENROUTER_API_KEY")
+
+    attempted_providers: list[str] = []
+    fallback_reasons: list[str] = []
 
     if resolved_provider == "heuristic":
         heuristic_res = _heuristic_advisory(dossier, persona)
@@ -510,6 +536,7 @@ def generate_llm_advisory(
         provider_used = "heuristic"
 
     elif resolved_provider == "gemini":
+        attempted_providers.append("gemini")
         if not gemini_key:
             raise ValueError(
                 "Gemini API key is required when selecting the Google Gemini engine. "
@@ -520,6 +547,7 @@ def generate_llm_advisory(
         provider_used = "gemini"
 
     elif resolved_provider == "openai":
+        attempted_providers.append("openai")
         if not openai_key:
             raise ValueError(
                 "OpenAI API key is required when selecting the OpenAI engine. "
@@ -529,21 +557,54 @@ def generate_llm_advisory(
         raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
         provider_used = "openai"
 
+    elif resolved_provider == "openrouter":
+        attempted_providers.append("openrouter")
+        if not openrouter_key:
+            raise ValueError(
+                "OpenRouter API key is required when selecting the OpenRouter engine. "
+                "Please enter an API key in the toolbar, pass '--api-key', or set the "
+                "OPENROUTER_API_KEY environment variable (keys typically start with 'sk-or-v1-')."
+            )
+        raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
+        provider_used = "openrouter"
+
     elif resolved_provider == "auto":
-        # Auto mode: try Gemini if key present, else OpenAI if key present, else heuristic
-        if gemini_key:
+        # Auto mode:
+        # If an explicit OpenRouter key was passed, prioritize OpenRouter
+        if is_openrouter_key and openrouter_key:
+            attempted_providers.append("openrouter")
+            try:
+                raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
+                provider_used = "openrouter"
+            except Exception as ex:
+                fallback_reasons.append(f"OpenRouter: {ex}")
+
+        # Try Gemini if key present
+        if raw_response is None and gemini_key:
+            attempted_providers.append("gemini")
             try:
                 raw_response = _call_gemini_api(prompt, gemini_key, model=model or "gemini-1.5-flash-latest")
                 provider_used = "gemini"
-            except Exception:
-                pass
+            except Exception as ex:
+                fallback_reasons.append(f"Gemini: {ex}")
 
+        # Try OpenAI if key present
         if raw_response is None and openai_key:
+            attempted_providers.append("openai")
             try:
                 raw_response = _call_openai_api(prompt, openai_key, model=model or "gpt-4o-mini")
                 provider_used = "openai"
-            except Exception:
-                pass
+            except Exception as ex:
+                fallback_reasons.append(f"OpenAI: {ex}")
+
+        # Try OpenRouter if key present and not already attempted
+        if raw_response is None and openrouter_key and "openrouter" not in attempted_providers:
+            attempted_providers.append("openrouter")
+            try:
+                raw_response = _call_openrouter_api(prompt, openrouter_key, model=model or "meta-llama/llama-3.3-70b-instruct")
+                provider_used = "openrouter"
+            except Exception as ex:
+                fallback_reasons.append(f"OpenRouter: {ex}")
 
         if raw_response is None:
             heuristic_res = _heuristic_advisory(dossier, persona)
@@ -554,39 +615,58 @@ def generate_llm_advisory(
             proposed_vice_captain = heuristic_res["proposed_vice_captain"]
             proposed_transfers = heuristic_res["proposed_transfers"]
             provider_used = "heuristic (auto-fallback)"
-            tactical_notes.append(
-                "ℹ️ Auto-routed to offline heuristic engine (no API key configured for Gemini/OpenAI)."
-            )
+            if fallback_reasons:
+                tactical_notes.append(
+                    f"⚠️ External provider attempted but failed ({'; '.join(fallback_reasons)}). Auto-routed to offline heuristic engine."
+                )
+            else:
+                tactical_notes.append(
+                    "ℹ️ Auto-routed to offline heuristic engine (no API key configured for Gemini/OpenAI/OpenRouter)."
+                )
     else:
         raise ValueError(
-            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai'."
+            f"Unknown provider '{provider}'. Supported providers are: 'auto', 'heuristic', 'gemini', 'openai', 'openrouter'."
         )
 
     if raw_response is not None:
         # Parse output from LLM
+        parsed = None
         json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_response, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+            except Exception:
+                parsed = None
+
+        if parsed is None:
+            first_brace = raw_response.find("{")
+            last_brace = raw_response.rfind("}")
+            if first_brace != -1 and last_brace > first_brace:
+                try:
+                    parsed = json.loads(raw_response[first_brace:last_brace + 1])
+                except Exception:
+                    parsed = None
+
         critique_points = []
         tactical_notes = []
         proposed_captain = dossier.get("lineup", {}).get("captain", {}).get("name")
         proposed_vice_captain = dossier.get("lineup", {}).get("vice_captain", {}).get("name")
         proposed_transfers = []
 
-        if json_match:
-            try:
-                parsed = json.loads(json_match.group(1))
-                if parsed.get("captain"):
-                    proposed_captain = str(parsed["captain"]).strip()
-                if parsed.get("vice_captain"):
-                    proposed_vice_captain = str(parsed["vice_captain"]).strip()
-                if isinstance(parsed.get("transfers"), list):
-                    proposed_transfers = parsed["transfers"]
-                if isinstance(parsed.get("critique_points"), list):
-                    critique_points = [str(c) for c in parsed["critique_points"]]
-                if isinstance(parsed.get("tactical_notes"), list):
-                    tactical_notes = [str(t) for t in parsed["tactical_notes"]]
-            except Exception:
-                pass
+        if parsed and isinstance(parsed, dict):
+            if parsed.get("captain"):
+                proposed_captain = str(parsed["captain"]).strip()
+            if parsed.get("vice_captain"):
+                proposed_vice_captain = str(parsed["vice_captain"]).strip()
+            if isinstance(parsed.get("transfers"), list):
+                proposed_transfers = parsed["transfers"]
+            if isinstance(parsed.get("critique_points"), list):
+                critique_points = [str(c) for c in parsed["critique_points"]]
+            if isinstance(parsed.get("tactical_notes"), list):
+                tactical_notes = [str(t) for t in parsed["tactical_notes"]]
             analysis_markdown = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", raw_response, flags=re.DOTALL).strip()
+            if not analysis_markdown and (first_brace := raw_response.find("{")) != -1:
+                analysis_markdown = raw_response[:first_brace].strip()
         else:
             analysis_markdown = raw_response.strip()
 
@@ -608,6 +688,8 @@ def generate_llm_advisory(
         "gameweek": gw,
         "persona": persona,
         "provider_used": provider_used,
+        "attempted_providers": attempted_providers,
+        "fallback_reasons": fallback_reasons,
         "analysis_markdown": analysis_markdown,
         "critique_points": critique_points,
         "tactical_notes": tactical_notes,
