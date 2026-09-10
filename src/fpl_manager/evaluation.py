@@ -282,6 +282,7 @@ def evaluate_gameweek_decision(
     season: str = "2026/27",
     team_id: str = "default",
     database_path: Path = DATABASE_PATH,
+    strict_matchday: bool = False,
 ) -> dict[str, Any]:
     """Comprehensive post-gameweek evaluation combining prediction accuracy and decision regret."""
     if not actual_scores:
@@ -314,6 +315,8 @@ def evaluate_gameweek_decision(
             "gameweek": gameweek,
             "team_id": team_id,
             "decision_logged": False,
+            "evaluation_status": "unavailable",
+            "evaluation_warning": "No decision logged for this gameweek.",
             "prediction_accuracy": prediction_eval,
             "captaincy": None,
             "bench": None,
@@ -330,6 +333,8 @@ def evaluate_gameweek_decision(
     hvm_eval = compare_human_vs_model(decision, recommended_lineup, actual_scores, players_by_id)
 
     # Actual lineup score
+    evaluation_status = "authoritative"
+    evaluation_warning: str | None = None
     try:
         from .live_matchday import compute_matchday_lineup_performance
         perf = compute_matchday_lineup_performance(
@@ -344,7 +349,11 @@ def evaluate_gameweek_decision(
             custom_scores=actual_scores,
         )
         actual_lineup = float(perf["net_points"])
-    except Exception:
+    except Exception as exc:
+        if strict_matchday:
+            raise
+        evaluation_status = "fallback"
+        evaluation_warning = f"Matchday calculation failed ({exc}); using unadjusted lineup sum fallback."
         actual_lineup = (
             sum(actual_scores.get(pid, 0.0) for pid in starters)
             + actual_scores.get(cap_id, 0.0)
@@ -353,20 +362,26 @@ def evaluate_gameweek_decision(
 
     xp_delta = round(actual_lineup - decision["predicted_lineup_xp"], 2)
 
-    # Auto-update actual points in decision record if not yet finalized
-    if decision.get("actual_points") is None and actual_scores:
-        try:
-            from .decision_log import record_actual_gameweek_score
-            record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
-            decision["actual_points"] = round(actual_lineup)
-        except Exception:
-            pass
+    # Auto-update actual points in decision record if not yet finalized,
+    # PROVIDED that evaluation is authoritative AND the gameweek is fully completed.
+    # Fallback or in-progress matchday calculations must NEVER silently contaminate the decision record.
+    if decision.get("actual_points") is None and actual_scores and evaluation_status == "authoritative":
+        from .scores import is_gameweek_completed
+        if is_gameweek_completed(gameweek, database_path=database_path):
+            try:
+                from .decision_log import record_actual_gameweek_score
+                record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
+                decision["actual_points"] = round(actual_lineup)
+            except Exception:
+                pass
 
     return {
         "gameweek": gameweek,
         "season": season,
         "team_id": team_id,
         "decision_logged": True,
+        "evaluation_status": evaluation_status,
+        "evaluation_warning": evaluation_warning,
         "predicted_lineup_xp": decision["predicted_lineup_xp"],
         "actual_lineup_score": round(actual_lineup, 2),
         "prediction_error_delta": xp_delta,
@@ -386,9 +401,13 @@ def evaluate_season_decisions(
     """Aggregate decision evaluation across all finalized gameweeks in the season."""
     decisions = list_decisions(season=season, team_id=team_id, database_path=database_path)
 
-    # Auto-finalize any unfinalized decisions if scores are available
+    # Auto-finalize any unfinalized decisions if scores are available AND gameweek is fully completed
+    from .scores import is_gameweek_completed
     for d in decisions:
         if d.get("actual_points") is None:
+            gw = d["gameweek"]
+            if not is_gameweek_completed(gw, database_path=database_path):
+                continue
             starters = d["starting_player_ids"]
             bench = d["bench_player_ids"]
             cap_id = d["captain_id"]
@@ -397,7 +416,7 @@ def evaluate_season_decisions(
             try:
                 from .live_matchday import compute_matchday_lineup_performance
                 perf = compute_matchday_lineup_performance(
-                    gameweek=d["gameweek"],
+                    gameweek=gw,
                     starting_ids=starters,
                     bench_ids=bench,
                     captain_id=cap_id,
@@ -409,7 +428,7 @@ def evaluate_season_decisions(
                 if perf.get("has_match_data"):
                     actual_lineup = perf["net_points"]
                     from .decision_log import record_actual_gameweek_score
-                    record_actual_gameweek_score(d["gameweek"], round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
+                    record_actual_gameweek_score(gw, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
                     d["actual_points"] = round(actual_lineup)
             except Exception:
                 pass

@@ -11,7 +11,12 @@ from fpl_manager.api import fetch_gameweek_live_data
 from fpl_manager.cli import main
 from fpl_manager.decision_log import record_gameweek_decision
 from fpl_manager.evaluation import evaluate_gameweek_decision
-from fpl_manager.scores import get_or_fetch_gameweek_scores, update_gameweek_scores
+from fpl_manager.scores import (
+    finalize_completed_gameweek_scores,
+    get_or_fetch_gameweek_scores,
+    is_gameweek_completed,
+    update_gameweek_scores,
+)
 from fpl_manager.storage import SnapshotStore, utc_timestamp
 
 
@@ -301,3 +306,146 @@ def test_cli_update_scores_and_auto_evaluate(
     out_eval = capsys.readouterr().out
     assert "Gameweek 2" in out_eval
     assert "Actual Score: 60.0" in out_eval
+
+
+def test_gameweek_completion_and_finalization_semantics(tmp_path: Path) -> None:
+    """Verify gameweek completion semantics: fully completed, partially completed, double GW, and postponed fixtures."""
+    from fpl_manager.decision_log import get_gameweek_decision
+
+    db_path = tmp_path / "fpl.sqlite3"
+    store = SnapshotStore(db_path)
+
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 3, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 4, "name": "Man City", "short_name": "MCI"},
+            {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+            {"id": 6, "name": "Newcastle", "short_name": "NEW"},
+        ],
+        "elements": [
+            {
+                "id": k,
+                "web_name": f"P{k}",
+                "team": (k % 6) + 1,
+                "element_type": 1 if k <= 2 else (2 if k <= 7 else (3 if k <= 12 else 4)),
+                "now_cost": 50,
+                "status": "a",
+                "total_points": 50,
+            }
+            for k in range(1, 16)
+        ],
+    }
+
+    # Fixtures setup:
+    # GW1: Fully completed (10/10 finished = True)
+    gw1_fixtures = [
+        {"id": 100 + i, "event": 1, "team_h": 1, "team_a": 2, "finished": True}
+        for i in range(10)
+    ]
+    # GW2: Partially completed (6 finished = True, 4 finished = False)
+    gw2_fixtures = [
+        {"id": 200 + i, "event": 2, "team_h": 1, "team_a": 2, "finished": i < 6}
+        for i in range(10)
+    ]
+    # GW3: Postponed fixture (9 finished = True, 1 postponed with finished = False)
+    gw3_fixtures = [
+        {"id": 300 + i, "event": 3, "team_h": 1, "team_a": 2, "finished": i < 9}
+        for i in range(10)
+    ]
+    # GW4: Double Gameweek (12 fixtures scheduled, initially 11 finished, 1 pending)
+    gw4_fixtures = [
+        {"id": 400 + i, "event": 4, "team_h": 1, "team_a": 2, "finished": i < 11}
+        for i in range(12)
+    ]
+
+    all_fixtures = gw1_fixtures + gw2_fixtures + gw3_fixtures + gw4_fixtures
+    store.save_snapshot(bootstrap, all_fixtures, utc_timestamp())
+
+    # 1. Verify is_gameweek_completed behavior
+    # GW1 is fully completed
+    assert is_gameweek_completed(1, database_path=db_path) is True
+    # GW2 is partially completed (in-progress)
+    assert is_gameweek_completed(2, database_path=db_path) is False
+    # GW3 has a postponed/unplayed fixture
+    assert is_gameweek_completed(3, database_path=db_path) is False
+    # GW4 (Double Gameweek) has 1 fixture still pending
+    assert is_gameweek_completed(4, database_path=db_path) is False
+    # GW99 has no fixtures scheduled
+    assert is_gameweek_completed(99, database_path=db_path) is False
+
+    # Seed live scores for all players in GW1, GW2, GW3, GW4
+    for gw in [1, 2, 3, 4]:
+        live_payload = {
+            "elements": [
+                {
+                    "id": k,
+                    "stats": {
+                        "total_points": 5,
+                        "minutes": 90,
+                        "goals_scored": 0,
+                        "assists": 0,
+                        "clean_sheets": 0,
+                        "goals_conceded": 0,
+                        "bonus": 0,
+                        "bps": 15,
+                    },
+                }
+                for k in range(1, 16)
+            ]
+        }
+        store.save_gameweek_scores(gw, live_payload, utc_timestamp())
+
+    # Log decisions for GW1, GW2, GW3, GW4
+    # Legal formation: 1 GK, 4 DEFs, 4 MIDs, 2 FWDs
+    starters = [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14]
+    bench = [2, 7, 12, 15]
+    for gw in [1, 2, 3, 4]:
+        record_gameweek_decision(
+            gameweek=gw,
+            squad_player_ids=list(range(1, 16)),
+            starting_player_ids=starters,
+            bench_player_ids=bench,
+            captain_id=13,
+            vice_captain_id=14,
+            database_path=db_path,
+        )
+
+    # 2. Run finalize_completed_gameweek_scores
+    finalized_count = finalize_completed_gameweek_scores(database_path=db_path)
+    # Only GW1 should be finalized (1 decision updated)
+    assert finalized_count == 1
+
+    dec1 = get_gameweek_decision(1, database_path=db_path)
+    assert dec1 is not None
+    assert dec1["actual_points"] is not None
+
+    dec2 = get_gameweek_decision(2, database_path=db_path)
+    assert dec2 is not None
+    # GW2 must NOT be finalized because matches are still pending
+    assert dec2["actual_points"] is None
+
+    dec3 = get_gameweek_decision(3, database_path=db_path)
+    assert dec3 is not None
+    # GW3 must NOT be finalized because postponed fixture is unfinished
+    assert dec3["actual_points"] is None
+
+    dec4 = get_gameweek_decision(4, database_path=db_path)
+    assert dec4 is not None
+    # GW4 must NOT be finalized because 1 DGW fixture is pending
+    assert dec4["actual_points"] is None
+
+    # 3. Now simulate completion of the remaining DGW fixture in GW4
+    with store._connect() as conn:
+        conn.execute("UPDATE fixtures SET finished = 1 WHERE fixture_id = 411")
+        conn.commit()
+
+    assert is_gameweek_completed(4, database_path=db_path) is True
+    fin4_count = finalize_completed_gameweek_scores(gameweek=4, database_path=db_path)
+    assert fin4_count == 1
+
+    dec4_after = get_gameweek_decision(4, database_path=db_path)
+    assert dec4_after is not None
+    assert dec4_after["actual_points"] is not None
+

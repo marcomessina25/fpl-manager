@@ -144,6 +144,43 @@ def update_gameweek_scores(
     }
 
 
+def is_gameweek_completed(
+    gameweek: int,
+    database_path: Path = DATABASE_PATH,
+) -> bool:
+    """Check if all scheduled fixtures for a gameweek are completed.
+
+    A gameweek is only considered completed when:
+    1. At least one fixture is scheduled for this gameweek (COUNT(*) > 0).
+    2. Every scheduled fixture has finished == 1.
+    If any fixture is pending (finished == 0), ongoing, postponed without being played,
+    or if the gameweek has no fixtures, the gameweek is NOT completed.
+    In double gameweeks, all fixtures assigned to that gameweek must be finished.
+    """
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    with closing(store._connect()) as conn:
+        snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        if not snap:
+            return False
+        snap_id = snap[0]
+
+        row = conn.execute(
+            """
+            SELECT COUNT(*), SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END)
+            FROM fixtures
+            WHERE snapshot_id = ? AND event = ?
+            """,
+            (snap_id, gameweek),
+        ).fetchone()
+
+        if not row or row[0] == 0:
+            return False
+        total_fixtures, finished_fixtures = row[0], row[1] or 0
+        return total_fixtures == finished_fixtures
+
+
 def finalize_completed_gameweek_scores(
     gameweek: int | None = None,
     database_path: Path = DATABASE_PATH,
@@ -158,15 +195,7 @@ def finalize_completed_gameweek_scores(
         snap_id = snap[0] if snap else 1
 
         if gameweek is not None:
-            row = conn.execute(
-                """
-                SELECT COUNT(*), SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END)
-                FROM fixtures
-                WHERE snapshot_id = ? AND event = ?
-                """,
-                (snap_id, gameweek),
-            ).fetchone()
-            completed_gws = [gameweek] if (row and row[0] > 0 and row[0] == row[1]) else []
+            completed_gws = [gameweek] if is_gameweek_completed(gameweek, database_path=database_path) else []
         else:
             rows = conn.execute(
                 """

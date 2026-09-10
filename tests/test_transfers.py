@@ -265,6 +265,9 @@ def test_resolve_chained_transfers_cancellation_and_splice() -> None:
     # A -> B followed by B -> A cancels out
     assert resolve_chained_transfers([Transfer(1, 2), Transfer(2, 1)]) == []
 
+    # 3-step cycle: A -> B, B -> C, C -> A cancels out completely
+    assert resolve_chained_transfers([Transfer(1, 2), Transfer(2, 3), Transfer(3, 1)]) == []
+
     # 1 -> 2, 3 -> 4, 2 -> 3 splices into 1 -> 4
     spliced = resolve_chained_transfers([
         Transfer(outgoing_id=1, incoming_id=2),
@@ -458,3 +461,82 @@ def test_execute_transfers_chained_multi_player_preserves_transfer_set(tmp_path:
     assert dec is not None
     assert len(dec["transfers"]) == 2
     assert dec["transfer_hits"] == 1
+
+
+def test_execute_transfers_chained_reversal_cancels_in_same_gameweek(tmp_path: Path) -> None:
+    """Reversing a transfer in the same gameweek (1 -> 2 then 2 -> 1) cancels out to 0 transfers and 0 hits."""
+    from fpl_manager.decision_log import get_gameweek_decision
+    from fpl_manager.squad_state import load_current_squad
+    from fpl_manager.transfers import execute_transfers
+
+    db_path = tmp_path / "fpl.sqlite3"
+    squad_file = tmp_path / "current_squad.json"
+
+    store = SnapshotStore(db_path)
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Manchester City", "short_name": "MCI"},
+            {"id": 3, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+            {"id": 6, "name": "Newcastle", "short_name": "NEW"},
+        ],
+        "elements": [
+            {"id": 1, "web_name": "Raya", "team": 1, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 100},
+            {"id": 2, "web_name": "Pickford", "team": 2, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 90},
+        ]
+        + [
+            {
+                "id": k,
+                "web_name": f"P{k}",
+                "team": (k % 6) + 1,
+                "element_type": 1 if k == 3 else (2 if k < 9 else (3 if k < 14 else 4)),
+                "now_cost": 50,
+                "status": "a",
+                "total_points": 50,
+            }
+            for k in range(3, 17)
+        ],
+    }
+    store.save_snapshot(bootstrap, [], utc_timestamp())
+
+    squad_data = {
+        "season": "2026/27",
+        "player_ids": [1] + list(range(3, 17)),
+        "purchase_prices_tenths": {str(k): 50 for k in [1] + list(range(3, 17))},
+        "bank_tenths": 20,
+        "free_transfers": 1,
+        "chips_remaining": ["wildcard"],
+        "gameweek": 3,
+    }
+    squad_file.write_text(json.dumps(squad_data), encoding="utf-8")
+
+    # Step 1: Transfer Raya (1) -> Pickford (2)
+    res1 = execute_transfers(squad_file, [(1, 2)], database_path=db_path, gameweek=3)
+    assert res1["success"] is True
+    assert len(res1["transfers"]) == 1
+    assert res1["transfer_hits"] == 0
+    assert res1["free_transfers"] == 0
+
+    # Step 2: Reversal in same GW: Transfer Pickford (2) -> Raya (1)
+    res2 = execute_transfers(squad_file, [(2, 1)], database_path=db_path, gameweek=3)
+    assert res2["success"] is True
+    # Cancellation results in 0 net transfers and restores free transfer
+    assert len(res2["transfers"]) == 0
+    assert res2["transfer_hits"] == 0
+    assert res2["free_transfers"] == 1
+
+    # Check decision record in database
+    dec = get_gameweek_decision(3, database_path=db_path)
+    assert dec is not None
+    assert len(dec["transfers"]) == 0
+    assert dec["transfer_hits"] == 0
+
+    # Verify squad file state: Raya (1) is back in squad
+    sq = load_current_squad(squad_file)
+    assert 1 in sq.player_ids
+    assert 2 not in sq.player_ids
+    assert sq.free_transfers == 1
+    assert sq.purchase_prices_tenths[1] == 50
+

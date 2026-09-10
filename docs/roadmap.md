@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is delivered on the `v065` branch, providing release stabilization, bug fixes, atomic transfer persistence with rollback, formation-legal autosubs, xP calibration, multi-team isolation, and a comprehensive 163-test verification suite. OpenRouter has been restored with empirically verified models (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1*); non-working endpoints have been pruned and deferred to V1.1 for deeper provider and model investigation.
+> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is implemented and validated on the `v065` branch; pending merge. It provides release stabilization, bug fixes, dual-persistence compensating rollback across squad state and SQLite decision records, formation-legal autosubs, xP calibration, multi-team isolation, and chained transfer consolidation. The complete automated test suite passes in CI. V0.65 supports verified OpenRouter free-capable models (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1* with paid credits indicator) that operate under the provider's free usage limits; non-working endpoints have been pruned and deferred to V1.1 for deeper provider and model investigation.
 
 See `docs/architecture.md` and `docs/expected_points.md` for the deeper architecture and projection-model design.
 
@@ -476,15 +476,15 @@ OpenRouter currently exposes an OpenAI-compatible `/api/v1/chat/completions` API
 
 # V0.65 — Stabilization, bug audit, and release hardening
 
-**Status: completed and verified on `v065` branch.**
+**Status: V0.65 implemented and validated on the `v065` branch; pending merge.**
 
-See `docs/v065_potential_bugs.md`.
+See `docs/v065/v065_potential_bugs.md`.
 
 V0.65 is intentionally smaller than a feature release.
 
 The goal is:
 
-> **Make V0.6 trustworthy before adding major new intelligence.** Delivered comprehensive stabilization with 159 tests passing.
+> **Make V0.6 trustworthy before adding major new intelligence.** Delivered comprehensive stabilization; the complete automated test suite passes in CI.
 
 ### Priority A — release-blocking correctness
 
@@ -1357,7 +1357,7 @@ as distinct states.
 
 Base it on the V0.6 PR result.
 
-### 3. Execute `docs/v065_potential_bugs.md`
+### 3. Execute `docs/v065/v065_potential_bugs.md`
 
 Treat it as an audit checklist, not as proof that every listed issue exists.
 
