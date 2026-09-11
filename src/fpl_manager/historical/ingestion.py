@@ -350,7 +350,7 @@ def generate_mock_season(
                     "name": f"Player_{p_id}",
                     "position": int(pos),
                     "team_id": t_id,
-                    "price_tenths": 50 + (p_id % 15) * 5,
+                    "price_tenths": 40 + (p_id % 8) * 5,
                     "total_points": pts,
                     "minutes": mins,
                     "starts": 1 if mins >= 60 else 0,
