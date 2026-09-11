@@ -9,7 +9,8 @@ import csv
 import json
 import logging
 from pathlib import Path
-from typing import Any
+import re
+from typing import Any, Callable
 import urllib.request
 import urllib.error
 
@@ -17,7 +18,40 @@ from .models import Position, SeasonManifest
 
 LOGGER = logging.getLogger(__name__)
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
+DEFAULT_HISTORICAL_DIR = DEFAULT_DATA_DIR / "historical"
+DEFAULT_HISTORICAL_RAW_DIR = DEFAULT_HISTORICAL_DIR / "raw"
+
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/master/data"
+
+
+def normalize_season_name(season: str) -> str:
+    """Normalize season input strings into canonical 'YYYY-YY' format.
+
+    Examples:
+        '2021-22' -> '2021-22'
+        '2021/22' -> '2021-22'
+        '2021-2022' -> '2021-22'
+        '2021/2022' -> '2021-22'
+        '2021_22' -> '2021-22'
+        '2021' -> '2021-22'
+    """
+    s = season.strip()
+    m_full = re.match(r"^(\d{4})[-/_](\d{4})$", s)
+    if m_full:
+        y1, y2 = m_full.groups()
+        return f"{y1}-{y2[-2:]}"
+    m_short = re.match(r"^(\d{4})[-/_](\d{2})$", s)
+    if m_short:
+        y1, y2 = m_short.groups()
+        return f"{y1}-{y2}"
+    m_single = re.match(r"^(\d{4})$", s)
+    if m_single:
+        y1 = int(m_single.group(1))
+        y2 = (y1 + 1) % 100
+        return f"{y1}-{y2:02d}"
+    return s
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -43,48 +77,76 @@ def download_raw_season_data(
     target_dir: Path,
     max_gameweeks: int = 38,
     timeout_seconds: float = 15.0,
+    overwrite: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> Path:
     """Download raw CSV files for a historical season from the Vaastav FPL archive."""
+    canonical_season = normalize_season_name(season)
     target_dir.mkdir(parents=True, exist_ok=True)
     gws_dir = target_dir / "gws"
     gws_dir.mkdir(parents=True, exist_ok=True)
 
-    base_url = f"{GITHUB_RAW_BASE}/{season}"
+    base_url = f"{GITHUB_RAW_BASE}/{canonical_season}"
+
+    def report(msg: str) -> None:
+        LOGGER.info(msg)
+        if progress_callback:
+            progress_callback(msg)
 
     # Download fixtures.csv
     fixtures_path = target_dir / "fixtures.csv"
-    if not fixtures_path.exists():
+    if overwrite or not fixtures_path.exists():
         url = f"{base_url}/fixtures.csv"
-        LOGGER.info("Fetching %s...", url)
+        report(f"Fetching {url}...")
         req = urllib.request.Request(url, headers={"User-Agent": "fpl-manager"})
-        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
-            fixtures_path.write_bytes(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+                fixtures_path.write_bytes(resp.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise FileNotFoundError(
+                    f"Season '{canonical_season}' not found in archive ({url}). Please verify the season format (e.g., '2021-22')."
+                ) from exc
+            raise
 
     # Download teams.csv
     teams_path = target_dir / "teams.csv"
-    if not teams_path.exists():
+    if overwrite or not teams_path.exists():
         url = f"{base_url}/teams.csv"
-        LOGGER.info("Fetching %s...", url)
+        report(f"Fetching {url}...")
         req = urllib.request.Request(url, headers={"User-Agent": "fpl-manager"})
-        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
-            teams_path.write_bytes(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+                teams_path.write_bytes(resp.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise FileNotFoundError(
+                    f"teams.csv for season '{canonical_season}' not found in archive ({url})."
+                ) from exc
+            raise
 
     # Download each GW file
+    downloaded_any = False
     for gw in range(1, max_gameweeks + 1):
         gw_path = gws_dir / f"gw{gw}.csv"
-        if gw_path.exists():
+        if not overwrite and gw_path.exists():
+            downloaded_any = True
             continue
         url = f"{base_url}/gws/gw{gw}.csv"
-        LOGGER.info("Fetching %s...", url)
+        report(f"Fetching Gameweek {gw}/{max_gameweeks} ({url})...")
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "fpl-manager"})
             with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
                 gw_path.write_bytes(resp.read())
+            downloaded_any = True
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
-                LOGGER.warning("Gameweek %d not found for season %s. Stopping at GW %d.", gw, season, gw - 1)
+                LOGGER.warning("Gameweek %d not found for season %s. Stopping at GW %d.", gw, canonical_season, gw - 1)
                 break
             raise
+
+    if not downloaded_any and not any(gws_dir.glob("gw*.csv")):
+        raise FileNotFoundError(f"No gameweek files found for season '{canonical_season}' in archive.")
 
     return target_dir
 
@@ -154,13 +216,13 @@ def parse_gw_csv(gw_csv_path: Path, team_name_to_id: dict[str, int] | None = Non
             element = _safe_int(row.get("element", row.get("id")))
             name = str(row.get("name", row.get("web_name", f"Player {element}")))
             pos_str = str(row.get("position", "MID")).upper()
-            if pos_str in ("GK", "GKP"):
+            if pos_str in ("1", "GK", "GKP"):
                 pos = Position.GOALKEEPER
-            elif pos_str in ("DEF", "DEFENDER"):
+            elif pos_str in ("2", "DEF", "DEFENDER"):
                 pos = Position.DEFENDER
-            elif pos_str in ("MID", "MIDFIELDER"):
+            elif pos_str in ("3", "MID", "MIDFIELDER"):
                 pos = Position.MIDFIELDER
-            elif pos_str in ("FWD", "FORWARD"):
+            elif pos_str in ("4", "FWD", "FORWARD"):
                 pos = Position.FORWARD
             else:
                 pos = Position.MIDFIELDER
@@ -228,6 +290,7 @@ def ingest_season(
     dest_dir: Path,
 ) -> SeasonManifest:
     """Normalize raw CSV files from source_dir and compile structured JSON data into dest_dir."""
+    canonical_season = normalize_season_name(season)
     dest_dir.mkdir(parents=True, exist_ok=True)
     teams = parse_teams_csv(source_dir / "teams.csv")
     fixtures = parse_fixtures_csv(source_dir / "fixtures.csv")
@@ -264,7 +327,7 @@ def ingest_season(
             deadlines[gw_num] = f"2023-08-11T18:00:00Z"
 
     manifest = SeasonManifest(
-        season=season,
+        season=canonical_season,
         total_gameweeks=len(gw_files),
         num_players=len(all_player_ids),
         num_teams=len(teams),
@@ -282,7 +345,60 @@ def ingest_season(
     }
     (dest_dir / "season_manifest.json").write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
 
-    LOGGER.info("Ingested season %s: %d gameweeks, %d players, %d teams.", season, len(gw_files), len(all_player_ids), len(teams))
+    LOGGER.info("Ingested season %s: %d gameweeks, %d players, %d teams.", canonical_season, len(gw_files), len(all_player_ids), len(teams))
+    return manifest
+
+
+def download_historical_season(
+    season: str,
+    output_dir: Path | None = None,
+    raw_dir: Path | None = None,
+    max_gameweeks: int = 38,
+    timeout_seconds: float = 15.0,
+    overwrite: bool = False,
+    raw_only: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+) -> SeasonManifest | Path:
+    """Download and optionally ingest a historical season dataset.
+
+    Args:
+        season: Historical season string (e.g. '2021-22').
+        output_dir: Target destination for normalized JSON dataset (default: data/historical/<season>).
+        raw_dir: Target destination for downloaded raw CSVs (default: data/historical/raw/<season>).
+        max_gameweeks: Maximum number of gameweeks to download (default: 38).
+        timeout_seconds: Network request timeout in seconds.
+        overwrite: If True, re-download existing files.
+        raw_only: If True, download raw CSVs without compiling normalized JSON files.
+        progress_callback: Optional callable receiving progress messages.
+
+    Returns:
+        SeasonManifest if normalized/ingested, or Path to raw directory if raw_only is True.
+    """
+    canonical_season = normalize_season_name(season)
+    target_raw_dir = Path(raw_dir) if raw_dir is not None else (DEFAULT_HISTORICAL_RAW_DIR / canonical_season)
+    target_dest_dir = Path(output_dir) if output_dir is not None else (DEFAULT_HISTORICAL_DIR / canonical_season)
+
+    download_raw_season_data(
+        season=canonical_season,
+        target_dir=target_raw_dir,
+        max_gameweeks=max_gameweeks,
+        timeout_seconds=timeout_seconds,
+        overwrite=overwrite,
+        progress_callback=progress_callback,
+    )
+
+    if raw_only:
+        return target_raw_dir
+
+    if progress_callback:
+        progress_callback(f"Normalizing and ingesting season '{canonical_season}' into {target_dest_dir}...")
+
+    manifest = ingest_season(
+        season=canonical_season,
+        source_dir=target_raw_dir,
+        dest_dir=target_dest_dir,
+    )
+
     return manifest
 
 

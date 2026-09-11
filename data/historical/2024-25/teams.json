@@ -1,0 +1,162 @@
+[
+  {
+    "team_id": 1,
+    "name": "Arsenal",
+    "short_name": "ARS",
+    "strength": 5,
+    "strength_overall_home": 1350,
+    "strength_overall_away": 1350
+  },
+  {
+    "team_id": 2,
+    "name": "Aston Villa",
+    "short_name": "AVL",
+    "strength": 3,
+    "strength_overall_home": 1145,
+    "strength_overall_away": 1240
+  },
+  {
+    "team_id": 3,
+    "name": "Bournemouth",
+    "short_name": "BOU",
+    "strength": 3,
+    "strength_overall_home": 1170,
+    "strength_overall_away": 1200
+  },
+  {
+    "team_id": 4,
+    "name": "Brentford",
+    "short_name": "BRE",
+    "strength": 3,
+    "strength_overall_home": 1130,
+    "strength_overall_away": 1180
+  },
+  {
+    "team_id": 5,
+    "name": "Brighton",
+    "short_name": "BHA",
+    "strength": 3,
+    "strength_overall_home": 1140,
+    "strength_overall_away": 1165
+  },
+  {
+    "team_id": 6,
+    "name": "Chelsea",
+    "short_name": "CHE",
+    "strength": 3,
+    "strength_overall_home": 1155,
+    "strength_overall_away": 1235
+  },
+  {
+    "team_id": 7,
+    "name": "Crystal Palace",
+    "short_name": "CRY",
+    "strength": 3,
+    "strength_overall_home": 1150,
+    "strength_overall_away": 1155
+  },
+  {
+    "team_id": 8,
+    "name": "Everton",
+    "short_name": "EVE",
+    "strength": 3,
+    "strength_overall_home": 1120,
+    "strength_overall_away": 1145
+  },
+  {
+    "team_id": 9,
+    "name": "Fulham",
+    "short_name": "FUL",
+    "strength": 3,
+    "strength_overall_home": 1155,
+    "strength_overall_away": 1155
+  },
+  {
+    "team_id": 10,
+    "name": "Ipswich",
+    "short_name": "IPS",
+    "strength": 2,
+    "strength_overall_home": 1065,
+    "strength_overall_away": 1065
+  },
+  {
+    "team_id": 11,
+    "name": "Leicester",
+    "short_name": "LEI",
+    "strength": 2,
+    "strength_overall_home": 975,
+    "strength_overall_away": 975
+  },
+  {
+    "team_id": 12,
+    "name": "Liverpool",
+    "short_name": "LIV",
+    "strength": 5,
+    "strength_overall_home": 1350,
+    "strength_overall_away": 1370
+  },
+  {
+    "team_id": 13,
+    "name": "Man City",
+    "short_name": "MCI",
+    "strength": 4,
+    "strength_overall_home": 1220,
+    "strength_overall_away": 1270
+  },
+  {
+    "team_id": 14,
+    "name": "Man Utd",
+    "short_name": "MUN",
+    "strength": 3,
+    "strength_overall_home": 1095,
+    "strength_overall_away": 1135
+  },
+  {
+    "team_id": 15,
+    "name": "Newcastle",
+    "short_name": "NEW",
+    "strength": 4,
+    "strength_overall_home": 1220,
+    "strength_overall_away": 1255
+  },
+  {
+    "team_id": 16,
+    "name": "Nott'm Forest",
+    "short_name": "NFO",
+    "strength": 4,
+    "strength_overall_home": 1220,
+    "strength_overall_away": 1290
+  },
+  {
+    "team_id": 17,
+    "name": "Southampton",
+    "short_name": "SOU",
+    "strength": 2,
+    "strength_overall_home": 975,
+    "strength_overall_away": 975
+  },
+  {
+    "team_id": 18,
+    "name": "Spurs",
+    "short_name": "TOT",
+    "strength": 3,
+    "strength_overall_home": 1100,
+    "strength_overall_away": 1170
+  },
+  {
+    "team_id": 19,
+    "name": "West Ham",
+    "short_name": "WHU",
+    "strength": 3,
+    "strength_overall_home": 1090,
+    "strength_overall_away": 1100
+  },
+  {
+    "team_id": 20,
+    "name": "Wolves",
+    "short_name": "WOL",
+    "strength": 3,
+    "strength_overall_home": 1125,
+    "strength_overall_away": 1145
+  }
+]

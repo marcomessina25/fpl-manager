@@ -921,6 +921,20 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
     bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
 
+    for dl_cmd, dl_help in (
+        ("download-historical", "Download and normalize historical season data to data/historical"),
+        ("download-season", "Alias for `fpl download-historical` command"),
+    ):
+        dl_p = subcommands.add_parser(dl_cmd, help=dl_help)
+        dl_p.add_argument("--season", "-s", type=str, required=True, help="Historical season (e.g. 2021-22, 2022-23)")
+        dl_p.add_argument("--dest-dir", type=Path, default=None, help="Target directory for normalized JSON files")
+        dl_p.add_argument("--raw-dir", type=Path, default=None, help="Target directory for raw CSV downloads")
+        dl_p.add_argument("--max-gameweeks", type=int, default=38, help="Max gameweeks to download (default: 38)")
+        dl_p.add_argument("--timeout", type=float, default=15.0, help="Network timeout in seconds (default: 15.0)")
+        dl_p.add_argument("--overwrite", action="store_true", help="Overwrite existing downloaded files")
+        dl_p.add_argument("--raw-only", action="store_true", help="Download raw CSVs only without normalizing to JSON")
+        dl_p.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+
 
     arguments = parser.parse_args(argv)
 
@@ -1222,6 +1236,27 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"[{sim.strategy_name}] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
             if arguments.save_report and simulations and simulations[0].saved_report_path:
                 print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
+        elif arguments.command in ("download-historical", "download-season"):
+            from .historical.ingestion import SeasonManifest, download_historical_season, normalize_season_name
+            canonical_season = normalize_season_name(arguments.season)
+            dest_dir = arguments.dest_dir or (DATA_DIRECTORY / "historical" / canonical_season)
+            raw_dir = arguments.raw_dir or (DATA_DIRECTORY / "historical" / "raw" / canonical_season)
+            progress = None if arguments.quiet else print
+            res = download_historical_season(
+                season=canonical_season,
+                output_dir=dest_dir,
+                raw_dir=raw_dir,
+                max_gameweeks=arguments.max_gameweeks,
+                timeout_seconds=arguments.timeout,
+                overwrite=arguments.overwrite,
+                raw_only=arguments.raw_only,
+                progress_callback=progress,
+            )
+            if not arguments.quiet:
+                if isinstance(res, SeasonManifest):
+                    print(f"Historical season '{canonical_season}' ready at: {dest_dir} ({res.total_gameweeks} GWs, {res.num_players} players)")
+                else:
+                    print(f"Historical raw data for season '{canonical_season}' ready at: {raw_dir}")
         else:
             parser.print_help()
     except (RuntimeError, ValueError) as error:

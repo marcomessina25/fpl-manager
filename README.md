@@ -228,6 +228,22 @@ Repeat `--transfer` for a multi-transfer move. The command checks your squad, po
 
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
+### Historical Dataset Acquisition
+
+Download and normalize historical season archives from public FPL repositories into `data/historical/<season>` for prediction and strategy backtesting:
+
+```powershell
+python scripts/download_historical.py --season 2021-22
+```
+
+Or via CLI:
+
+```powershell
+fpl download-historical --season 2021-22
+```
+
+Options include `--max-gameweeks`, `--raw-only`, `--dest-dir`, `--raw-dir`, and `--overwrite`.
+
 ## Current scope (V0.5 Completed)
 
 - **Interactive Local Graphical Dashboard (`fpl gui`)**: Zero-external-dependency local web app with visual football pitch lineup, team switcher, decision logger, transfers visualizer, Wildcard studio, and evaluation hub.

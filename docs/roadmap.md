@@ -603,7 +603,7 @@ to:
 - **Deterministic Baselines & Optimizer Superiority:** Validated that the production branch-and-bound optimizer decisively outperforms both No-Transfer and Simple $xP$ baselines ($+17$ to $+59$ net points).
 - **LLM A/B Evaluation Framework:** Controlled audit trail and strict deterministic validation layer preventing illegal recommendations.
 - **Cross-Season Robustness & V0.8 Decision Gate:** Documented empirical results and architectural actions in `docs/v07/v07_results.md`.
-- **CLI Commands:** Added `fpl backtest-predictions` and `fpl backtest-decisions` for reproducible command-line backtesting.
+- **CLI Commands & Ingestion Utility:** Added `scripts/download_historical.py` (and `fpl download-historical`) for on-demand historical season ingestion, as well as `fpl backtest-predictions` and `fpl backtest-decisions` for reproducible command-line backtesting.
 
 ### 0.7.1 Point-in-time dataset
 
