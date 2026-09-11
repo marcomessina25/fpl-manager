@@ -150,3 +150,41 @@ def test_optimizer_strategy_simulation(tmp_path: Path) -> None:
     assert sim.total_net_points > 0
     assert len(sim.history) == 4
 
+
+def test_llm_advisor_strategy_and_comparison(tmp_path: Path) -> None:
+    from fpl_manager.backtest.engine import compare_simulations
+    from fpl_manager.backtest.strategies import LLMAdvisorStrategy, OptimizerStrategy
+
+    season_dir = tmp_path / "mock_season"
+    generate_mock_season(season_dir, season="2023-24", num_gameweeks=3, num_teams=6, players_per_team=5)
+
+    # 1. Test LLM strategy with invalid recommendation: must reject, increment invalid count, and fall back safely
+    def mock_invalid_advisor(gameweek, squad_ids, proposed_transfers, projections):
+        # Recommend an invalid transfer (player 9999 doesn't exist)
+        return {"transfers": [(squad_ids[0], 9999)]}
+
+    llm_strat_invalid = LLMAdvisorStrategy(
+        advisor_engine=mock_invalid_advisor,
+        provider="mock-llm",
+        model="gpt-test",
+    )
+    sim_invalid = run_sequential_simulation(season_dir, llm_strat_invalid, start_gw=1, end_gw=3)
+
+    assert llm_strat_invalid.invalid_recommendations_count > 0
+    assert len(llm_strat_invalid.decision_logs) == 3
+    # Check that invalid decision was flagged and fallback occurred
+    invalid_log = next(log for log in llm_strat_invalid.decision_logs if not log.is_valid)
+    assert invalid_log.validation_error is not None
+    assert invalid_log.executed_transfers == invalid_log.deterministic_transfers
+
+    # 2. Test compare_simulations
+    opt_strat = OptimizerStrategy(max_transfers=1)
+    sim_opt = run_sequential_simulation(season_dir, opt_strat, start_gw=1, end_gw=3)
+
+    comp = compare_simulations(sim_opt, sim_invalid)
+    assert comp["gameweeks"] == 3
+    assert "strategy_a" in comp
+    assert "strategy_b" in comp
+    assert "net_difference" in comp
+
+

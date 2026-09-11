@@ -383,3 +383,34 @@ def run_sequential_simulation(
         final_bank_tenths=bank,
         history=tuple(history),
     )
+
+
+def compare_simulations(sim_a: SimulationResult, sim_b: SimulationResult) -> dict[str, Any]:
+    """Perform a paired comparative analysis between two simulation runs."""
+    if len(sim_a.history) != len(sim_b.history):
+        raise ValueError("Cannot compare simulations with different gameweek counts.")
+
+    gw_diffs = [b.net_points - a.net_points for a, b in zip(sim_a.history, sim_b.history)]
+    b_wins = sum(1 for d in gw_diffs if d > 0)
+    a_wins = sum(1 for d in gw_diffs if d < 0)
+    ties = sum(1 for d in gw_diffs if d == 0)
+
+    mean_diff = round(sum(gw_diffs) / len(gw_diffs), 2) if gw_diffs else 0.0
+
+    return {
+        "strategy_a": sim_a.strategy_name,
+        "strategy_b": sim_b.strategy_name,
+        "gameweeks": len(gw_diffs),
+        "total_net_points_a": sim_a.total_net_points,
+        "total_net_points_b": sim_b.total_net_points,
+        "net_difference": sim_b.total_net_points - sim_a.total_net_points,
+        "gross_difference": sim_b.total_gross_points - sim_a.total_gross_points,
+        "hits_difference": sim_b.total_hits - sim_a.total_hits,
+        "transfers_difference": sim_b.total_transfers - sim_a.total_transfers,
+        "strategy_b_wins": b_wins,
+        "strategy_a_wins": a_wins,
+        "ties": ties,
+        "mean_gw_difference": mean_diff,
+        "gw_differences": gw_diffs,
+    }
+
