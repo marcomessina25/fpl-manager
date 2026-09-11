@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.6 has been successfully merged into `master`. V0.65 is implemented and validated on the `v065` branch; pending merge. It provides release stabilization, bug fixes, dual-persistence compensating rollback across squad state and SQLite decision records, formation-legal autosubs, xP calibration, multi-team isolation, and chained transfer consolidation. The complete automated test suite passes in CI. V0.65 supports verified OpenRouter free-capable models (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1* with paid credits indicator) that operate under the provider's free usage limits; non-working endpoints have been pruned and deferred to V1.1 for deeper provider and model investigation.
+> **Current planning baseline:** V0.7 is implemented and verified on the `v07` branch. It delivers the complete historical ingestion engine, point-in-time snapshot reconstruction with strict zero-leakage guarantees, out-of-sample prediction backtesting ($xP$, $xM$, availability), and full-season sequential manager decision backtesting proving the production optimizer's decisive superiority ($+17$ to $+59$ net points) over greedy baselines. Phase 0 of V0.8 (point-in-time audit, snapshot freeze, and V0.8 living milestone planning in [`docs/v08/v08.md`](v08/v08.md)) is complete.
 
-See `docs/architecture.md` and `docs/expected_points.md` for the deeper architecture and projection-model design.
+See `docs/architecture.md`, `docs/expected_points.md`, and `docs/v08/v08.md` for the deeper architecture and projection-model design.
 
 ---
 
@@ -596,157 +596,100 @@ to:
 > "The model demonstrably predicts better than simple baselines."
 
 ### Delivered:
-- **Multiple Historical Seasons Ingested:** Complete datasets for 2022-23 (778 players, 38 GWs) and 2023-24 (865 players, 38 GWs) with official FPL origin structures normalized into `data/historical/`.
-- **Zero Future-Leakage Snapshots:** Point-in-time snapshot reconstruction guaranteeing pre-deadline isolation. Verified with automated regression tests.
-- **Prediction Backtesting:** Rigorous out-of-sample evaluation of $xP$ ($\rho \approx 0.52 - 0.60$), minutes ($xM$ MAE 19.1 mins), and availability models across 28,742 player-gameweeks.
+- **Multiple Historical Seasons Ingested:** Complete datasets for 2021-22, 2022-23, 2023-24, 2024-25, and 2025-26 with official FPL origin structures normalized into `data/historical/`.
+- **Zero Future-Leakage Snapshots & Temporal Audit:** Point-in-time snapshot reconstruction guaranteeing pre-deadline isolation. Field-by-field audit completed; eliminated future GW-N matchday minutes reference in inferred availability, verified by automated temporal isolation tests (`tests/test_backtest_no_leakage.py`).
+- **Prediction Backtesting:** Rigorous out-of-sample evaluation of $xP$ ($\rho \approx 0.52 - 0.60$), minutes ($xM$ MAE 19.1 mins), and availability models across historical player-gameweeks.
 - **Sequential Manager Replay Simulation:** Full season replay engine tracking bank, purchase/selling prices, free transfers, transfer hits, starting lineup legality, formation-legal autosubs, and captain promotion.
 - **Deterministic Baselines & Optimizer Superiority:** Validated that the production branch-and-bound optimizer decisively outperforms both No-Transfer and Simple $xP$ baselines ($+17$ to $+59$ net points).
 - **LLM A/B Evaluation Framework:** Controlled audit trail and strict deterministic validation layer preventing illegal recommendations.
 - **Cross-Season Robustness & V0.8 Decision Gate:** Documented empirical results and architectural actions in `docs/v07/v07_results.md`.
 - **CLI Commands & Ingestion Utility:** Added `scripts/download_historical.py` (and `fpl download-historical`) for on-demand historical season ingestion, as well as `fpl backtest-predictions` and `fpl backtest-decisions` for reproducible command-line backtesting.
+- **201 Automated Tests:** 100% pass rate across unit, regression, CLI, GUI, backtest, and temporal isolation test suites.
 
-### 0.7.1 Point-in-time dataset
+### 0.7.1 Point-in-time dataset (Completed on 2026-09-11)
 
-Build a historical dataset containing, for each Gameweek:
+Built historical datasets across 5 seasons (2021-22, 2022-23, 2023-24, 2024-25, 2025-26) containing, for each Gameweek:
 
-- players available before deadline;
-- prices at the decision point;
-- ownership;
-- FPL status;
-- chance of playing;
-- minutes;
-- starts;
-- xG/xA and related metrics available at that point;
-- fixtures;
-- FDR;
-- team strength;
-- actual GW outcomes;
-- manager decisions where available.
+- [x] players available before deadline;
+- [x] prices at the decision point;
+- [x] ownership;
+- [x] FPL status;
+- [x] chance of playing;
+- [x] cumulative minutes (strictly GW 1..N-1);
+- [x] cumulative starts (strictly GW 1..N-1);
+- [x] xG/xA and related metrics available at that point;
+- [x] scheduled fixtures and FDR;
+- [x] team strength;
+- [x] ground truth match outcomes;
+- [x] sequential manager decision replay trail.
 
-### Critical rule: no future leakage
+#### Critical rule: no future leakage (Verified & Audited)
 
-For a GW N prediction, the model may only use information that would have been available before the GW N deadline.
+For a GW N prediction, the model may only use information available before the GW N deadline. Field-by-field audit completed on 2026-09-11; removed forward-looking GW-N matchday minutes from availability status inference, and verified zero-leakage invariants through `tests/test_backtest_no_leakage.py`.
 
-Do not use:
+### 0.7.2 Baselines (Completed on 2026-09-11)
 
-- final GW statistics;
-- future injury information;
-- future price changes;
-- future ownership;
-- post-deadline team news;
-- future fixtures/results;
-- later versions of the same statistic.
+Compared the full model against simple baselines across multiple complete seasons:
 
-Point-in-time integrity is more important than model complexity.
+- [x] previous PPG / season PPG;
+- [x] form;
+- [x] price;
+- [x] xG90 / xA90 / xGI90;
+- [x] simple FDR-adjusted xP;
+- [x] simple minutes-adjusted xP;
+- [x] No-Transfer baseline (null policy);
+- [x] Simple $xP$ greed baseline.
 
-### 0.7.2 Baselines
+Empirical finding: The production branch-and-bound optimizer outperforms greedy single-transfer moves by $+17$ to $+59$ net points across 38 gameweeks.
 
-Compare the full model against simple baselines:
+### 0.7.3 Calibration & Backtesting (Completed on 2026-09-11)
 
-- previous PPG;
-- season PPG;
-- form;
-- price;
-- xG90;
-- xA90;
-- xGI90;
-- simple FDR-adjusted xP;
-- simple minutes-adjusted xP.
+Automated prediction backtesting engine implemented (`fpl backtest-predictions`):
 
-The complicated model must beat meaningful baselines before complexity is justified.
+- [x] xP MAE and RMSE;
+- [x] rank correlation ($\rho \approx 0.52 - 0.60$);
+- [x] prediction bias and calibration across deciles;
+- [x] calibration by position and FDR;
+- [x] top-tier precision and captaincy pick accuracy;
+- [x] persistent backtest reporting in `reports/backtests/`.
 
-### 0.7.3 Calibration
+### 0.7.4 – 0.7.7 Transition to V0.8
 
-Measure:
-
-- xP MAE;
-- xP RMSE;
-- rank correlation;
-- prediction bias;
-- calibration by xP bucket;
-- calibration by position;
-- calibration by price;
-- calibration by minutes;
-- calibration by availability;
-- calibration by FDR;
-- calibration by Gameweek horizon.
-
-### 0.7.4 Minutes model
-
-Prioritize minutes prediction.
-
-Estimate:
-
-- probability of starting;
-- probability of 1–59 minutes;
-- probability of 60+ minutes;
-- expected minutes.
-
-Candidate features:
-
-- recent starts;
-- recent minutes;
-- starts/minutes ratio;
-- manager selection patterns;
-- price;
-- position;
-- injury status;
-- suspension;
-- fixture congestion;
-- European matches;
-- recent rotation;
-- team strength;
-- historical role.
-
-### 0.7.5 Match-event model
-
-Move from coarse multipliers toward probabilistic components:
-
-- probability of appearance;
-- expected goals;
-- expected assists;
-- probability of clean sheet;
-- expected goals conceded;
-- probability of bonus;
-- card probability.
-
-The objective is not necessarily maximum model sophistication; it is improved out-of-sample accuracy.
-
-### 0.7.6 Uncertainty
-
-Replace the current Gaussian-style heuristic interpretation with empirically evaluated distributions.
-
-Potential outputs:
-
-- P10;
-- P25;
-- median;
-- P75;
-- P90;
-- expected value;
-- variance.
-
-If a normal approximation remains useful, it must be treated as an approximation and validated empirically.
-
-### 0.7.7 Model registry
-
-Introduce versioned model metadata:
-
-```text
-model_version
-training_data_cutoff
-feature_set_version
-parameter_version
-prediction_timestamp
-```
-
-Every decision should be traceable to the exact model configuration that generated it.
+Empirical backtesting in V0.7 demonstrated that expected minutes ($xM$) and rotation uncertainty are the primary drivers of $xP$ error. Consequently, standalone participation modeling, two-stage minutes regression, and empirical uncertainty have been formally promoted to the **Core V0.8 Research Programme (P1–P4)** in [`docs/v08/v08.md`](v08/v08.md).
 
 ---
 
-# V0.8 — Rank-aware decision optimisation and football context
+# V0.8 — Predictive Participation, Rank-Aware Decisions & Football Context
 
-Once the predictive engine is reasonably calibrated, improve the decision objective.
+> **Living milestone plan:** [`docs/v08/v08.md`](v08/v08.md)  
+> **Status:** Active research milestone. Phase 0 completed on 2026-09-11; Phase 1 (Core Research) underway.
+
+### Quick summary of V0.8
+
+V0.8 uses the historical measurement framework established in V0.7 to improve the predictive model based on empirically measured failure modes.
+
+- **Primary objective:** Improve player participation prediction ($P(\text{start})$, $P(\text{play})$, $xM$) — identified in V0.7 as the primary bottleneck of expected points ($xP$) error, especially in the 30–70 minute rotation region — and measure whether that improvement translates into better FPL decisions.
+- **Core strategy:** Preserve the proven deterministic decision and optimizer architecture while upgrading its weakest predictive component, then layering rank-aware utility objectives and structured football context.
+
+### V0.8 Workstreams & Delivery Status
+
+| Priority | Workstream | Description | Status |
+|---|---|---|---|
+| **P0** | **Phase 0 — Leakage Audit & Snapshot Freeze** | Verify point-in-time contract field-by-field, eliminate future-GW outcome references, freeze historical baseline. | **[x] Completed** |
+| **P1** | **Participation-Error Analysis** | Quantify where minutes errors cause bad transfer/lineup decisions; identify the rotation cohort. | In Progress |
+| **P2** | **Dedicated $P(\text{start})$ / $P(\text{play})$ Model** | Replace coarse FPL status with probabilistic classifier trained on historical appearances. | Planned |
+| **P3** | **Improved Expected-Minutes Model** | Two-stage or conditional minutes model given start/sub probability. | Planned |
+| **P4** | **Decision-Level Impact Evaluation** | Sequential backtest verifying if improved participation modeling yields higher net manager points. | Planned |
+| **P5** | **Congestion & Rotation Features** | Days since last match, European midweek fixtures, cup congestion. | Planned |
+| **P6** | **Player-Role & Manager Patterns** | Manager-specific rotation tendencies, early substitution thresholds. | Planned |
+| **P7** | **Rank-Aware Decision Optimisation** | Expected rank gain, downside protection, chasing vs. defending lead utility profiles. | Planned |
+| **P8** | **Effective Ownership (EO) Refinement** | Tiered EO estimation and rank-sensitive exposure metrics. | Planned |
+| **P9** | **Structured Football Information Layer** | Distinguish FACT / INFERENCE / RUMOUR in press conferences and team news. | Planned |
+| **P10** | **Qualitative LLM Strategic Analyst** | Use LLM to critique viable optimizer strategies without allowing numerical vetoes. | Planned |
+| **P11** | **Broader $xP$ Component Calibration** | Calibrate Opta xG/xA conversion ratios and defensive clean-sheet probabilities. | Planned |
+| **P12** | **UI / Presentation Enhancements** | Visual participation indicators, risk-adjusted ranking toggles. | Planned |
+
+---
 
 ## 0.8.1 Rank-aware optimisation
 
