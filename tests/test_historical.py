@@ -103,3 +103,68 @@ def test_parse_csv_and_ingest_season(tmp_path: Path) -> None:
     assert p["position"] == int(Position.MIDFIELDER)
     assert p["price_tenths"] == 85
     assert p["total_points"] == 10
+
+
+def test_build_historical_snapshot_and_validation(tmp_path: Path) -> None:
+    from fpl_manager.historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
+    from fpl_manager.historical.validation import (
+        validate_no_future_leakage,
+        validate_season_dataset,
+        validate_snapshot_integrity,
+    )
+
+    season_dir = tmp_path / "mock_season"
+    generate_mock_season(season_dir, season="2023-24", num_gameweeks=5, num_teams=6, players_per_team=5)
+
+    # Validate dataset structure
+    dataset_report = validate_season_dataset(season_dir)
+    assert dataset_report["valid"] is True
+    assert dataset_report["gameweeks_verified"] == 5
+
+    # GW1 snapshot: MUST have 0 prior points and 0 prior minutes
+    gw1_snapshot = build_historical_snapshot(season_dir, gameweek=1)
+    assert gw1_snapshot.gameweek == 1
+    assert gw1_snapshot.finished_gameweeks == 0
+    assert len(gw1_snapshot.players) == 30  # 6 * 5
+
+    gw1_issues = validate_snapshot_integrity(gw1_snapshot)
+    assert gw1_issues == []
+
+    gw1_outcomes = load_gameweek_outcomes(season_dir, gameweek=1)
+    gw1_leakage = validate_no_future_leakage(gw1_snapshot, gw1_outcomes)
+    assert gw1_leakage == []
+
+    for p in gw1_snapshot.players:
+        assert p.minutes == 0
+        assert p.total_points == 0
+        assert p.starts == 0
+
+    # GW3 snapshot: Prior stats must strictly reflect GW1 + GW2 only
+    gw3_snapshot = build_historical_snapshot(season_dir, gameweek=3)
+    assert gw3_snapshot.gameweek == 3
+    assert gw3_snapshot.finished_gameweeks == 2
+    assert len(gw3_snapshot.fixtures) == 3  # 6 teams = 3 fixtures
+
+    gw3_issues = validate_snapshot_integrity(gw3_snapshot)
+    assert gw3_issues == []
+
+    gw3_outcomes = load_gameweek_outcomes(season_dir, gameweek=3)
+    gw3_leakage = validate_no_future_leakage(gw3_snapshot, gw3_outcomes)
+    assert gw3_leakage == []
+
+    # Check that a player who played in GW1 & GW2 has positive cumulative minutes,
+    # but does NOT have GW3 minutes added into their snapshot!
+    gw1_data = json.loads((season_dir / "gws" / "gw1.json").read_text(encoding="utf-8"))
+    gw2_data = json.loads((season_dir / "gws" / "gw2.json").read_text(encoding="utf-8"))
+    gw3_data = json.loads((season_dir / "gws" / "gw3.json").read_text(encoding="utf-8"))
+
+    p1_gw1 = next(x for x in gw1_data if x["player_id"] == 1)
+    p1_gw2 = next(x for x in gw2_data if x["player_id"] == 1)
+    p1_gw3 = next(x for x in gw3_data if x["player_id"] == 1)
+
+    p1_snap = next(x for x in gw3_snapshot.players if x.player_id == 1)
+    expected_pts_prior = p1_gw1["total_points"] + p1_gw2["total_points"]
+    assert p1_snap.total_points == expected_pts_prior
+    # Invariant: GW3 points must NOT be in snapshot
+    assert p1_snap.total_points != expected_pts_prior + p1_gw3["total_points"]
+

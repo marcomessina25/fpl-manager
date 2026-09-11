@@ -144,9 +144,10 @@ def parse_fixtures_csv(fixtures_csv_path: Path) -> list[dict[str, Any]]:
     return fixtures
 
 
-def parse_gw_csv(gw_csv_path: Path) -> list[dict[str, Any]]:
+def parse_gw_csv(gw_csv_path: Path, team_name_to_id: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """Parse a single gameweek CSV into normalized player performance dictionaries."""
     records: list[dict[str, Any]] = []
+    t_map = team_name_to_id or {}
     with gw_csv_path.open("r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -164,7 +165,16 @@ def parse_gw_csv(gw_csv_path: Path) -> list[dict[str, Any]]:
             else:
                 pos = Position.MIDFIELDER
 
-            team_id = _safe_int(row.get("team", row.get("team_id", 1)))
+            team_raw = row.get("team", row.get("team_id", 1))
+            if str(team_raw) in t_map:
+                team_id = t_map[str(team_raw)]
+            else:
+                team_id = _safe_int(team_raw, 0)
+                if team_id == 0 and str(team_raw).strip() in t_map:
+                    team_id = t_map[str(team_raw).strip()]
+                elif team_id == 0:
+                    # fallback to 1 if entirely unknown
+                    team_id = 1
             val = _safe_int(row.get("value"), 50)  # in tenths (e.g. 50 = £5.0m)
             total_points = _safe_int(row.get("total_points"))
             minutes = _safe_int(row.get("minutes"))
@@ -235,10 +245,12 @@ def ingest_season(
 
     all_player_ids: set[int] = set()
     deadlines: dict[int, str] = {}
+    team_map = {t["name"]: t["team_id"] for t in teams}
+    team_map.update({t["short_name"]: t["team_id"] for t in teams})
 
     for gw_file in gw_files:
         gw_num = int(gw_file.stem.replace("gw", ""))
-        gw_data = parse_gw_csv(gw_file)
+        gw_data = parse_gw_csv(gw_file, team_name_to_id=team_map)
         for r in gw_data:
             all_player_ids.add(r["player_id"])
         (gws_dest / f"gw{gw_num}.json").write_text(json.dumps(gw_data, indent=2), encoding="utf-8")
