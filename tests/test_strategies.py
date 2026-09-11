@@ -134,3 +134,19 @@ def test_simple_xp_strategy_simulation(tmp_path: Path) -> None:
     assert sim.gameweeks_played == 4
     assert sim.total_net_points > 0
     assert len(sim.history) == 4
+
+
+def test_optimizer_strategy_simulation(tmp_path: Path) -> None:
+    from fpl_manager.backtest.strategies import OptimizerStrategy
+
+    season_dir = tmp_path / "mock_season"
+    generate_mock_season(season_dir, season="2023-24", num_gameweeks=4, num_teams=6, players_per_team=5)
+
+    strategy = OptimizerStrategy(max_transfers=1, min_net_gain=0.10)
+    sim = run_sequential_simulation(season_dir, strategy, start_gw=1, end_gw=4)
+
+    assert "Production Optimizer" in sim.strategy_name
+    assert sim.gameweeks_played == 4
+    assert sim.total_net_points > 0
+    assert len(sim.history) == 4
+

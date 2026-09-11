@@ -127,3 +127,116 @@ class SimpleXpStrategy(BacktestStrategy):
                 break
 
         return [best_transfer] if best_transfer else []
+
+
+class OptimizerStrategy(BacktestStrategy):
+    """Baseline C: Production combinatorial branch-and-bound transfer optimizer."""
+
+    def __init__(
+        self,
+        max_transfers: int = 1,
+        allow_hits: bool = False,
+        risk_profile: str = "neutral",
+        min_net_gain: float = 0.50,
+    ) -> None:
+        self.max_transfers = max(1, min(3, max_transfers))
+        self.allow_hits = allow_hits
+        self.risk_profile = risk_profile
+        self.min_net_gain = min_net_gain
+
+    @property
+    def name(self) -> str:
+        return f"Production Optimizer ({self.risk_profile})"
+
+    def decide_transfers(
+        self,
+        current_squad_ids: list[int],
+        purchase_prices: dict[int, int],
+        bank_tenths: int,
+        free_transfers: int,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+    ) -> list[tuple[int, int]]:
+        from ..optimizer import PlayerOptInfo, solve_transfers
+
+        # 1. Build PlayerOptInfo map
+        opt_map: dict[int, PlayerOptInfo] = {}
+        for p in projections:
+            opt_map[p.player_id] = PlayerOptInfo(
+                id=p.player_id,
+                name=p.web_name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=p.team_short,
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=0,
+                expected_points=p.expected_points,
+                expected_minutes=p.expected_minutes,
+                xp_floor=p.xp_floor,
+                xp_ceiling=p.xp_ceiling,
+                standard_deviation=p.standard_deviation,
+            )
+
+        squad_set = set(current_squad_ids)
+        squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
+        cand_pool = [opt for pid, opt in opt_map.items() if pid not in squad_set]
+
+        # 2. Build selling prices
+        selling_prices: dict[int, int] = {}
+        for pid in current_squad_ids:
+            cur_p = opt_map.get(pid)
+            cur_price = cur_p.price_tenths if cur_p else 50
+            bought = purchase_prices.get(pid, cur_price)
+            if cur_price > bought:
+                selling_prices[pid] = bought + (cur_price - bought) // 2
+            else:
+                selling_prices[pid] = cur_price
+
+        # 3. FDR & Ticker maps
+        fdr_map: dict[str, float] = {}
+        ticker_map: dict[str, str] = {}
+        for fix in snapshot.fixtures:
+            h_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_h), "")
+            a_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_a), "")
+            if h_team:
+                fdr_map[h_team] = float(fix.team_h_difficulty)
+                ticker_map[h_team] = f"{a_team} (H)"
+            if a_team:
+                fdr_map[a_team] = float(fix.team_a_difficulty)
+                ticker_map[a_team] = f"{h_team} (A)"
+
+        best_moves: list[tuple[int, int]] = []
+        best_gain = self.min_net_gain
+
+        # Evaluate transfer count options
+        k_max = self.max_transfers if self.allow_hits else min(self.max_transfers, free_transfers)
+        if k_max <= 0:
+            return []
+
+        for k in range(1, k_max + 1):
+            recs, _ = solve_transfers(
+                num_transfers=k,
+                squad_players=squad_opt,
+                candidate_pool=cand_pool,
+                bank_tenths=bank_tenths,
+                free_transfers=free_transfers,
+                selling_prices=selling_prices,
+                fdr_map=fdr_map,
+                ticker_map=ticker_map,
+                risk_profile=self.risk_profile,
+                max_results=5,
+            )
+
+            for rec in recs:
+                if not self.allow_hits and rec.get("hit_cost", 0) > 0:
+                    continue
+                net_gain = rec.get("score", rec.get("xp_delta", 0.0))
+                if net_gain > best_gain:
+                    best_gain = net_gain
+                    out_list = [p["id"] for p in rec.get("outgoing", [])]
+                    in_list = [p["id"] for p in rec.get("incoming", [])]
+                    best_moves = list(zip(out_list, in_list))
+
+        return best_moves
+
