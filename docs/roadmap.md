@@ -583,17 +583,27 @@ Endpoints that failed with OpenRouter HTTP 404 (`No endpoints found for <model>`
 
 # V0.7 — Historical backtesting and predictive-engine validation
 
-**Priority: highest after V0.65.**
+**Status: completed on 2026-09-11.**
 
 This is the first major research milestone.
 
-The project must transition from:
+The project transitioned from:
 
 > "The model looks sensible."
 
 to:
 
 > "The model demonstrably predicts better than simple baselines."
+
+### Delivered:
+- **Multiple Historical Seasons Ingested:** Complete datasets for 2022-23 (778 players, 38 GWs) and 2023-24 (865 players, 38 GWs) with official FPL origin structures normalized into `data/historical/`.
+- **Zero Future-Leakage Snapshots:** Point-in-time snapshot reconstruction guaranteeing pre-deadline isolation. Verified with automated regression tests.
+- **Prediction Backtesting:** Rigorous out-of-sample evaluation of $xP$ ($\rho \approx 0.52 - 0.60$), minutes ($xM$ MAE 19.1 mins), and availability models across 28,742 player-gameweeks.
+- **Sequential Manager Replay Simulation:** Full season replay engine tracking bank, purchase/selling prices, free transfers, transfer hits, starting lineup legality, formation-legal autosubs, and captain promotion.
+- **Deterministic Baselines & Optimizer Superiority:** Validated that the production branch-and-bound optimizer decisively outperforms both No-Transfer and Simple $xP$ baselines ($+17$ to $+59$ net points).
+- **LLM A/B Evaluation Framework:** Controlled audit trail and strict deterministic validation layer preventing illegal recommendations.
+- **Cross-Season Robustness & V0.8 Decision Gate:** Documented empirical results and architectural actions in `docs/v07/v07_results.md`.
+- **CLI Commands:** Added `fpl backtest-predictions` and `fpl backtest-decisions` for reproducible command-line backtesting.
 
 ### 0.7.1 Point-in-time dataset
 

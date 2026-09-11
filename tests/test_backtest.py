@@ -120,3 +120,19 @@ def test_run_prediction_backtest_integration(tmp_path: Path) -> None:
     assert metrics["xm"]["overall_mae"] >= 0.0
     assert "FORWARD" in metrics["by_position"]
     assert "budget (<=5.0m)" in metrics["by_price_tier"]
+
+
+def test_cli_backtest_commands(monkeypatch, capsys) -> None:
+    from fpl_manager.cli import main
+
+    # 1. Test backtest-predictions via CLI
+    main(["backtest-predictions", "--season", "2023-24", "--start-gw", "1", "--end-gw", "2", "--report"])
+    captured = capsys.readouterr()
+    assert "Historical Prediction Backtest Report" in captured.out
+    assert "MAE" in captured.out
+
+    # 2. Test backtest-decisions via CLI
+    main(["backtest-decisions", "--season", "2023-24", "--strategy", "notransfer", "--start-gw", "1", "--end-gw", "2"])
+    captured = capsys.readouterr()
+    assert "[No-Transfer Baseline] Net Points:" in captured.out
+
