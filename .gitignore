@@ -7,6 +7,7 @@ __pycache__/
 # Runtime data is reproducible from the FPL API and may become large.
 data/*.sqlite3
 data/raw/
+data/historical/raw/
 reports/*.json
 reports/*.md
 config/current_squad.json
