@@ -121,11 +121,11 @@ def build_historical_snapshot(
         xgc90 = round(xgc / n90, 2)
         cs90 = round(cs / n90, 2)
 
-        # Inferred availability status
-        status = "a"
-        chance_next: int | None = None
-        if finished_gws >= 3 and mins == 0 and p.get("minutes", 0) == 0:
-            # Player consistently not playing
+        # Inferred availability status strictly knowable prior to deadline
+        status = p.get("status", "a")
+        chance_next: int | None = p.get("chance_of_playing_next_round")
+        if status == "a" and finished_gws >= 3 and mins == 0:
+            # Player consistently not playing across completed gameweeks (1..N-1)
             status = "d"
 
         players_list.append(
