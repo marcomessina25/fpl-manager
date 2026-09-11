@@ -164,6 +164,8 @@ def run_prediction_backtest(
     season_dir: Path,
     start_gw: int = 1,
     end_gw: int = 38,
+    save_report: bool = False,
+    output_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[PredictionEvaluationRecord]]:
     """Run point-in-time prediction backtesting across a range of gameweeks.
     
@@ -205,5 +207,14 @@ def run_prediction_backtest(
             )
 
     results = evaluate_predictions(all_records)
+    if save_report:
+        from .reporting import build_backtest_report_path, format_prediction_report, save_backtest_report
+
+        season_name = season_dir.name
+        report_text = format_prediction_report(results, season=season_name, gameweek_range=f"{start_gw}-{end_gw}")
+        target_path = output_path or build_backtest_report_path("predictions", season_name, start_gw, end_gw)
+        save_backtest_report(report_text, target_path)
+        results["saved_report_path"] = str(target_path)
+
     return results, all_records
 

@@ -1,6 +1,144 @@
 """Reporting utilities for historical backtests and research evaluations (V0.7.1)."""
 
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_BACKTEST_REPORTS_DIR = PROJECT_ROOT / "reports" / "backtests"
+
+
+def build_backtest_report_path(
+    report_type: str,
+    *inputs: Any,
+    directory: Path | None = None,
+    version: str | None = None,
+) -> Path:
+    """Build standardized backtest report path.
+
+    Naming convention:
+        {version}_backtest_{report_type}_{input1}_{input2}_....md
+    Example:
+        0.7.0_backtest_predictions_2023-24_1_38.md
+        0.7.0_backtest_decisions_2023-24_all_1_10.md
+    """
+    if version is None:
+        from .. import __version__
+        version = __version__
+
+    clean_inputs: list[str] = []
+    for inp in inputs:
+        if inp is not None:
+            text = str(inp).strip()
+            if text:
+                clean_inputs.append(text.replace(" ", "_"))
+
+    parts = [version, "backtest", report_type] + clean_inputs
+    filename = f"{'_'.join(parts)}.md"
+    target_dir = directory or DEFAULT_BACKTEST_REPORTS_DIR
+    return target_dir / filename
+
+
+def save_backtest_report(content: str, path: Path) -> Path:
+    """Save backtest report content to specified markdown path, ensuring parent dirs exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def format_decision_report(
+    simulations: list[Any],
+    season: str = "2023-24",
+    start_gw: int = 1,
+    end_gw: int = 10,
+) -> str:
+    """Format sequential decision backtest simulations into a Markdown research report."""
+    if not simulations:
+        return f"# Historical Decision Simulation Backtest Report: Season {season} (GW {start_gw}-{end_gw})\n\nNo simulations run.\n"
+
+    sorted_sims = sorted(simulations, key=lambda s: s.total_net_points, reverse=True)
+
+    lines = [
+        f"# Historical Decision Simulation Backtest Report: Season {season} (GW {start_gw}-{end_gw})",
+        "",
+        f"**Simulated Gameweeks:** {start_gw} - {end_gw} ({end_gw - start_gw + 1} gameweeks)",
+        f"**Evaluated Strategies:** {len(simulations)}",
+        "",
+        "## 1. Strategy Rankings & Executive Summary",
+        "",
+        "| Rank | Strategy | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |",
+        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+    ]
+
+    for rank, s in enumerate(sorted_sims, 1):
+        bank_str = f"£{s.final_bank_tenths / 10:.1f}m"
+        gw_count = s.gameweeks_played if s.gameweeks_played > 0 else (end_gw - start_gw + 1)
+        pts_per_gw = round(s.total_net_points / gw_count, 1) if gw_count > 0 else 0.0
+        lines.append(
+            f"| {rank} | **{s.strategy_name}** | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
+        )
+
+    lines.extend([
+        "",
+        "## 2. Head-to-Head Comparisons",
+        "",
+    ])
+
+    if len(simulations) > 1:
+        # Find baseline strategy (e.g. NoTransferStrategy or last)
+        baseline = next(
+            (
+                s for s in simulations
+                if "baseline" in s.strategy_name.lower() or "notransfer" in s.strategy_name.lower() or "no-transfer" in s.strategy_name.lower()
+            ),
+            simulations[-1],
+        )
+        lines.extend([
+            f"**Baseline Strategy:** {baseline.strategy_name} ({baseline.total_net_points} net pts)",
+            "",
+            "| Strategy | vs Baseline Net Pts | Net Difference | Wins | Losses | Ties | Mean GW Diff |",
+            "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        ])
+        for s in sorted_sims:
+            if s.strategy_name == baseline.strategy_name:
+                continue
+            net_diff = s.total_net_points - baseline.total_net_points
+            diff_str = f"+{net_diff}" if net_diff > 0 else str(net_diff)
+            gw_diffs = [
+                b.net_points - a.net_points
+                for a, b in zip(baseline.history, s.history)
+            ]
+            wins = sum(1 for d in gw_diffs if d > 0)
+            losses = sum(1 for d in gw_diffs if d < 0)
+            ties = sum(1 for d in gw_diffs if d == 0)
+            mean_d = round(sum(gw_diffs) / len(gw_diffs), 2) if gw_diffs else 0.0
+            mean_d_str = f"+{mean_d:.2f}" if mean_d > 0 else f"{mean_d:.2f}"
+            lines.append(
+                f"| **{s.strategy_name}** | {s.total_net_points} vs {baseline.total_net_points} | **{diff_str}** | {wins} | {losses} | {ties} | {mean_d_str} pts/GW |"
+            )
+        lines.append("")
+    else:
+        lines.extend([
+            "Single strategy evaluated. Run with `--strategy all` to compare multiple decision strategies.",
+            "",
+        ])
+
+    lines.extend([
+        "## 3. Gameweek-by-Gameweek Progression",
+        "",
+        "| GW | Strategy | Net Points | Gross Points | Hits | Transfers | Auto-Subs | Captain Promoted |",
+        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+    ])
+
+    for s in sorted_sims:
+        for rec in s.history:
+            subs_str = len(rec.autosubs) if rec.autosubs else 0
+            cap_prom = "Yes" if rec.captain_promoted else "No"
+            lines.append(
+                f"| GW{rec.gameweek} | {s.strategy_name} | {rec.net_points} | {rec.gross_points} | -{rec.transfer_hits} | {len(rec.transfers)} | {subs_str} | {cap_prom} |"
+            )
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def format_prediction_report(results: dict[str, Any], season: str = "2023-24", gameweek_range: str = "1-38") -> str:

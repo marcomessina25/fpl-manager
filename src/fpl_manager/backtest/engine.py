@@ -57,6 +57,8 @@ class SimulationResult:
     total_transfers: int
     final_bank_tenths: int
     history: tuple[GameweekDecisionResult, ...]
+    saved_report_path: str | None = None
+
 
 
 def select_best_lineup(
@@ -273,6 +275,8 @@ def run_sequential_simulation(
     initial_squad_ids: list[int] | None = None,
     start_gw: int = 1,
     end_gw: int = 38,
+    save_report: bool = False,
+    output_path: Path | None = None,
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
     # 1. Initialize squad at start_gw
@@ -370,7 +374,22 @@ def run_sequential_simulation(
             )
         )
 
-    return SimulationResult(
+    target_path_str: str | None = None
+    if save_report:
+        from .reporting import build_backtest_report_path, save_backtest_report
+
+        season_name = season_dir.name
+        strategy_slug = strategy.name.lower().replace(" ", "_")
+        target_path = output_path or build_backtest_report_path(
+            "decisions",
+            season_name,
+            strategy_slug,
+            start_gw,
+            end_gw,
+        )
+        target_path_str = str(target_path)
+
+    result = SimulationResult(
         strategy_name=strategy.name,
         season=snapshot.season,
         start_gw=start_gw,
@@ -382,7 +401,124 @@ def run_sequential_simulation(
         total_transfers=total_transfers,
         final_bank_tenths=bank,
         history=tuple(history),
+        saved_report_path=target_path_str,
     )
+
+    if save_report and target_path_str is not None:
+        from .reporting import format_decision_report, save_backtest_report
+
+        report_text = format_decision_report(
+            [result],
+            season=season_dir.name,
+            start_gw=start_gw,
+            end_gw=end_gw,
+        )
+        save_backtest_report(report_text, Path(target_path_str))
+
+    return result
+
+
+def run_decision_backtest(
+    season_dir: Path,
+    strategy: str | BacktestStrategy | list[BacktestStrategy] = "all",
+    start_gw: int = 1,
+    end_gw: int = 10,
+    max_transfers: int = 1,
+    initial_squad_ids: list[int] | None = None,
+    save_report: bool = False,
+    output_path: Path | None = None,
+) -> list[SimulationResult]:
+    """Run sequential manager decision backtesting across one or more strategies.
+
+    Args:
+        season_dir: Path to the historical season data directory.
+        strategy: Strategy name ("all", "notransfer", "simplexp", "optimizer"),
+            a single strategy instance, or a list of strategy instances.
+        start_gw: First gameweek to evaluate (default: 1).
+        end_gw: Last gameweek to evaluate (default: 10).
+        max_transfers: Max transfer branch limit for OptimizerStrategy (default: 1).
+        initial_squad_ids: Optional fixed starting squad of 15 player IDs.
+        save_report: Whether to save formatted Markdown decision report to reports/backtests/.
+        output_path: Optional custom path for the saved Markdown report.
+
+    Returns:
+        List of SimulationResult objects for each evaluated strategy.
+    """
+    from .reporting import build_backtest_report_path, format_decision_report, save_backtest_report
+    from .strategies import NoTransferStrategy, OptimizerStrategy, SimpleXpStrategy
+
+    strategies: list[BacktestStrategy] = []
+    strategy_label = "all"
+
+    if isinstance(strategy, str):
+        strat_key = strategy.lower().strip()
+        strategy_label = strat_key
+        if strat_key in ("all", "notransfer"):
+            strategies.append(NoTransferStrategy())
+        if strat_key in ("all", "simplexp"):
+            strategies.append(SimpleXpStrategy())
+        if strat_key in ("all", "optimizer"):
+            strategies.append(OptimizerStrategy(max_transfers=max_transfers))
+        if not strategies:
+            raise ValueError(f"Unknown strategy name: '{strategy}'. Supported: all, notransfer, simplexp, optimizer")
+    elif isinstance(strategy, BacktestStrategy):
+        strategies.append(strategy)
+        strategy_label = strategy.name.lower().replace(" ", "_")
+    elif isinstance(strategy, (list, tuple)):
+        strategies.extend(strategy)
+        strategy_label = "_".join(s.name.lower().replace(" ", "_") for s in strategies) if len(strategies) > 1 else strategies[0].name.lower().replace(" ", "_")
+    else:
+        raise ValueError(f"Unsupported strategy argument type: {type(strategy)}")
+
+    simulations: list[SimulationResult] = []
+    for s in strategies:
+        sim = run_sequential_simulation(
+            season_dir=season_dir,
+            strategy=s,
+            initial_squad_ids=initial_squad_ids,
+            start_gw=start_gw,
+            end_gw=end_gw,
+            save_report=False,
+        )
+        simulations.append(sim)
+
+    if save_report and simulations:
+        season_name = season_dir.name
+        report_text = format_decision_report(
+            simulations,
+            season=season_name,
+            start_gw=start_gw,
+            end_gw=end_gw,
+        )
+        target_path = output_path or build_backtest_report_path(
+            "decisions",
+            season_name,
+            strategy_label,
+            start_gw,
+            end_gw,
+        )
+        save_backtest_report(report_text, target_path)
+
+        simulations = [
+            SimulationResult(
+                strategy_name=s.strategy_name,
+                season=s.season,
+                start_gw=s.start_gw,
+                end_gw=s.end_gw,
+                gameweeks_played=s.gameweeks_played,
+                total_net_points=s.total_net_points,
+                total_gross_points=s.total_gross_points,
+                total_hits=s.total_hits,
+                total_transfers=s.total_transfers,
+                final_bank_tenths=s.final_bank_tenths,
+                history=s.history,
+                saved_report_path=str(target_path),
+            )
+            for s in simulations
+        ]
+
+    return simulations
+
 
 
 def compare_simulations(sim_a: SimulationResult, sim_b: SimulationResult) -> dict[str, Any]:

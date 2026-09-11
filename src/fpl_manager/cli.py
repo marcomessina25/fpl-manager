@@ -911,6 +911,7 @@ def main(argv: list[str] | None = None) -> None:
     bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
     bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
+    bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
     bt_dec_parser = subcommands.add_parser("backtest-decisions", help="Run sequential manager decision backtesting across strategies")
     bt_dec_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
@@ -918,6 +919,8 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
+    bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
+
 
     arguments = parser.parse_args(argv)
 
@@ -1188,29 +1191,37 @@ def main(argv: list[str] | None = None) -> None:
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
-            metrics, _ = run_prediction_backtest(season_dir, start_gw=arguments.start_gw, end_gw=arguments.end_gw)
+            metrics, _ = run_prediction_backtest(
+                season_dir,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                save_report=arguments.save_report,
+            )
+            if arguments.save_report:
+                print(f"Prediction backtest report saved to: {metrics.get('saved_report_path')}")
             if arguments.report:
                 print(format_prediction_report(metrics, season=arguments.season, gameweek_range=f"{arguments.start_gw}-{arguments.end_gw}"))
-            else:
+            elif not arguments.save_report:
                 print(json.dumps(metrics, indent=2, ensure_ascii=False))
         elif arguments.command == "backtest-decisions":
-            from .backtest.engine import run_sequential_simulation
-            from .backtest.strategies import NoTransferStrategy, SimpleXpStrategy, OptimizerStrategy
+            from .backtest.engine import run_decision_backtest
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
 
-            strategies = []
-            if arguments.strategy in ("all", "notransfer"):
-                strategies.append(NoTransferStrategy())
-            if arguments.strategy in ("all", "simplexp"):
-                strategies.append(SimpleXpStrategy())
-            if arguments.strategy in ("all", "optimizer"):
-                strategies.append(OptimizerStrategy(max_transfers=arguments.max_transfers))
+            simulations = run_decision_backtest(
+                season_dir=season_dir,
+                strategy=arguments.strategy,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                max_transfers=arguments.max_transfers,
+                save_report=arguments.save_report,
+            )
 
-            for s in strategies:
-                sim = run_sequential_simulation(season_dir, s, start_gw=arguments.start_gw, end_gw=arguments.end_gw)
+            for sim in simulations:
                 print(f"[{sim.strategy_name}] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
+            if arguments.save_report and simulations and simulations[0].saved_report_path:
+                print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
         else:
             parser.print_help()
     except (RuntimeError, ValueError) as error:
