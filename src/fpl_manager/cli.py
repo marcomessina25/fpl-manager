@@ -906,6 +906,36 @@ def main(argv: list[str] | None = None) -> None:
         ap.add_argument("--api-key", type=str, default=None, help="API key for Gemini/OpenAI/OpenRouter")
         ap.add_argument("--model", type=str, default=None, help="Model name override")
 
+    bt_pred_parser = subcommands.add_parser("backtest-predictions", help="Run historical prediction backtest against point-in-time datasets")
+    bt_pred_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
+    bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+    bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+    bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
+    bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
+
+    bt_dec_parser = subcommands.add_parser("backtest-decisions", help="Run sequential manager decision backtesting across strategies")
+    bt_dec_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
+    bt_dec_parser.add_argument("--strategy", choices=["all", "notransfer", "simplexp", "optimizer"], default="all", help="Strategy to evaluate")
+    bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+    bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
+    bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
+    bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
+
+    for dl_cmd, dl_help in (
+        ("download-historical", "Download and normalize historical season data to data/historical"),
+        ("download-season", "Alias for `fpl download-historical` command"),
+    ):
+        dl_p = subcommands.add_parser(dl_cmd, help=dl_help)
+        dl_p.add_argument("--season", "-s", type=str, required=True, help="Historical season (e.g. 2021-22, 2022-23)")
+        dl_p.add_argument("--dest-dir", type=Path, default=None, help="Target directory for normalized JSON files")
+        dl_p.add_argument("--raw-dir", type=Path, default=None, help="Target directory for raw CSV downloads")
+        dl_p.add_argument("--max-gameweeks", type=int, default=38, help="Max gameweeks to download (default: 38)")
+        dl_p.add_argument("--timeout", type=float, default=15.0, help="Network timeout in seconds (default: 15.0)")
+        dl_p.add_argument("--overwrite", action="store_true", help="Overwrite existing downloaded files")
+        dl_p.add_argument("--raw-only", action="store_true", help="Download raw CSVs only without normalizing to JSON")
+        dl_p.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+
+
     arguments = parser.parse_args(argv)
 
     try:
@@ -1169,6 +1199,64 @@ def main(argv: list[str] | None = None) -> None:
                 model=arguments.model,
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else result.get("markdown", ""))
+        elif arguments.command == "backtest-predictions":
+            from .backtest.metrics import run_prediction_backtest
+            from .backtest.reporting import format_prediction_report
+            season_dir = DATA_DIRECTORY / "historical" / arguments.season
+            if not season_dir.exists():
+                raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            metrics, _ = run_prediction_backtest(
+                season_dir,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                save_report=arguments.save_report,
+            )
+            if arguments.save_report:
+                print(f"Prediction backtest report saved to: {metrics.get('saved_report_path')}")
+            if arguments.report:
+                print(format_prediction_report(metrics, season=arguments.season, gameweek_range=f"{arguments.start_gw}-{arguments.end_gw}"))
+            elif not arguments.save_report:
+                print(json.dumps(metrics, indent=2, ensure_ascii=False))
+        elif arguments.command == "backtest-decisions":
+            from .backtest.engine import run_decision_backtest
+            season_dir = DATA_DIRECTORY / "historical" / arguments.season
+            if not season_dir.exists():
+                raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+
+            simulations = run_decision_backtest(
+                season_dir=season_dir,
+                strategy=arguments.strategy,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                max_transfers=arguments.max_transfers,
+                save_report=arguments.save_report,
+            )
+
+            for sim in simulations:
+                print(f"[{sim.strategy_name}] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
+            if arguments.save_report and simulations and simulations[0].saved_report_path:
+                print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
+        elif arguments.command in ("download-historical", "download-season"):
+            from .historical.ingestion import SeasonManifest, download_historical_season, normalize_season_name
+            canonical_season = normalize_season_name(arguments.season)
+            dest_dir = arguments.dest_dir or (DATA_DIRECTORY / "historical" / canonical_season)
+            raw_dir = arguments.raw_dir or (DATA_DIRECTORY / "historical" / "raw" / canonical_season)
+            progress = None if arguments.quiet else print
+            res = download_historical_season(
+                season=canonical_season,
+                output_dir=dest_dir,
+                raw_dir=raw_dir,
+                max_gameweeks=arguments.max_gameweeks,
+                timeout_seconds=arguments.timeout,
+                overwrite=arguments.overwrite,
+                raw_only=arguments.raw_only,
+                progress_callback=progress,
+            )
+            if not arguments.quiet:
+                if isinstance(res, SeasonManifest):
+                    print(f"Historical season '{canonical_season}' ready at: {dest_dir} ({res.total_gameweeks} GWs, {res.num_players} players)")
+                else:
+                    print(f"Historical raw data for season '{canonical_season}' ready at: {raw_dir}")
         else:
             parser.print_help()
     except (RuntimeError, ValueError) as error:
