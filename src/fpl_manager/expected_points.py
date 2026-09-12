@@ -73,6 +73,7 @@ class ExpectedPointsProjection:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
+    play_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +399,7 @@ def project_player_gameweek(
             price_tenths=price_tenths,
             position=position,
         )
+        p_play = round(min(1.0, p_start + prob_sub), 3)
     else:
         from .participation import predict_player_participation
         part = predict_player_participation(
@@ -420,6 +422,7 @@ def project_player_gameweek(
         p_start = part.p_start
         prob_60 = part.prob_60_plus
         prob_sub = part.p_sub
+        p_play = part.p_play
 
     fixture_projections: list[PlayerFixtureProjection] = []
     total_xp = 0.0
@@ -507,6 +510,7 @@ def project_player_gameweek(
         xp_floor=round(total_floor, 2),
         xp_ceiling=round(total_ceiling, 2),
         standard_deviation=std_dev,
+        play_probability=p_play,
     )
 
 

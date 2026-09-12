@@ -357,7 +357,7 @@ def run_participation_diagnostics(
                 price_tenths=proj.price_tenths,
                 status=state.status,
                 chance_of_playing=state.chance_of_playing_next_round,
-                predicted_availability=round(proj.availability_pct / 100.0, 2),
+                predicted_availability=round(proj.play_probability, 2) if hasattr(proj, "play_probability") else round(proj.availability_pct / 100.0, 2),
                 predicted_start_prob=proj.start_probability,
                 predicted_expected_minutes=proj.expected_minutes,
                 predicted_xp=proj.expected_points,

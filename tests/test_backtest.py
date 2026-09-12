@@ -120,6 +120,8 @@ def test_run_prediction_backtest_integration(tmp_path: Path) -> None:
     assert metrics["xm"]["overall_mae"] >= 0.0
     assert "FORWARD" in metrics["by_position"]
     assert "budget (<=5.0m)" in metrics["by_price_tier"]
+    assert 0.0 <= metrics["availability"]["accuracy"] <= 1.0
+    assert 0.0 <= records[0].predicted_availability <= 1.0
 
 
 def test_cli_backtest_commands(monkeypatch, capsys) -> None:

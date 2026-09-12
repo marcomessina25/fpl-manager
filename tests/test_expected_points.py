@@ -105,6 +105,8 @@ def test_project_gameweek(xp_db: Path) -> None:
     assert saka.expected_points > 0.0
     assert saka.expected_minutes > 0.0
     assert saka.start_probability > 0.0
+    assert 0.0 <= saka.play_probability <= 1.0
+    assert 0.0 <= palmer.play_probability <= 1.0
     assert saka.xp_ceiling >= saka.expected_points
     assert saka.xp_floor <= saka.expected_points
 

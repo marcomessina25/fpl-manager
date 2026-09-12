@@ -202,7 +202,7 @@ def run_prediction_backtest(
                     actual_points=outcome.total_points,
                     predicted_minutes=proj.expected_minutes,
                     actual_minutes=outcome.minutes,
-                    predicted_availability=round(proj.availability_pct / 100.0, 2),
+                    predicted_availability=round(proj.play_probability, 2) if hasattr(proj, "play_probability") else round(proj.availability_pct / 100.0, 2),
                     actual_availability=(outcome.minutes > 0),
                 )
             )
