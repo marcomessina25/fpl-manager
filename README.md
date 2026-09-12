@@ -268,10 +268,10 @@ fpl advise --persona devil_advocate --provider gemini
 
 ## Current scope (V0.8 Completed)
 
-- **Predictive Participation Engine**: Probabilistic $P(\text{start})$, $P(\text{sub})$, $P(\text{play})$ and conditional two-stage expected minutes ($xM$) model reducing out-of-sample minutes MAE from 23.88 mins (V0.7) to 19.88 mins (V0.8, -16.8% error reduction).
+- **Predictive Participation Engine**: Heuristic probabilistic $P(\text{start})$, $P(\text{sub})$, $P(\text{play})$ and conditional two-stage expected minutes ($xM$) model (Bayesian recency blending, exponential role-loss decay, turnaround congestion discounts) serving as a transitional stepping stone before learned ML models in V0.9. Reduces 2023-24 out-of-sample minutes MAE from 23.88 mins (V0.7) to 19.88 mins (V0.8, -16.8% error reduction; latest 2025-26 validation: 13.92 mins xM MAE, 1.150 xP MAE, 0.6750 Spearman).
 - **Point-in-Time Schedule & Rotation Features**: Turnaround congestion thresholds, 7d/14d match congestion, consecutive zero-minute role-loss decay, and recency starts/minutes computed strictly without future leakage.
 - **Empirical Participation Diagnostics (`fpl backtest-participation`)**: Automated pre-deadline root-cause decomposition (`ROLE_LOSS`, `TACTICAL_BENCH`, `CONGESTION_ROTATION`, `INJURY_FITNESS_DOUBT`, `EARLY_SUBSTITUTION`, `SUBSTITUTE_APPEARANCE`).
-- **A/B Backtesting Framework (`fpl backtest-predictions`, `fpl backtest-decisions`)**: Out-of-sample comparative evaluation across historical seasons with exact `--predictor v0.8|v0.7` controls (+9 net points gained on the production optimizer).
+- **A/B Backtesting Framework (`fpl backtest-predictions`, `fpl backtest-decisions`)**: Out-of-sample comparative evaluation across historical seasons with exact `--predictor v0.8|v0.7` controls (+9 net points gained on the production optimizer in 2023-24 controlled benchmark).
 - **Rank-Aware Decision Optimization**: Expanded utility objectives and risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`) across transfer suggestions, Wildcard, Free-Hit, and rolling planning.
 - **Structured Qualitative Football Context Layer**: Traceable observations categorized into `FACT`, `INFERENCE`, `RUMOUR`, and `MODEL_ASSUMPTION` with confidence weights, provenance, and gameweek expiration.
 - **LLM Qualitative Strategy Critique**: Pre-deadline strategy dossier analysis critiquing mathematical optimizer candidates against qualitative football context under strict deterministic rules.
