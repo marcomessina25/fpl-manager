@@ -166,6 +166,7 @@ def run_prediction_backtest(
     end_gw: int = 38,
     save_report: bool = False,
     output_path: Path | None = None,
+    predictor_version: str = "v0.8",
 ) -> tuple[dict[str, Any], list[PredictionEvaluationRecord]]:
     """Run point-in-time prediction backtesting across a range of gameweeks.
     
@@ -180,7 +181,7 @@ def run_prediction_backtest(
 
     for gw in range(start_gw, end_gw + 1):
         snapshot = build_historical_snapshot(season_dir, gw)
-        projections = reconstruct_features_and_project(snapshot)
+        projections = reconstruct_features_and_project(snapshot, predictor_version=predictor_version)
         outcomes = load_gameweek_outcomes(season_dir, gw)
 
         proj_map = {p.player_id: p for p in projections}
@@ -207,12 +208,14 @@ def run_prediction_backtest(
             )
 
     results = evaluate_predictions(all_records)
+    results["predictor_version"] = predictor_version
     if save_report:
         from .reporting import build_backtest_report_path, format_prediction_report, save_backtest_report
 
         season_name = season_dir.name
         report_text = format_prediction_report(results, season=season_name, gameweek_range=f"{start_gw}-{end_gw}")
-        target_path = output_path or build_backtest_report_path("predictions", season_name, start_gw, end_gw)
+        prefix = f"predictions_{predictor_version}" if predictor_version != "v0.7" else "predictions"
+        target_path = output_path or build_backtest_report_path(prefix, season_name, start_gw, end_gw)
         save_backtest_report(report_text, target_path)
         results["saved_report_path"] = str(target_path)
 

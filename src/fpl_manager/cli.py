@@ -761,7 +761,7 @@ def main(argv: list[str] | None = None) -> None:
     suggest_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
-    suggest_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
+    suggest_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe floor), ceiling (upside), defend_lead (protect rank/template), or chase (high-upside differentials)")
 
     options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
     options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
@@ -769,7 +769,7 @@ def main(argv: list[str] | None = None) -> None:
     options_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
-    options_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe rank preservation), or ceiling (upside differential chasing)")
+    options_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
 
     for wc_cmd, wc_help in (
         ("wildcard", "Generate optimal 15-player squad (Wildcard) under budget and team limits"),
@@ -780,7 +780,7 @@ def main(argv: list[str] | None = None) -> None:
         wc_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
         wc_p.add_argument("--team", type=str, default=None, help="Team ID for wildcard/free-hit (defaults to active team)")
         wc_p.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks to evaluate (default: 5)")
-        wc_p.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
+        wc_p.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
         wc_p.add_argument("--output", type=Path, default=WILDCARD_REPORT_PATH, help="Output path for JSON report")
 
     plan_parser = subcommands.add_parser("plan", help="Generate multi-gameweek transfer planning roadmap (3-5 gameweeks)")
@@ -788,7 +788,7 @@ def main(argv: list[str] | None = None) -> None:
     plan_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     plan_parser.add_argument("--team", type=str, default=None, help="Team ID to plan transfers for (defaults to active team)")
     plan_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
-    plan_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling"], default="neutral", help="Optimization risk profile: neutral, floor, or ceiling")
+    plan_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
     plan_parser.add_argument("--no-hits", action="store_true", help="Disallow transfer hits (only execute zero-hit moves and rolled transfers)")
     plan_parser.add_argument("--output", type=Path, default=PLAN_REPORT_PATH, help="Output path for JSON plan artifact")
 
@@ -910,6 +910,7 @@ def main(argv: list[str] | None = None) -> None:
     bt_pred_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
     bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+    bt_pred_parser.add_argument("--predictor", choices=["v0.8", "v0.7", "v08", "v07"], default="v0.8", help="Prediction model version (v0.8 or v0.7)")
     bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
     bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
@@ -919,7 +920,16 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
+    bt_dec_parser.add_argument("--predictor", choices=["v0.8", "v0.7", "v08", "v07"], default="v0.8", help="Prediction model version (v0.8 or v0.7)")
     bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
+
+    for part_cmd in ("backtest-participation", "diagnose-participation"):
+        bt_part_parser = subcommands.add_parser(part_cmd, help="Run participation error diagnostics and root-cause decomposition (V0.8.1)")
+        bt_part_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
+        bt_part_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+        bt_part_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        bt_part_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
+        bt_part_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
     for dl_cmd, dl_help in (
         ("download-historical", "Download and normalize historical season data to data/historical"),
@@ -1205,11 +1215,13 @@ def main(argv: list[str] | None = None) -> None:
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            pred_ver = "v0.7" if arguments.predictor in ("v0.7", "v07") else "v0.8"
             metrics, _ = run_prediction_backtest(
                 season_dir,
                 start_gw=arguments.start_gw,
                 end_gw=arguments.end_gw,
                 save_report=arguments.save_report,
+                predictor_version=pred_ver,
             )
             if arguments.save_report:
                 print(f"Prediction backtest report saved to: {metrics.get('saved_report_path')}")
@@ -1222,7 +1234,7 @@ def main(argv: list[str] | None = None) -> None:
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
-
+            pred_ver = "v0.7" if arguments.predictor in ("v0.7", "v07") else "v0.8"
             simulations = run_decision_backtest(
                 season_dir=season_dir,
                 strategy=arguments.strategy,
@@ -1230,12 +1242,30 @@ def main(argv: list[str] | None = None) -> None:
                 end_gw=arguments.end_gw,
                 max_transfers=arguments.max_transfers,
                 save_report=arguments.save_report,
+                predictor_version=pred_ver,
             )
 
             for sim in simulations:
-                print(f"[{sim.strategy_name}] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
+                print(f"[{sim.strategy_name} ({pred_ver})] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
             if arguments.save_report and simulations and simulations[0].saved_report_path:
                 print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
+        elif arguments.command in ("backtest-participation", "diagnose-participation"):
+            from .backtest.participation import format_participation_report, run_participation_diagnostics
+            season_dir = DATA_DIRECTORY / "historical" / arguments.season
+            if not season_dir.exists():
+                raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            diagnostics, _ = run_participation_diagnostics(
+                season_dir,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                save_report=arguments.save_report,
+            )
+            if arguments.save_report:
+                print(f"Participation diagnostics report saved to: {diagnostics.get('saved_report_path')}")
+            if arguments.report:
+                print(format_participation_report(diagnostics, season=arguments.season, gameweek_range=f"{arguments.start_gw}-{arguments.end_gw}"))
+            elif not arguments.save_report:
+                print(json.dumps(diagnostics, indent=2, ensure_ascii=False))
         elif arguments.command in ("download-historical", "download-season"):
             from .historical.ingestion import SeasonManifest, download_historical_season, normalize_season_name
             canonical_season = normalize_season_name(arguments.season)

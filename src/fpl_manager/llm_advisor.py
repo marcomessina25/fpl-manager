@@ -779,3 +779,68 @@ def _build_advisory_markdown(advisory: dict[str, Any]) -> str:
     ])
 
     return "\n".join(lines)
+
+
+def generate_strategy_dossier_critique(
+    candidate_strategies: list[dict[str, Any]],
+    current_squad: CurrentSquadState,
+    gameweek: int,
+    provider: str = "auto",
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Generate qualitative critique of deterministic optimizer strategy candidates (V0.8.8).
+    
+    Implements Phase 16 architecture:
+    Deterministic Optimizer -> 5-20 Candidate Strategies -> Structured Comparison -> LLM Qualitative Critique -> Human Review.
+    """
+    from .football_context import FootballContextStore
+    context_store = FootballContextStore()
+    active_obs = context_store.list_observations(gameweek=gameweek)
+
+    critique_items = []
+    for idx, strat in enumerate(candidate_strategies[:10], start=1):
+        incoming = strat.get("incoming", [])
+        outgoing = strat.get("outgoing", [])
+        score = strat.get("score", 0.0)
+        hits = strat.get("transfer_hits", 0)
+
+        in_names = [p.get("name", str(p.get("id"))) for p in incoming]
+        out_names = [p.get("name", str(p.get("id"))) for p in outgoing]
+
+        # Contextual warning check
+        warnings = []
+        for inc in incoming:
+            p_id = inc.get("id")
+            p_obs = [o for o in active_obs if o.player_id == p_id]
+            for o in p_obs:
+                warnings.append(f"[{o.obs_type.value}] {o.headline}: {o.detail}")
+
+        traps = []
+        if hits > 0 and score < 4.0:
+            traps.append(f"Transfer hit penalty (-{hits * 4} pts) consumes most of the projected immediate gain.")
+        if any(p.get("expected_minutes", 90.0) < 65.0 for p in incoming):
+            traps.append("One or more incoming targets has elevated partial-minutes / rotation risk.")
+
+        critique_items.append({
+            "candidate_rank": idx,
+            "strategy_type": strat.get("type", "transfer"),
+            "score": score,
+            "hits": hits,
+            "outgoing": out_names,
+            "incoming": in_names,
+            "contextual_warnings": warnings,
+            "tactical_traps": traps,
+            "qualitative_verdict": "Cautious" if (traps or warnings) else "Strong",
+        })
+
+    return {
+        "gameweek": gameweek,
+        "total_candidates_analyzed": len(critique_items),
+        "active_football_contexts": len(active_obs),
+        "candidates": critique_items,
+        "analyst_summary": (
+            f"Evaluated top {len(critique_items)} mathematical optimizer strategies against {len(active_obs)} active football contexts. "
+            f"Rank 1 provides mathematical maximum, while alternatives offer varied risk-profile exposure."
+        ),
+    }

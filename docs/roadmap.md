@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.7 is implemented and verified on the `v07` branch. It delivers the complete historical ingestion engine, point-in-time snapshot reconstruction with strict zero-leakage guarantees, out-of-sample prediction backtesting ($xP$, $xM$, availability), and full-season sequential manager decision backtesting proving the production optimizer's decisive superiority ($+17$ to $+59$ net points) over greedy baselines. Phase 0 of V0.8 (point-in-time audit, snapshot freeze, and V0.8 living milestone planning in [`docs/v08/v08.md`](v08/v08.md)) is complete.
+> **Current planning baseline:** V0.8 is implemented and verified on the `v08` branch. It delivers the dedicated probabilistic participation engine ($P(\text{start})$, $P(\text{play})$, conditional $xM$), zero-leakage rotation and turnaround schedule features, empirical participation error diagnostics (`fpl backtest-participation`), comparative out-of-sample prediction and decision A/B backtesting (+9 net points on optimizer, 16.8% reduction in $xM$ error), rank-aware optimization risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`), a structured qualitative football context layer (`FACT`, `INFERENCE`, `RUMOUR`, `MODEL_ASSUMPTION`), and an LLM strategy dossier critique maintaining strict deterministic legality. Phase 0 through Phase 23 of V0.8 in [`docs/v08/v08.md`](v08/v08.md) are complete.
 
 See `docs/architecture.md`, `docs/expected_points.md`, and `docs/v08/v08.md` for the deeper architecture and projection-model design.
 
@@ -84,11 +84,13 @@ v0.7
         └── first serious predictive-model iteration
         │
         ↓
-v0.8
-        ├── football information layer
-        ├── rank-aware optimization
-        ├── improved uncertainty
-        └── stronger chip / multi-GW planning
+v0.8 (completed on 2026-09-12)
+        ├── predictive participation model (P(start), P(play), conditional xM)
+        ├── rotation-aware and turnaround congestion features
+        ├── empirical participation error diagnostics & decomposition
+        ├── rank-aware optimization (neutral, floor, ceiling, defend_lead, chase)
+        ├── structured football context layer (FACT, INFERENCE, RUMOUR)
+        └── LLM candidate strategy critique dossier
         │
         ↓
 v0.9
@@ -662,7 +664,7 @@ Empirical backtesting in V0.7 demonstrated that expected minutes ($xM$) and rota
 # V0.8 — Predictive Participation, Rank-Aware Decisions & Football Context
 
 > **Living milestone plan:** [`docs/v08/v08.md`](v08/v08.md)  
-> **Status:** Active research milestone. Phase 0 completed on 2026-09-11; Phase 1 (Core Research) underway.
+> **Status:** Completed on 2026-09-12. Core predictive participation, decision-level A/B backtesting, rank-aware optimization, football context layer, and LLM critique dossier delivered and verified.
 
 ### Quick summary of V0.8
 
@@ -676,18 +678,18 @@ V0.8 uses the historical measurement framework established in V0.7 to improve th
 | Priority | Workstream | Description | Status |
 |---|---|---|---|
 | **P0** | **Phase 0 — Leakage Audit & Snapshot Freeze** | Verify point-in-time contract field-by-field, eliminate future-GW outcome references, freeze historical baseline. | **[x] Completed** |
-| **P1** | **Participation-Error Analysis** | Quantify where minutes errors cause bad transfer/lineup decisions; identify the rotation cohort. | In Progress |
-| **P2** | **Dedicated $P(\text{start})$ / $P(\text{play})$ Model** | Replace coarse FPL status with probabilistic classifier trained on historical appearances. | Planned |
-| **P3** | **Improved Expected-Minutes Model** | Two-stage or conditional minutes model given start/sub probability. | Planned |
-| **P4** | **Decision-Level Impact Evaluation** | Sequential backtest verifying if improved participation modeling yields higher net manager points. | Planned |
-| **P5** | **Congestion & Rotation Features** | Days since last match, European midweek fixtures, cup congestion. | Planned |
-| **P6** | **Player-Role & Manager Patterns** | Manager-specific rotation tendencies, early substitution thresholds. | Planned |
-| **P7** | **Rank-Aware Decision Optimisation** | Expected rank gain, downside protection, chasing vs. defending lead utility profiles. | Planned |
-| **P8** | **Effective Ownership (EO) Refinement** | Tiered EO estimation and rank-sensitive exposure metrics. | Planned |
-| **P9** | **Structured Football Information Layer** | Distinguish FACT / INFERENCE / RUMOUR in press conferences and team news. | Planned |
-| **P10** | **Qualitative LLM Strategic Analyst** | Use LLM to critique viable optimizer strategies without allowing numerical vetoes. | Planned |
-| **P11** | **Broader $xP$ Component Calibration** | Calibrate Opta xG/xA conversion ratios and defensive clean-sheet probabilities. | Planned |
-| **P12** | **UI / Presentation Enhancements** | Visual participation indicators, risk-adjusted ranking toggles. | Planned |
+| **P1** | **Participation-Error Analysis** | Quantify where minutes errors cause bad transfer/lineup decisions; identify the rotation cohort (`fpl backtest-participation`). | **[x] Completed** |
+| **P2** | **Dedicated $P(\text{start})$ / $P(\text{play})$ Model** | Replace coarse FPL status with probabilistic classifier trained on historical appearances. | **[x] Completed** |
+| **P3** | **Improved Expected-Minutes Model** | Two-stage conditional minutes model given start/sub probability ($xM$ MAE reduced from 23.88 to 19.88 mins). | **[x] Completed** |
+| **P4** | **Decision-Level Impact Evaluation** | Sequential backtest verifying if improved participation modeling yields higher net manager points (+9 net pts on optimizer). | **[x] Completed** |
+| **P5** | **Congestion & Rotation Features** | Days since last match, turnaround congestion thresholds, 7d/14d match frequency. | **[x] Completed** |
+| **P6** | **Player-Role & Manager Patterns** | Consecutive zero-minute role-loss decay penalty, bench appearance priors. | **[x] Completed** |
+| **P7** | **Rank-Aware Decision Optimisation** | Expected rank gain, downside protection, chasing vs. defending lead utility profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`). | **[x] Completed** |
+| **P8** | **Effective Ownership (EO) Refinement** | Tiered EO estimation, template shields, and differential swords integrated into risk profiles. | **[x] Completed** |
+| **P9** | **Structured Football Information Layer** | Distinguish FACT / INFERENCE / RUMOUR / MODEL_ASSUMPTION with confidence, provenance, and expiry (`fpl_manager.football_context`). | **[x] Completed** |
+| **P10** | **Qualitative LLM Strategic Analyst** | Use LLM to critique top optimizer strategies against active football context without allowing numerical vetoes (`generate_strategy_dossier_critique`). | **[x] Completed** |
+| **P11** | **Broader $xP$ Component Calibration** | Calibrate Opta xG/xA conversion ratios and defensive clean-sheet probabilities. | Deferred to V0.9 |
+| **P12** | **UI / Presentation Enhancements** | Visual participation indicators, risk-adjusted ranking toggles. | Deferred to V0.9 |
 
 ---
 

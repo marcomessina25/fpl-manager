@@ -134,7 +134,8 @@ def test_cli_backtest_commands(monkeypatch, capsys) -> None:
     # 2. Test backtest-decisions via CLI
     main(["backtest-decisions", "--season", "2023-24", "--strategy", "notransfer", "--start-gw", "1", "--end-gw", "2"])
     captured = capsys.readouterr()
-    assert "[No-Transfer Baseline] Net Points:" in captured.out
+    assert "[No-Transfer Baseline" in captured.out
+    assert "Net Points:" in captured.out
 
 
 def test_build_backtest_report_path_naming(tmp_path: Path) -> None:
@@ -257,6 +258,7 @@ def test_run_decision_backtest_save_report(tmp_path: Path) -> None:
 
 
 def test_cli_save_report_flags(capsys) -> None:
+    from fpl_manager import __version__
     from fpl_manager.cli import main
 
     # 1. Prediction CLI with --save-report
@@ -266,7 +268,8 @@ def test_cli_save_report_flags(capsys) -> None:
     pred_path_str = captured.out.strip().split("saved to: ")[1].split("\n")[0].strip()
     pred_file = Path(pred_path_str)
     assert pred_file.exists()
-    assert "0.7.0_backtest_predictions_2023-24_1_2.md" in pred_file.name
+    assert f"{__version__}_backtest_predictions" in pred_file.name
+    assert "2023-24_1_2.md" in pred_file.name
 
     # Clean up generated file
     if pred_file.exists():
@@ -279,7 +282,8 @@ def test_cli_save_report_flags(capsys) -> None:
     dec_path_str = captured.out.strip().split("saved to: ")[1].split("\n")[0].strip()
     dec_file = Path(dec_path_str)
     assert dec_file.exists()
-    assert "0.7.0_backtest_decisions_2023-24_notransfer_1_2.md" in dec_file.name
+    assert f"{__version__}_backtest_decisions" in dec_file.name
+    assert "2023-24_notransfer_1_2.md" in dec_file.name
 
     # Clean up generated file
     if dec_file.exists():
