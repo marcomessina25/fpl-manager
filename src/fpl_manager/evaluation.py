@@ -12,6 +12,7 @@ from typing import Any
 
 from .decision_log import get_gameweek_decision, list_decisions
 from .expected_points import project_gameweek
+from .models import Position
 from .storage import SnapshotStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -184,6 +185,161 @@ def evaluate_bench_decision(
     }
 
 
+LEGAL_FORMATIONS: tuple[tuple[int, int, int], ...] = (
+    (3, 5, 2),
+    (3, 4, 3),
+    (4, 4, 2),
+    (4, 3, 3),
+    (4, 5, 1),
+    (5, 3, 2),
+    (5, 4, 1),
+    (5, 2, 3),
+)
+
+
+def compute_decision_confidence(
+    starter_xps: list[float],
+    bench_xps: list[float],
+    captain_xp: float,
+    vice_captain_xp: float,
+    starter_p_starts: list[float] | None = None,
+) -> dict[str, Any]:
+    """Compute pre-deadline decision confidence score and risk decomposition (V0.9.9)."""
+    min_starter = min(starter_xps) if starter_xps else 0.0
+    outfield_bench_xps = bench_xps[:3] if len(bench_xps) >= 3 else bench_xps
+    max_bench = max(outfield_bench_xps) if outfield_bench_xps else 0.0
+    lineup_margin = round(min_starter - max_bench, 2)
+
+    captaincy_margin = round(max(0.0, captain_xp - vice_captain_xp), 2)
+
+    p_starts = starter_p_starts or [0.90] * len(starter_xps)
+    mean_p_start = sum(p_starts) / len(p_starts) if p_starts else 0.90
+    rotation_risk_index = round(max(0.0, 1.0 - mean_p_start), 3)
+
+    raw_conf = 50.0 + (lineup_margin * 10.0) + (captaincy_margin * 12.0) - (rotation_risk_index * 60.0)
+    confidence_pct = round(max(5.0, min(99.0, raw_conf)), 1)
+
+    if confidence_pct >= 75.0:
+        label = "HIGH"
+    elif confidence_pct >= 50.0:
+        label = "MODERATE"
+    elif confidence_pct >= 30.0:
+        label = "LOW"
+    else:
+        label = "SPECULATIVE"
+
+    return {
+        "confidence_score": confidence_pct,
+        "confidence_label": label,
+        "lineup_certainty_margin": lineup_margin,
+        "captaincy_certainty_margin": captaincy_margin,
+        "rotation_risk_index": rotation_risk_index,
+        "mean_starter_p_start": round(mean_p_start, 3),
+    }
+
+
+def compute_counterfactual_lineups(
+    decision: dict[str, Any],
+    recommended_lineup: dict[str, Any] | None,
+    actual_scores: dict[int, float],
+    players_meta: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    """Calculate closed-loop counterfactual analysis across Human, Model, Hybrid, and Hindsight Optimal."""
+    human_starters = list(decision.get("starting_player_ids", []))
+    human_cap = decision.get("captain_id")
+    human_hits = decision.get("transfer_hits", 0)
+
+    human_pts = sum(actual_scores.get(pid, 0.0) for pid in human_starters) + (actual_scores.get(human_cap, 0.0) if human_cap else 0.0) - (human_hits * 4)
+
+    model_starters: list[int] = []
+    model_cap: int | None = None
+    if recommended_lineup:
+        model_starters = [p["id"] for p in recommended_lineup.get("starters", [])]
+        model_cap = recommended_lineup.get("captain", {}).get("id")
+
+    if model_starters:
+        model_pts = sum(actual_scores.get(pid, 0.0) for pid in model_starters) + (actual_scores.get(model_cap, 0.0) if model_cap else 0.0)
+    else:
+        model_pts = None
+
+    if model_starters and human_starters:
+        hybrid_cap = human_cap if human_cap else model_cap
+        hybrid_pts = sum(actual_scores.get(pid, 0.0) for pid in human_starters) + (actual_scores.get(hybrid_cap, 0.0) if hybrid_cap else 0.0)
+    else:
+        hybrid_pts = human_pts
+
+    squad_ids = decision.get("squad_player_ids") or (human_starters + decision.get("bench_player_ids", []))
+    by_pos: dict[Position, list[tuple[int, float]]] = {pos: [] for pos in Position}
+    for pid in squad_ids:
+        pos = players_meta.get(pid, {}).get("position", Position.MIDFIELDER)
+        pts = actual_scores.get(pid, 0.0)
+        by_pos[pos].append((pid, pts))
+
+    for pos in by_pos:
+        by_pos[pos].sort(key=lambda x: x[1], reverse=True)
+
+    gks = by_pos[Position.GOALKEEPER]
+    defs = by_pos[Position.DEFENDER]
+    mids = by_pos[Position.MIDFIELDER]
+    fwds = by_pos[Position.FORWARD]
+
+    best_hindsight_pts = -999.0
+    best_hindsight_starters: list[int] = []
+    best_hindsight_cap: int | None = None
+
+    best_gk_id = gks[0][0] if gks else (squad_ids[0] if squad_ids else 0)
+    best_gk_pts = gks[0][1] if gks else 0.0
+
+    for d_cnt, m_cnt, f_cnt in LEGAL_FORMATIONS:
+        if len(defs) < d_cnt or len(mids) < m_cnt or len(fwds) < f_cnt:
+            continue
+        cur_starters = [best_gk_id]
+        cur_pts = best_gk_pts
+
+        sel_defs = defs[:d_cnt]
+        cur_starters.extend(p[0] for p in sel_defs)
+        cur_pts += sum(p[1] for p in sel_defs)
+
+        sel_mids = mids[:m_cnt]
+        cur_starters.extend(p[0] for p in sel_mids)
+        cur_pts += sum(p[1] for p in sel_mids)
+
+        sel_fwds = fwds[:f_cnt]
+        cur_starters.extend(p[0] for p in sel_fwds)
+        cur_pts += sum(p[1] for p in sel_fwds)
+
+        starter_scores = [(pid, actual_scores.get(pid, 0.0)) for pid in cur_starters]
+        starter_scores.sort(key=lambda x: x[1], reverse=True)
+        h_cap_id, h_cap_bonus = starter_scores[0]
+        total_formation_pts = cur_pts + h_cap_bonus
+
+        if total_formation_pts > best_hindsight_pts:
+            best_hindsight_pts = total_formation_pts
+            best_hindsight_starters = cur_starters
+            best_hindsight_cap = h_cap_id
+
+    hindsight_gap = round(best_hindsight_pts - human_pts, 2) if best_hindsight_pts > -900 else 0.0
+    human_vs_model_delta = round(human_pts - model_pts, 2) if model_pts is not None else None
+
+    return {
+        "human_actual_total": round(human_pts, 2),
+        "model_actual_total": round(model_pts, 2) if model_pts is not None else None,
+        "hybrid_actual_total": round(hybrid_pts, 2) if hybrid_pts is not None else None,
+        "human_vs_model_delta": human_vs_model_delta,
+        "human_verdict": (
+            "Human beat model" if (human_vs_model_delta is not None and human_vs_model_delta > 0)
+            else ("Model beat human" if (human_vs_model_delta is not None and human_vs_model_delta < 0) else "Tied / Model unavailable")
+        ),
+        "hindsight_optimal": {
+            "disclaimer": "[HINDSIGHT ONLY] Theoretical maximum legal score achievable with perfect future information.",
+            "total_points": round(best_hindsight_pts, 2) if best_hindsight_pts > -900 else None,
+            "starting_player_ids": best_hindsight_starters,
+            "captain_id": best_hindsight_cap,
+            "hindsight_gap_points": hindsight_gap,
+        },
+    }
+
+
 def compare_human_vs_model(
     decision: dict[str, Any],
     recommended_lineup: dict[str, Any] | None,
@@ -293,8 +449,9 @@ def evaluate_gameweek_decision(
     store.initialize()
 
     with closing(store._connect()) as connection:
-        name_rows = connection.execute("SELECT player_id, web_name FROM players GROUP BY player_id").fetchall()
-        players_by_id = dict(name_rows)
+        name_rows = connection.execute("SELECT player_id, web_name, position_id FROM players GROUP BY player_id").fetchall()
+        players_by_id = {r[0]: r[1] for r in name_rows}
+        players_meta = {r[0]: {"name": r[1], "position": Position(r[2]) if r[2] else Position.MIDFIELDER} for r in name_rows}
 
         rec_row = connection.execute(
             """
@@ -321,6 +478,8 @@ def evaluate_gameweek_decision(
             "captaincy": None,
             "bench": None,
             "human_vs_model": None,
+            "decision_confidence": None,
+            "counterfactuals": None,
         }
 
     starters = decision["starting_player_ids"]
@@ -331,6 +490,28 @@ def evaluate_gameweek_decision(
     captain_eval = evaluate_captaincy_decision(starters, cap_id, vc_id, actual_scores, players_by_id)
     bench_eval = evaluate_bench_decision(starters, bench, actual_scores, players_by_id)
     hvm_eval = compare_human_vs_model(decision, recommended_lineup, actual_scores, players_by_id)
+    counterfactuals = compute_counterfactual_lineups(
+        decision=decision,
+        recommended_lineup=recommended_lineup,
+        actual_scores=actual_scores,
+        players_meta=players_meta,
+    )
+
+    # Pre-deadline decision confidence
+    try:
+        from .expected_points import project_gameweek
+        squad_pids = decision.get("squad_player_ids") or (starters + bench)
+        projs = project_gameweek(gameweek=gameweek, player_ids=squad_pids, database_path=database_path)
+        p_xp_map = {p.player_id: p.expected_points for p in projs}
+        p_start_map = {p.player_id: getattr(p, "start_probability", 0.90) for p in projs}
+        starter_xps = [p_xp_map.get(pid, 3.0) for pid in starters]
+        bench_xps = [p_xp_map.get(pid, 2.0) for pid in bench]
+        cap_xp = p_xp_map.get(cap_id, 5.0)
+        vc_xp = p_xp_map.get(vc_id, 4.0)
+        starter_p_starts = [p_start_map.get(pid, 0.90) for pid in starters]
+        decision_conf = compute_decision_confidence(starter_xps, bench_xps, cap_xp, vc_xp, starter_p_starts)
+    except Exception:
+        decision_conf = compute_decision_confidence([4.0] * 11, [2.0] * 4, 6.0, 5.0)
 
     # Actual lineup score
     evaluation_status = "authoritative"
@@ -389,6 +570,8 @@ def evaluate_gameweek_decision(
         "captaincy": captain_eval,
         "bench": bench_eval,
         "human_vs_model": hvm_eval,
+        "decision_confidence": decision_conf,
+        "counterfactuals": counterfactuals,
     }
 
 
@@ -456,19 +639,61 @@ def evaluate_season_decisions(
     total_hits = sum(d.get("transfer_hits", 0) for d in finalized)
 
     gw_details = []
+    total_human_cf = 0.0
+    total_model_cf = 0.0
+    total_hybrid_cf = 0.0
+    total_hindsight_cf = 0.0
+    human_wins = 0
+    model_wins = 0
+    ties = 0
+    conf_scores = []
+
     for d in finalized:
+        gw = d["gameweek"]
         pred_xp = d["predicted_lineup_xp"]
         act_pts = float(d["actual_points"])
         delta = round(act_pts - pred_xp, 1)
+
+        gw_eval = evaluate_gameweek_decision(gw, season=season, team_id=team_id, database_path=database_path)
+        cf = gw_eval.get("counterfactuals") or {}
+        conf = gw_eval.get("decision_confidence") or {}
+
+        if conf.get("confidence_score") is not None:
+            conf_scores.append(conf["confidence_score"])
+
+        h_score = cf.get("human_actual_total", act_pts)
+        m_score = cf.get("model_actual_total")
+        hyb_score = cf.get("hybrid_actual_total", h_score)
+        opt_score = cf.get("hindsight_optimal", {}).get("total_points")
+
+        total_human_cf += h_score
+        if m_score is not None:
+            total_model_cf += m_score
+            if h_score > m_score:
+                human_wins += 1
+            elif m_score > h_score:
+                model_wins += 1
+            else:
+                ties += 1
+        total_hybrid_cf += hyb_score
+        if opt_score is not None:
+            total_hindsight_cf += opt_score
+
         gw_details.append({
-            "gameweek": d["gameweek"],
+            "gameweek": gw,
             "captain_name": d.get("captain_name"),
             "chip_played": d.get("chip_played"),
             "transfer_hits": d.get("transfer_hits", 0),
             "predicted_xp": pred_xp,
             "actual_points": act_pts,
             "delta": delta,
+            "decision_confidence": conf.get("confidence_score"),
+            "confidence_label": conf.get("confidence_label"),
+            "model_actual_points": m_score,
+            "hindsight_optimal_points": opt_score,
         })
+
+    avg_conf = round(sum(conf_scores) / len(conf_scores), 1) if conf_scores else 50.0
 
     result = {
         "season": season,
@@ -484,6 +709,18 @@ def evaluate_season_decisions(
             if mean_bias > 0
             else (f"Model under-predicts by {abs(mean_bias):.1f} pts/GW on average" if mean_bias < 0 else "Neutral")
         ),
+        "average_decision_confidence": avg_conf,
+        "counterfactual_summary": {
+            "total_human_points": round(total_human_cf, 1),
+            "total_model_points": round(total_model_cf, 1),
+            "total_hybrid_points": round(total_hybrid_cf, 1),
+            "total_hindsight_optimal_points": round(total_hindsight_cf, 1),
+            "human_vs_model_net_advantage": round(total_human_cf - total_model_cf, 1),
+            "human_wins": human_wins,
+            "model_wins": model_wins,
+            "ties": ties,
+            "total_hindsight_gap": round(total_hindsight_cf - total_human_cf, 1),
+        },
         "gameweeks": gw_details,
     }
 

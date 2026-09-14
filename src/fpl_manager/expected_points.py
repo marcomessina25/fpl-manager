@@ -257,6 +257,7 @@ def calculate_component_xp(
     expected_goals_conceded_per_90: float = 0.0,
     clean_sheets_per_90: float = 0.0,
     finished_matches: int = 0,
+    predictor_version: str = "v0.8",
 ) -> dict[str, float]:
     """Calculate component-based expected points, floor, ceiling, and variance."""
     if expected_minutes <= 0.0:
@@ -306,26 +307,73 @@ def calculate_component_xp(
 
     fix_xg = eff_xg90 * mins_ratio * fdr_att * ven_mult
     fix_xa = eff_xa90 * mins_ratio * fdr_att * ven_mult
-    xp_att = fix_xg * goal_pts + fix_xa * 3.0
 
-    # 3. Defensive
-    base_cs_prob = 0.32
-    cs_prob = max(0.05, min(0.65, base_cs_prob * fdr_def * (1.15 if is_home else 0.85)))
-    if position in (Position.GOALKEEPER, Position.DEFENDER):
-        xp_cs = 4.0 * cs_prob * prob_60_plus
-        team_xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15))
-        xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
-        xp_def = xp_cs + xp_gc
-    elif position == Position.MIDFIELDER:
-        xp_def = 1.0 * cs_prob * prob_60_plus
+    if predictor_version in ("v0.8", "v0.7"):
+        # Frozen V0.8/V0.7 baseline
+        xp_att = fix_xg * goal_pts + fix_xa * 3.0
+
+        # 3. Defensive
+        base_cs_prob = 0.32
+        cs_prob = max(0.05, min(0.65, base_cs_prob * fdr_def * (1.15 if is_home else 0.85)))
+        if position in (Position.GOALKEEPER, Position.DEFENDER):
+            xp_cs = 4.0 * cs_prob * prob_60_plus
+            team_xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15))
+            xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
+            xp_def = xp_cs + xp_gc
+        elif position == Position.MIDFIELDER:
+            xp_def = 1.0 * cs_prob * prob_60_plus
+        else:
+            xp_def = 0.0
+
+        # 4. Bonus
+        xp_bonus = min(1.8, 0.35 * xp_att + (0.25 * prob_60_plus if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
+
+        # 5. Deduction
+        xp_deduct = 0.15 * mins_ratio
     else:
-        xp_def = 0.0
+        # V0.9 Calibrated Components (Phase 8)
+        # Attacking conversion calibration
+        conv_xg = 0.96 if position == Position.FORWARD else (0.92 if position == Position.MIDFIELDER else 0.85)
+        conv_xa = 0.82
+        xp_att = fix_xg * goal_pts * conv_xg + fix_xa * 3.0 * conv_xa
 
-    # 4. Bonus
-    xp_bonus = min(1.8, 0.35 * xp_att + (0.25 * prob_60_plus if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
+        # Defensive & clean sheet calibration blending observed clean sheet rates
+        if finished_matches >= 3 and clean_sheets_per_90 > 0:
+            w_cs = min(0.60, finished_matches / 8.0)
+            base_cs = w_cs * clean_sheets_per_90 + (1.0 - w_cs) * 0.30
+        else:
+            base_cs = 0.30
+        base_cs_clamped = max(0.10, min(0.55, base_cs))
+        cs_prob = max(0.04, min(0.68, base_cs_clamped * fdr_def * (1.12 if is_home else 0.88)))
 
-    # 5. Deduction
-    xp_deduct = 0.15 * mins_ratio
+        if finished_matches >= 3 and expected_goals_conceded_per_90 > 0:
+            w_xgc = min(0.60, finished_matches / 8.0)
+            base_xgc = w_xgc * expected_goals_conceded_per_90 + (1.0 - w_xgc) * 1.35
+        else:
+            base_xgc = 1.35
+        base_xgc_clamped = max(0.6, min(2.5, base_xgc))
+        team_xgc = max(0.4, base_xgc_clamped * (1.0 + (fdr_clamped - 3) * 0.12) * (0.88 if is_home else 1.12))
+
+        if position in (Position.GOALKEEPER, Position.DEFENDER):
+            xp_cs = 4.0 * cs_prob * prob_60_plus
+            xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
+            # Goalkeeper saves (1 pt per 3 saves; ~0.33 pts per save)
+            xp_saves = min(2.0, max(0.4, 0.70 + 0.25 * team_xgc)) * mins_ratio if position == Position.GOALKEEPER else 0.0
+            xp_def = xp_cs + xp_gc + xp_saves
+        elif position == Position.MIDFIELDER:
+            xp_def = 1.0 * cs_prob * prob_60_plus
+        else:
+            xp_def = 0.0
+
+        # Bonus calibration
+        bonus_pot = 0.32 * xp_att + (0.26 * prob_60_plus if cs_prob > 0.32 and position <= Position.DEFENDER else 0.0)
+        if price_m >= 8.5:
+            bonus_pot *= 1.12
+        xp_bonus = min(2.0, bonus_pot)
+
+        # Disciplinary deduction
+        card_rate = 0.18 if position == Position.DEFENDER else (0.15 if position == Position.MIDFIELDER else 0.10)
+        xp_deduct = card_rate * mins_ratio
 
     total = max(0.0, xp_app + xp_att + xp_def + xp_bonus - xp_deduct)
 
@@ -477,6 +525,7 @@ def project_player_gameweek(
             expected_goals_conceded_per_90=expected_goals_conceded_per_90,
             clean_sheets_per_90=clean_sheets_per_90,
             finished_matches=finished_matches,
+            predictor_version=predictor_version,
         )
 
         if avail <= 0.0:

@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.8 is delivered and merged on `master`. Active development is on branch `v09` delivering V0.9 ([`docs/v09/v09.md`](v09/v09.md)). Phase 0 (baseline freeze), Phase 1 (residual error dataset & 9-class error taxonomy), Phase 2 (structured hierarchical participation architecture), Phase 3 (learned regularized statistical models), Phase 4 (probability calibration via Platt scaling & Isotonic regression), Phase 5 (dynamic rotation regimes & turnaround rest fingerprints), Phase 6 (xP integration), and Phase 7 (decision A/B backtest with multi-season simulations, transfer ROI, and regret tracking) are implemented and verified. Production Optimizer achieves a +30 to +34 net points advantage over frozen V0.8 across multiple historical seasons.
+> **Current planning baseline:** V0.9 is delivered on branch `v09` ([`docs/v09/v09.md`](v09/v09.md)). All 11 phases (Phase 0 baseline freeze through Phase 10 production hardening) are implemented, verified, and backed by 260 hermetic passing tests. Across multiple historical seasons (2023-24, 2022-23), V0.9 achieves higher rank-order discrimination (Spearman correlation: 0.6315 vs 0.6274), reduced bench regret (-10 to -9 points), higher transfer net ROI (+26 to +36 points), and a +26 to +34 net points advantage for the Production Optimizer over the frozen V0.8 baseline. CI testing, provider abstraction, structured errors, and closed-loop counterfactuals are fully operational.
 >
 > See `docs/architecture.md`, `docs/expected_points.md`, `docs/v08/v08.md`, and `docs/v09/v09.md` for architecture and projection-model design.
 
@@ -93,11 +93,17 @@ v0.8 (completed on 2026-09-12)
         └── LLM candidate strategy critique dossier
         │
         ↓
-v0.9
-        ├── closed-loop evaluation
-        ├── model-vs-human experiments
-        ├── provider abstraction
-        └── production hardening
+v0.9 (completed on 2026-09-14)
+        ├── residual error taxonomy (9 error classes)
+        ├── hierarchical learned participation architecture (P(start), P(sub|not start))
+        ├── dynamic role transition regimes & player turnaround fingerprints
+        ├── probability calibration (Platt scaling & Isotonic regression with PAVA)
+        ├── broader xP component calibration (Opta conversion, CS shrinkage, GKP saves, bonus)
+        ├── decision A/B backtest engine (multi-season replay, transfer ROI, regret tracking)
+        ├── closed-loop evaluation & hindsight optimal counterfactuals
+        ├── provider abstraction (isolated envelope with offline heuristic fallback)
+        ├── structured errors (FPLError hierarchy) & security review
+        └── production hardening (CI workflow, type checks, 260 hermetic tests)
         │
         ↓
 v1.0
