@@ -52,6 +52,8 @@ class PlayerFixtureProjection:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     variance: float = 0.0
+    sub_probability: float = 0.0
+    play_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +76,7 @@ class ExpectedPointsProjection:
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
     play_probability: float = 0.0
+    sub_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +490,8 @@ def project_player_gameweek(
                 xp_floor=fix_floor,
                 xp_ceiling=fix_ceil,
                 variance=round(fix_var, 3),
+                sub_probability=prob_sub,
+                play_probability=p_play,
             )
         )
 
@@ -511,6 +516,7 @@ def project_player_gameweek(
         xp_ceiling=round(total_ceiling, 2),
         standard_deviation=std_dev,
         play_probability=p_play,
+        sub_probability=prob_sub,
     )
 
 

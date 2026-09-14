@@ -931,6 +931,17 @@ def main(argv: list[str] | None = None) -> None:
         bt_part_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
         bt_part_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
+    for res_cmd in ("residual-dataset", "residuals"):
+        res_parser = subcommands.add_parser(res_cmd, help="Extract point-in-time residual observation dataset and 9-class error taxonomy (V0.9 Phase 1)")
+        res_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2024-25, 2025-26)")
+        res_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+        res_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        res_parser.add_argument("--predictor", choices=["v0.8", "v0.7", "v08", "v07"], default="v0.8", help="Prediction model version (v0.8 or v0.7)")
+        res_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
+        res_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report")
+        res_parser.add_argument("--export", type=Path, default=None, help="Export observation dataset to file path (.json or .csv)")
+        res_parser.add_argument("--format", choices=["json", "csv"], default="json", help="Export dataset format (json or csv)")
+
     for dl_cmd, dl_help in (
         ("download-historical", "Download and normalize historical season data to data/historical"),
         ("download-season", "Alias for `fpl download-historical` command"),
@@ -1266,6 +1277,29 @@ def main(argv: list[str] | None = None) -> None:
                 print(format_participation_report(diagnostics, season=arguments.season, gameweek_range=f"{arguments.start_gw}-{arguments.end_gw}"))
             elif not arguments.save_report:
                 print(json.dumps(diagnostics, indent=2, ensure_ascii=False))
+        elif arguments.command in ("residual-dataset", "residuals"):
+            from .backtest.residual_dataset import run_residual_dataset_pipeline
+            season_dir = DATA_DIRECTORY / "historical" / arguments.season
+            if not season_dir.exists():
+                raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            pred_ver = "v0.7" if arguments.predictor in ("v0.7", "v07") else "v0.8"
+            summary, _ = run_residual_dataset_pipeline(
+                season_dir=season_dir,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                predictor_version=pred_ver,
+                export_path=arguments.export,
+                export_format=arguments.format,
+                save_report=arguments.save_report,
+            )
+            if arguments.save_report:
+                print(f"Residual dataset report saved to: {summary.get('saved_report_path')}")
+            if arguments.export:
+                print(f"Residual dataset exported to: {summary.get('saved_dataset_path')}")
+            if arguments.report:
+                print(summary.get("markdown", ""))
+            elif not arguments.save_report and not arguments.export:
+                print(json.dumps(summary, indent=2, ensure_ascii=False))
         elif arguments.command in ("download-historical", "download-season"):
             from .historical.ingestion import SeasonManifest, download_historical_season, normalize_season_name
             canonical_season = normalize_season_name(arguments.season)
