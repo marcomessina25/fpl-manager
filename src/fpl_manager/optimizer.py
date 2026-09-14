@@ -43,6 +43,30 @@ class PlayerOptInfo:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
+    selected_by_percent: float = 0.0
+
+
+def get_player_profile_value(p: Any, risk_profile: str) -> float:
+    """Evaluate candidate strategic utility based on risk profile (V0.8.6)."""
+    xp = getattr(p, "expected_points", 0.0)
+    floor_val = getattr(p, "xp_floor", xp)
+    ceil_val = getattr(p, "xp_ceiling", xp)
+    sd = getattr(p, "standard_deviation", 1.0)
+    sel = getattr(p, "selected_by_percent", 10.0)
+
+    if risk_profile == "floor":
+        return floor_val
+    elif risk_profile == "ceiling":
+        return ceil_val
+    elif risk_profile == "defend_lead":
+        # Defend rank: prioritize safety, penalize variance, favor high template ownership
+        return round(floor_val - 0.20 * sd + 0.02 * min(50.0, sel), 2)
+    elif risk_profile == "chase":
+        # Chase rank: prioritize ceiling, reward high variance and differentials
+        diff_bonus = max(0.0, (15.0 - sel) * 0.05)
+        return round(ceil_val + 0.25 * sd + diff_bonus, 2)
+    else:
+        return xp
 
 
 def solve_transfers(
@@ -85,13 +109,7 @@ def solve_transfers(
         by_pos[p.position].append(p)
 
     for pos in by_pos:
-        if risk_profile == "floor":
-            sort_key = lambda p: (p.xp_floor, p.expected_points, -fdr_map.get(p.team_short, 3.0))
-        elif risk_profile == "ceiling":
-            sort_key = lambda p: (p.xp_ceiling, p.expected_points, -fdr_map.get(p.team_short, 3.0))
-        else:
-            sort_key = lambda p: (p.expected_points, p.total_points, -fdr_map.get(p.team_short, 3.0))
-
+        sort_key = lambda p: (get_player_profile_value(p, risk_profile), p.expected_points, -fdr_map.get(p.team_short, 3.0))
         by_pos[pos].sort(key=sort_key, reverse=True)
         by_pos[pos] = by_pos[pos][:cand_limit]
 
@@ -112,12 +130,7 @@ def solve_transfers(
         else:
             top_p = cands[0]
             top_fdr_term = 0.1 * (3.0 - fdr_map.get(top_p.team_short, 3.0))
-            if risk_profile == "floor":
-                max_metric[pos] = top_p.xp_floor + top_fdr_term
-            elif risk_profile == "ceiling":
-                max_metric[pos] = top_p.xp_ceiling + top_fdr_term
-            else:
-                max_metric[pos] = top_p.expected_points + top_fdr_term
+            max_metric[pos] = get_player_profile_value(top_p, risk_profile) + top_fdr_term
 
     heap: list[tuple[float, float, int, int, dict[str, Any]]] = []
     entry_counter = [0]
@@ -157,7 +170,7 @@ def solve_transfers(
         out_fdr_sum = sum(fdr_map.get(p.team_short, 3.0) for p in out_combo)
         out_fdr_avg = out_fdr_sum / num_transfers
 
-        out_baseline = out_floor if risk_profile == "floor" else (out_ceil if risk_profile == "ceiling" else out_xp)
+        out_baseline = sum(get_player_profile_value(p, risk_profile) for p in out_combo)
 
         def dfs(
             slot: int,
@@ -182,6 +195,9 @@ def solve_transfers(
                     rank_metric = floor_delta - hit_penalty_pts
                 elif risk_profile == "ceiling":
                     rank_metric = ceil_delta - hit_penalty_pts
+                elif risk_profile in ("defend_lead", "chase"):
+                    in_metric = sum(get_player_profile_value(p, risk_profile) for p in picked)
+                    rank_metric = round((in_metric - out_baseline) - hit_penalty_pts, 2)
                 else:
                     rank_metric = xp_delta - hit_penalty_pts
 
@@ -247,8 +263,8 @@ def solve_transfers(
 
                 # Upper-bound pruning: stop expanding if this branch cannot beat current heap worst
                 if len(heap) == max_results:
-                    cand_term = cand.xp_floor if risk_profile == "floor" else (cand.xp_ceiling if risk_profile == "ceiling" else cand.expected_points)
-                    curr_term = curr_floor if risk_profile == "floor" else (curr_ceil if risk_profile == "ceiling" else curr_xp)
+                    cand_term = get_player_profile_value(cand, risk_profile)
+                    curr_term = sum(get_player_profile_value(p, risk_profile) for p in picked)
                     est_in_metric = curr_term + cand_term + rem_max
                     est_score = (est_in_metric - out_baseline) - hit_penalty_pts + 0.5
                     if est_score <= heap[0][0]:
@@ -303,11 +319,7 @@ def solve_wildcard(
         by_pos[p.position].append(p)
 
     def player_value(p: Any) -> float:
-        if risk_profile == "floor":
-            return p.xp_floor
-        elif risk_profile == "ceiling":
-            return p.xp_ceiling
-        return p.expected_points
+        return get_player_profile_value(p, risk_profile)
 
     # Stage 1: Build initial cheap valid squad
     squad: list[Any] = []

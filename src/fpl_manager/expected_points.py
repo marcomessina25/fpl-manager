@@ -73,6 +73,7 @@ class ExpectedPointsProjection:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
+    play_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,20 +376,53 @@ def project_player_gameweek(
     points_per_game: float = 0.0,
     selected_by_percent: float = 0.0,
     news: str = "",
+    starts_last_3: int = 0,
+    starts_last_5: int = 0,
+    minutes_last_3: int = 0,
+    minutes_last_5: int = 0,
+    consecutive_zero_mins: int = 0,
+    days_since_prev_fixture: float | None = None,
+    matches_last_7_days: int = 0,
+    predictor_version: str = "v0.8",
 ) -> ExpectedPointsProjection:
     """Compute expected points projection for a single player in a specific gameweek."""
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
     avail = calculate_availability(status, chance_of_playing_next_round)
 
-    exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
-        status=status,
-        chance_of_playing_next_round=chance_of_playing_next_round,
-        starts=starts,
-        minutes=minutes,
-        finished_matches=finished_matches,
-        price_tenths=price_tenths,
-        position=position,
-    )
+    if predictor_version == "v0.7":
+        exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
+            status=status,
+            chance_of_playing_next_round=chance_of_playing_next_round,
+            starts=starts,
+            minutes=minutes,
+            finished_matches=finished_matches,
+            price_tenths=price_tenths,
+            position=position,
+        )
+        p_play = round(min(1.0, p_start + prob_sub), 3)
+    else:
+        from .participation import predict_player_participation
+        part = predict_player_participation(
+            status=status,
+            chance_of_playing_next_round=chance_of_playing_next_round,
+            season_starts=starts,
+            season_minutes=minutes,
+            finished_matches=finished_matches,
+            starts_last_3=starts_last_3,
+            starts_last_5=starts_last_5,
+            minutes_last_3=minutes_last_3,
+            minutes_last_5=minutes_last_5,
+            consecutive_zero_mins=consecutive_zero_mins,
+            price_tenths=price_tenths,
+            position=position,
+            days_since_prev_fixture=days_since_prev_fixture,
+            matches_last_7_days=matches_last_7_days,
+        )
+        exp_mins = part.expected_minutes
+        p_start = part.p_start
+        prob_60 = part.prob_60_plus
+        prob_sub = part.p_sub
+        p_play = part.p_play
 
     fixture_projections: list[PlayerFixtureProjection] = []
     total_xp = 0.0
@@ -476,6 +510,7 @@ def project_player_gameweek(
         xp_floor=round(total_floor, 2),
         xp_ceiling=round(total_ceiling, 2),
         standard_deviation=std_dev,
+        play_probability=p_play,
     )
 
 

@@ -94,12 +94,12 @@ Or analyze upcoming fixtures specifically for your current squad:
 fpl fixtures --gameweeks 5 --squad-only
 ```
 
-Generate legal 1- to 5-transfer move recommendations (ranked by net projected expected points gain $\Delta xP - \text{Hits}$, powered by pure Python branch-and-bound optimization):
+Generate legal 1- to 5-transfer move recommendations (ranked by net projected expected points gain $\Delta xP - \text{Hits}$, powered by pure Python branch-and-bound optimization with rank-aware risk profiles: `neutral`, `floor`, `ceiling`, `defend_lead`, `chase`):
 
 ```powershell
 fpl suggest-transfers --transfers 1
-fpl suggest-transfers --transfers 2
-fpl suggest-transfers --transfers 4 --risk floor
+fpl suggest-transfers --transfers 2 --risk chase
+fpl suggest-transfers --transfers 4 --risk defend_lead
 ```
 
 Generate optimal 15-player squad (Wildcard / Free-Hit) under budget and club constraints:
@@ -107,7 +107,7 @@ Generate optimal 15-player squad (Wildcard / Free-Hit) under budget and club con
 ```powershell
 fpl wildcard
 fpl wildcard --budget 100.0 --risk ceiling
-fpl free-hit
+fpl free-hit --risk chase
 ```
 
 Generate multi-gameweek transfer planning roadmap (evaluating rolled transfers vs hits over a rolling horizon):
@@ -228,42 +228,60 @@ Repeat `--transfer` for a multi-transfer move. The command checks your squad, po
 
 The database is saved at `data/fpl.sqlite3`; downloaded source payloads are timestamped under `data/raw/`. Both are intentionally ignored by Git.
 
-### Historical Dataset Acquisition
+### Historical Dataset Acquisition & Backtesting
 
 Download and normalize historical season archives from public FPL repositories into `data/historical/<season>` for prediction and strategy backtesting:
 
 ```powershell
-python scripts/download_historical.py --season 2021-22
+fpl download-historical --season 2023-24
 ```
 
-Or via CLI:
+Run empirical participation error diagnostics and root-cause decomposition (V0.8.1):
 
 ```powershell
-fpl download-historical --season 2021-22
+fpl backtest-participation --season 2023-24 --start-gw 1 --end-gw 38 --report
+fpl backtest-participation --season 2023-24 --save-report
 ```
 
-Options include `--max-gameweeks`, `--raw-only`, `--dest-dir`, `--raw-dir`, and `--overwrite`.
+Run out-of-sample prediction accuracy backtesting with comparative predictor versioning:
 
-## Current scope (V0.5 Completed)
+```powershell
+fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v0.8 --report
+fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v0.7 --report
+```
 
+Run sequential multi-gameweek decision simulations comparing the production optimizer against baselines:
+
+```powershell
+fpl backtest-decisions --season 2023-24 --strategy optimizer --start-gw 1 --end-gw 10 --predictor v0.8
+fpl backtest-decisions --season 2023-24 --strategy notransfer --start-gw 1 --end-gw 10 --predictor v0.8
+```
+
+### Strategic LLM Advisory & Candidate Strategy Critique
+
+Generate qualitative strategic critiques of candidate moves while enforcing deterministic legality checks:
+
+```powershell
+fpl advise --persona tactical_analyst
+fpl advise --persona devil_advocate --provider gemini
+```
+
+## Current scope (V0.8 Completed)
+
+- **Predictive Participation Engine**: Heuristic probabilistic $P(\text{start})$, $P(\text{sub})$, $P(\text{play})$ and conditional two-stage expected minutes ($xM$) model (Bayesian recency blending, exponential role-loss decay, turnaround congestion discounts) serving as a transitional stepping stone before learned ML models in V0.9. Reduces 2023-24 out-of-sample minutes MAE from 23.88 mins (V0.7) to 19.88 mins (V0.8, -16.8% error reduction; latest 2025-26 validation: 13.92 mins xM MAE, 1.150 xP MAE, 0.6750 Spearman).
+- **Point-in-Time Schedule & Rotation Features**: Turnaround congestion thresholds, 7d/14d match congestion, consecutive zero-minute role-loss decay, and recency starts/minutes computed strictly without future leakage.
+- **Empirical Participation Diagnostics (`fpl backtest-participation`)**: Automated pre-deadline root-cause decomposition (`ROLE_LOSS`, `TACTICAL_BENCH`, `CONGESTION_ROTATION`, `INJURY_FITNESS_DOUBT`, `EARLY_SUBSTITUTION`, `SUBSTITUTE_APPEARANCE`).
+- **A/B Backtesting Framework (`fpl backtest-predictions`, `fpl backtest-decisions`)**: Out-of-sample comparative evaluation across historical seasons with exact `--predictor v0.8|v0.7` controls (+9 net points gained on the production optimizer in 2023-24 controlled benchmark).
+- **Rank-Aware Decision Optimization**: Expanded utility objectives and risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`) across transfer suggestions, Wildcard, Free-Hit, and rolling planning.
+- **Structured Qualitative Football Context Layer**: Traceable observations categorized into `FACT`, `INFERENCE`, `RUMOUR`, and `MODEL_ASSUMPTION` with confidence weights, provenance, and gameweek expiration.
+- **LLM Qualitative Strategy Critique**: Pre-deadline strategy dossier analysis critiquing mathematical optimizer candidates against qualitative football context under strict deterministic rules.
 - **Interactive Local Graphical Dashboard (`fpl gui`)**: Zero-external-dependency local web app with visual football pitch lineup, team switcher, decision logger, transfers visualizer, Wildcard studio, and evaluation hub.
 - **Multi-Team Management Core (`fpl teams`, `fpl team`)**: Full multi-squad support with team isolation, active team switching, team cloning, and team-scoped decision persistence.
-- Official FPL API ingestion (`bootstrap-static` and `fixtures`)
-- Timestamped raw API snapshots and normalized SQLite tables with automated schema migration
-- Pure, testable validators for a 15-player squad and an 11-player starting lineup
-- Squad financial, selling price, and legality reporting (`fpl squad`)
-- Multi-gameweek fixture difficulty rating (FDR) analysis and squad tickers (`fpl fixtures`)
-- Component-based expected points ($xP$) model with Opta per-90 metrics and expected minutes ($xM$)
-- Uncertainty distributions ($xP_{\text{floor}}$, $xP_{\text{ceiling}}$, $\sigma$) and risk profiles (`neutral`, `floor`, `ceiling`)
-- Matchday Starting-XI, captaincy, and bench optimization with strategic asset tags (`fpl lineup`)
-- Fast branch-and-bound combinatorial optimizer for 1 to 5 transfers (`fpl suggest-transfers`)
-- Multi-stage 15-player Wildcard and Free-Hit squad optimization (`fpl wildcard` / `fpl free-hit`)
-- Rolling multi-gameweek transfer planning roadmap over 3 to 6 gameweeks (`fpl plan`)
-- Pre-deadline decision audit trail logging and human vs model recommendation snapshot (`fpl log-decision`, `fpl decisions`)
-- Backtesting and prediction accuracy evaluation engine with MAE, RMSE, Spearman rank $\rho$, calibration, and regret metrics (`fpl evaluate`)
-- Effective Ownership (EO) and Strategic Risk Index with Template Shield vs Differential Sword categorization (`fpl ownership` / `fpl risk`)
-- Blank and Double Gameweek calendar analyzer and multi-gameweek chip deployment planner (`fpl chip-strategy`)
-- Transfer set validation by player ID or fuzzy name resolution (`fpl validate-transfers`)
+- **Official FPL API ingestion**: Normalized SQLite snapshots with automated schema migration and raw payload preservation.
+- **Combinatorial Optimizer**: Pure Python branch-and-bound optimizer for 1 to 5 transfers (`fpl suggest-transfers`) and rolling multi-gameweek transfer planning (`fpl plan`).
+- **Effective Ownership & Strategic Risk Index**: Template Shield vs Differential Sword categorization (`fpl ownership` / `fpl risk`).
+- **Chip Strategy Planner**: Multi-gameweek Blank and Double Gameweek calendar analyzer (`fpl chip-strategy`).
+- **Audit Trail & Regret Engine**: Gameweek decision logging and post-matchday evaluation (`fpl log-decision`, `fpl decisions`, `fpl evaluate`).
 
 ## Roadmap
 

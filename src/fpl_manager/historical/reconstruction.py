@@ -15,12 +15,16 @@ from .models import HistoricalGameweekSnapshot, Position
 def reconstruct_features_and_project(
     snapshot: HistoricalGameweekSnapshot,
     player_ids: list[int] | None = None,
+    predictor_version: str = "v0.8",
 ) -> list[ExpectedPointsProjection]:
     """Reconstruct feature inputs from historical snapshot and run production projection engine."""
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
 
-    # Map fixtures by team_id
+    # Map fixtures by team_id and extract schedule metrics
     team_fixtures: dict[int, list[dict[str, Any]]] = {t_id: [] for t_id in team_map}
+    team_turnaround: dict[int, float | None] = {}
+    team_m7: dict[int, int] = {}
+
     for fix in snapshot.fixtures:
         team_h = fix.team_h
         team_a = fix.team_a
@@ -34,6 +38,9 @@ def reconstruct_features_and_project(
                 "is_home": True,
                 "fdr": h_fdr,
             })
+            team_turnaround[team_h] = fix.days_since_prev_h
+            team_m7[team_h] = fix.matches_7d_h
+
         if team_a in team_fixtures:
             team_fixtures[team_a].append({
                 "opponent_id": team_h,
@@ -41,6 +48,8 @@ def reconstruct_features_and_project(
                 "is_home": False,
                 "fdr": a_fdr,
             })
+            team_turnaround[team_a] = fix.days_since_prev_a
+            team_m7[team_a] = fix.matches_7d_a
 
     target_players = snapshot.players
     if player_ids is not None:
@@ -51,6 +60,8 @@ def reconstruct_features_and_project(
     for p in target_players:
         t_short = team_map.get(p.team_id, f"T{p.team_id}")
         t_fixs = team_fixtures.get(p.team_id, [])
+        days_prev = team_turnaround.get(p.team_id)
+        m7 = team_m7.get(p.team_id, 0)
 
         proj = project_player_gameweek(
             player_id=p.player_id,
@@ -78,6 +89,14 @@ def reconstruct_features_and_project(
             clean_sheets_per_90=p.clean_sheets_per_90,
             bps=p.bps,
             ict_index=p.ict_index,
+            starts_last_3=p.starts_last_3,
+            starts_last_5=p.starts_last_5,
+            minutes_last_3=p.minutes_last_3,
+            minutes_last_5=p.minutes_last_5,
+            consecutive_zero_mins=p.consecutive_zero_mins,
+            days_since_prev_fixture=days_prev,
+            matches_last_7_days=m7,
+            predictor_version=predictor_version,
         )
         projections.append(proj)
 

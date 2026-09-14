@@ -277,11 +277,12 @@ def run_sequential_simulation(
     end_gw: int = 38,
     save_report: bool = False,
     output_path: Path | None = None,
+    predictor_version: str = "v0.8",
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
     # 1. Initialize squad at start_gw
     init_snap = build_historical_snapshot(season_dir, start_gw)
-    init_projs = reconstruct_features_and_project(init_snap)
+    init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
         squad_ids, purchase_prices, bank = initialize_greedy_squad(init_snap, init_projs, budget_tenths=1000)
@@ -301,7 +302,7 @@ def run_sequential_simulation(
     # 2. Sequential simulation loop
     for gw in range(start_gw, end_gw + 1):
         snapshot = build_historical_snapshot(season_dir, gw)
-        projections = reconstruct_features_and_project(snapshot)
+        projections = reconstruct_features_and_project(snapshot, predictor_version=predictor_version)
         proj_map = {p.player_id: p for p in projections}
         player_positions = {p.player_id: p.position for p in projections}
 
@@ -427,19 +428,20 @@ def run_decision_backtest(
     initial_squad_ids: list[int] | None = None,
     save_report: bool = False,
     output_path: Path | None = None,
+    predictor_version: str = "v0.8",
 ) -> list[SimulationResult]:
-    """Run sequential manager decision backtesting across one or more strategies.
+    """Execute sequential manager decision simulations across one or more strategies.
 
     Args:
-        season_dir: Path to the historical season data directory.
-        strategy: Strategy name ("all", "notransfer", "simplexp", "optimizer"),
-            a single strategy instance, or a list of strategy instances.
-        start_gw: First gameweek to evaluate (default: 1).
-        end_gw: Last gameweek to evaluate (default: 10).
+        season_dir: Path to ingested historical season (e.g. data/historical/2023-24).
+        strategy: Strategy selector ("all", "notransfer", "simplexp", "optimizer" or BacktestStrategy).
+        start_gw: First simulated gameweek (default: 1).
+        end_gw: Final simulated gameweek (default: 10).
         max_transfers: Max transfer branch limit for OptimizerStrategy (default: 1).
         initial_squad_ids: Optional fixed starting squad of 15 player IDs.
         save_report: Whether to save formatted Markdown decision report to reports/backtests/.
         output_path: Optional custom path for the saved Markdown report.
+        predictor_version: Prediction model version to evaluate ("v0.7" or "v0.8").
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
@@ -479,6 +481,7 @@ def run_decision_backtest(
             start_gw=start_gw,
             end_gw=end_gw,
             save_report=False,
+            predictor_version=predictor_version,
         )
         simulations.append(sim)
 

@@ -34,6 +34,13 @@ class HistoricalPlayerState:
     points_per_game: float
     selected_by_percent: float
     news: str
+    starts_last_3: int = 0
+    starts_last_5: int = 0
+    minutes_last_3: int = 0
+    minutes_last_5: int = 0
+    consecutive_zero_mins: int = 0
+    recent_starts: tuple[int, ...] = ()
+    recent_minutes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +53,12 @@ class HistoricalFixture:
     team_h_difficulty: int
     team_a_difficulty: int
     kickoff_time: str | None
+    days_since_prev_h: float | None = None
+    days_since_prev_a: float | None = None
+    matches_7d_h: int = 0
+    matches_7d_a: int = 0
+    matches_14d_h: int = 0
+    matches_14d_a: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +84,7 @@ class GameweekOutcome:
     player_id: int
     minutes: int
     total_points: int
+    starts: int = 0
     goals_scored: int = 0
     assists: int = 0
     clean_sheets: int = 0
