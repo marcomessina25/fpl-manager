@@ -15,7 +15,7 @@ from .models import HistoricalGameweekSnapshot, Position
 def reconstruct_features_and_project(
     snapshot: HistoricalGameweekSnapshot,
     player_ids: list[int] | None = None,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v0.9",
 ) -> list[ExpectedPointsProjection]:
     """Reconstruct feature inputs from historical snapshot and run production projection engine."""
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}

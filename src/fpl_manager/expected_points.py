@@ -386,7 +386,7 @@ def project_player_gameweek(
     consecutive_zero_mins: int = 0,
     days_since_prev_fixture: float | None = None,
     matches_last_7_days: int = 0,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v0.9",
 ) -> ExpectedPointsProjection:
     """Compute expected points projection for a single player in a specific gameweek."""
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
@@ -547,6 +547,7 @@ def project_gameweek(
     gameweek: int,
     player_ids: list[int] | None = None,
     database_path: Path = DATABASE_PATH,
+    predictor_version: str = "v0.9",
 ) -> list[ExpectedPointsProjection]:
     """Generate expected points projections for players for a given gameweek."""
     store = SnapshotStore(database_path)
@@ -666,6 +667,7 @@ def project_gameweek(
             points_per_game=ppg or 0.0,
             selected_by_percent=selected or 0.0,
             news=news or "",
+            predictor_version=predictor_version,
         )
         projections.append(proj)
 
@@ -676,6 +678,7 @@ def project_multi_gameweek_profiles(
     gameweeks: list[int],
     player_ids: list[int] | None = None,
     database_path: Path = DATABASE_PATH,
+    predictor_version: str = "v0.9",
 ) -> dict[int, MultiGameweekProfile]:
     """Generate multi-gameweek projections with minutes, floor, ceiling, and uncertainty.
 
@@ -767,15 +770,46 @@ def project_multi_gameweek_profiles(
         base_xp = calculate_base_xp(price, pts, finished_matches)
         avail = calculate_availability(status, chance_next)
 
-        exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
-            status=status,
-            chance_of_playing_next_round=chance_next,
-            starts=starts or 0,
-            minutes=mins or 0,
-            finished_matches=finished_matches,
-            price_tenths=price,
-            position=pos,
-        )
+        if predictor_version in ("v0.7", "v07"):
+            exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                starts=starts or 0,
+                minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+        elif predictor_version in ("v0.9", "v09"):
+            from .learned_participation import predict_player_participation_v09
+            part = predict_player_participation_v09(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                season_starts=starts or 0,
+                season_minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+            exp_mins = part.expected_minutes
+            p_start = part.p_start
+            prob_60 = part.prob_60_plus
+            prob_sub = part.p_sub
+        else:
+            from .participation import predict_player_participation
+            part = predict_player_participation(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                season_starts=starts or 0,
+                season_minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+            exp_mins = part.expected_minutes
+            p_start = part.p_start
+            prob_60 = part.prob_60_plus
+            prob_sub = part.p_sub
 
         p_fixtures = team_fixtures.get(t_id, [])
         total_xp = 0.0

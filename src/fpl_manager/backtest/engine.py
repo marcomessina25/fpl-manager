@@ -41,6 +41,11 @@ class GameweekDecisionResult:
     net_points: int
     autosubs: tuple[tuple[int, int], ...]
     captain_promoted: bool
+    zero_min_starters: tuple[int, ...] = ()
+    bench_regret_points: int = 0
+    captain_zero_mins: bool = False
+    transfers_gross_gain: int = 0
+    transfers_net_gain: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +63,12 @@ class SimulationResult:
     final_bank_tenths: int
     history: tuple[GameweekDecisionResult, ...]
     saved_report_path: str | None = None
+    total_zero_min_starters: int = 0
+    captain_zero_min_count: int = 0
+    total_bench_regret_points: int = 0
+    total_transfer_gross_gain: int = 0
+    total_transfer_net_gain: int = 0
+    predictor_version: str = "v0.9"
 
 
 
@@ -265,6 +276,47 @@ def initialize_greedy_squad(
                 spent += cand.price_tenths
                 picked += 1
 
+        # Fallback if club saturation blocked candidates: swap an earlier selection
+        if picked < needed:
+            blocked_cands = [c for c in candidates if c.player_id not in selected_ids and team_counts.get(c.team_id, 0) >= 3]
+            for cand in blocked_cands:
+                if picked >= needed:
+                    break
+                swapped = False
+                for sel_id in list(selected_ids):
+                    sel_p = next((p for p in projections if p.player_id == sel_id), None)
+                    if sel_p is None or sel_p.team_id != cand.team_id or sel_p.position == pos:
+                        continue
+                    # Find alternative candidate for sel_p.position from a club with < 3 players
+                    alt_candidates = sorted(by_pos[sel_p.position], key=lambda p: p.price_tenths)
+                    for alt in alt_candidates:
+                        if alt.player_id in selected_ids or alt.player_id == sel_p.player_id:
+                            continue
+                        if team_counts.get(alt.team_id, 0) >= 3 or alt.team_id == cand.team_id:
+                            continue
+
+                        # Perform swap
+                        selected_ids.remove(sel_p.player_id)
+                        spent -= purchase_prices[sel_p.player_id]
+                        del purchase_prices[sel_p.player_id]
+                        team_counts[sel_p.team_id] -= 1
+
+                        selected_ids.append(alt.player_id)
+                        purchase_prices[alt.player_id] = alt.price_tenths
+                        team_counts[alt.team_id] = team_counts.get(alt.team_id, 0) + 1
+                        spent += alt.price_tenths
+
+                        # Now add candidate
+                        selected_ids.append(cand.player_id)
+                        purchase_prices[cand.player_id] = cand.price_tenths
+                        team_counts[cand.team_id] = team_counts.get(cand.team_id, 0) + 1
+                        spent += cand.price_tenths
+                        picked += 1
+                        swapped = True
+                        break
+                    if swapped:
+                        break
+
     remaining_bank = budget_tenths - spent
     return selected_ids, purchase_prices, remaining_bank
 
@@ -277,7 +329,7 @@ def run_sequential_simulation(
     end_gw: int = 38,
     save_report: bool = False,
     output_path: Path | None = None,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v0.9",
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
     # 1. Initialize squad at start_gw
@@ -288,8 +340,7 @@ def run_sequential_simulation(
         squad_ids, purchase_prices, bank = initialize_greedy_squad(init_snap, init_projs, budget_tenths=1000)
     else:
         squad_ids = list(initial_squad_ids)
-        proj_map = {p.player_id: p.price_tenths for p in init_projs}
-        purchase_prices = {pid: proj_map.get(pid, 50) for pid in squad_ids}
+        purchase_prices = {p.player_id: p.price_tenths for p in init_projs if p.player_id in squad_ids}
         bank = 1000 - sum(purchase_prices.values())
 
     free_transfers = 1
@@ -356,6 +407,21 @@ def run_sequential_simulation(
         total_gross_points += gross_pts
         total_net_points += net_pts
 
+        # V0.9 Decision Metrics:
+        zero_starters = tuple(s_id for s_id in starters if (outcomes.get(s_id) is None or outcomes[s_id].minutes == 0))
+        cap_zero = bool(outcomes.get(cap_id) is None or outcomes[cap_id].minutes == 0)
+
+        t_gross_gain = sum(
+            (outcomes.get(in_id).total_points if outcomes.get(in_id) else 0) -
+            (outcomes.get(out_id).total_points if outcomes.get(out_id) else 0)
+            for out_id, in_id in chosen_transfers
+        )
+        t_net_gain = t_gross_gain - hits
+
+        subbed_in_set = {sub_in for _, sub_in in autosubs}
+        unused_bench = [b_id for b_id in bench if b_id not in subbed_in_set]
+        bench_regret = sum(outcomes[b_id].total_points for b_id in unused_bench if outcomes.get(b_id) and outcomes[b_id].total_points > 0)
+
         history.append(
             GameweekDecisionResult(
                 gameweek=gw,
@@ -372,6 +438,11 @@ def run_sequential_simulation(
                 net_points=net_pts,
                 autosubs=autosubs,
                 captain_promoted=cap_promoted,
+                zero_min_starters=zero_starters,
+                bench_regret_points=bench_regret,
+                captain_zero_mins=cap_zero,
+                transfers_gross_gain=t_gross_gain,
+                transfers_net_gain=t_net_gain,
             )
         )
 
@@ -390,6 +461,12 @@ def run_sequential_simulation(
         )
         target_path_str = str(target_path)
 
+    tot_zero_starters = sum(len(h.zero_min_starters) for h in history)
+    cap_zero_count = sum(1 for h in history if h.captain_zero_mins)
+    tot_bench_regret = sum(h.bench_regret_points for h in history)
+    tot_t_gross_gain = sum(h.transfers_gross_gain for h in history)
+    tot_t_net_gain = sum(h.transfers_net_gain for h in history)
+
     result = SimulationResult(
         strategy_name=strategy.name,
         season=snapshot.season,
@@ -403,6 +480,12 @@ def run_sequential_simulation(
         final_bank_tenths=bank,
         history=tuple(history),
         saved_report_path=target_path_str,
+        total_zero_min_starters=tot_zero_starters,
+        captain_zero_min_count=cap_zero_count,
+        total_bench_regret_points=tot_bench_regret,
+        total_transfer_gross_gain=tot_t_gross_gain,
+        total_transfer_net_gain=tot_t_net_gain,
+        predictor_version=predictor_version,
     )
 
     if save_report and target_path_str is not None:
@@ -428,7 +511,7 @@ def run_decision_backtest(
     initial_squad_ids: list[int] | None = None,
     save_report: bool = False,
     output_path: Path | None = None,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v0.9",
 ) -> list[SimulationResult]:
     """Execute sequential manager decision simulations across one or more strategies.
 
@@ -441,7 +524,7 @@ def run_decision_backtest(
         initial_squad_ids: Optional fixed starting squad of 15 player IDs.
         save_report: Whether to save formatted Markdown decision report to reports/backtests/.
         output_path: Optional custom path for the saved Markdown report.
-        predictor_version: Prediction model version to evaluate ("v0.7" or "v0.8").
+        predictor_version: Prediction model version to evaluate ("v0.9", "v0.8", or "v0.7").
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
@@ -516,6 +599,12 @@ def run_decision_backtest(
                 final_bank_tenths=s.final_bank_tenths,
                 history=s.history,
                 saved_report_path=str(target_path),
+                total_zero_min_starters=s.total_zero_min_starters,
+                captain_zero_min_count=s.captain_zero_min_count,
+                total_bench_regret_points=s.total_bench_regret_points,
+                total_transfer_gross_gain=s.total_transfer_gross_gain,
+                total_transfer_net_gain=s.total_transfer_net_gain,
+                predictor_version=s.predictor_version,
             )
             for s in simulations
         ]

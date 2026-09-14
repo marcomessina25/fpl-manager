@@ -210,14 +210,28 @@ class HierarchicalParticipationModel:
         consecutive_zero_mins: int,
         days_since_prev_fixture: float | None,
         matches_last_7_days: int,
+        finished_matches: int = 3,
     ) -> list[float]:
-        """Extract pre-deadline feature vector for P(start)."""
+        """Extract pre-deadline feature vector for P(start) with Bayesian shrinkage early in season."""
         prior_p_start, _ = get_position_price_priors(position, price_tenths)
-        s3_rate = starts_last_3 / 3.0
-        eff_starts_5 = max(starts_last_5, starts_last_3)
-        s5_rate = eff_starts_5 / 5.0
-        m3_rate = min(1.0, minutes_last_3 / 270.0)
-        c_zero = min(4.0, float(consecutive_zero_mins)) / 4.0
+
+        eff_finished = max(
+            finished_matches,
+            3 if (starts_last_3 > 0 or starts_last_5 > 0 or minutes_last_3 > 0 or consecutive_zero_mins > 0) else 0,
+        )
+
+        if eff_finished < 3:
+            w = max(0.0, float(eff_finished)) / 3.0
+            s3_rate = w * (starts_last_3 / max(1.0, float(eff_finished))) + (1.0 - w) * prior_p_start
+            s5_rate = w * (max(starts_last_5, starts_last_3) / max(1.0, float(eff_finished))) + (1.0 - w) * prior_p_start
+            m3_rate = w * min(1.0, minutes_last_3 / (90.0 * max(1.0, float(eff_finished)))) + (1.0 - w) * prior_p_start
+            c_zero = w * (min(4.0, float(consecutive_zero_mins)) / 4.0)
+        else:
+            s3_rate = starts_last_3 / 3.0
+            eff_starts_5 = max(starts_last_5, starts_last_3)
+            s5_rate = eff_starts_5 / 5.0
+            m3_rate = min(1.0, minutes_last_3 / 270.0)
+            c_zero = min(4.0, float(consecutive_zero_mins)) / 4.0
 
         short_rest = 1.0 if (days_since_prev_fixture is not None and days_since_prev_fixture <= 3.2) else 0.0
         dense_7d = 1.0 if matches_last_7_days >= 2 else 0.0
@@ -248,15 +262,28 @@ class HierarchicalParticipationModel:
         price_tenths: int,
         starts_last_3: int,
         consecutive_zero_mins: int,
+        finished_matches: int = 3,
     ) -> list[float]:
         """Extract pre-deadline feature vector for P(sub | not start)."""
+        prior_p_start, _ = get_position_price_priors(position, price_tenths)
         is_gkp = 1.0 if position == Position.GOALKEEPER else 0.0
         is_def = 1.0 if position == Position.DEFENDER else 0.0
         is_mid = 1.0 if position == Position.MIDFIELDER else 0.0
         is_fwd = 1.0 if position == Position.FORWARD else 0.0
         price_norm = min(140.0, float(price_tenths)) / 140.0
-        s3_rate = starts_last_3 / 3.0
-        c_zero = min(4.0, float(consecutive_zero_mins)) / 4.0
+
+        eff_finished = max(
+            finished_matches,
+            3 if (starts_last_3 > 0 or consecutive_zero_mins > 0) else 0,
+        )
+
+        if eff_finished < 3:
+            w = max(0.0, float(eff_finished)) / 3.0
+            s3_rate = w * (starts_last_3 / max(1.0, float(eff_finished))) + (1.0 - w) * prior_p_start
+            c_zero = w * (min(4.0, float(consecutive_zero_mins)) / 4.0)
+        else:
+            s3_rate = starts_last_3 / 3.0
+            c_zero = min(4.0, float(consecutive_zero_mins)) / 4.0
 
         return [
             1.0,  # Bias term
@@ -316,14 +343,21 @@ class HierarchicalParticipationModel:
         else:
             avail_factor = 1.0
 
+        eff_season_starts = max(season_starts, starts_last_5, starts_last_3)
+        eff_finished_matches = max(
+            finished_matches,
+            eff_season_starts,
+            3 if (starts_last_3 > 0 or starts_last_5 > 0 or minutes_last_3 > 0 or consecutive_zero_mins > 0) else 0,
+        )
+
         # 2. Dynamic Regime Detection & Role Transitions (Phase 5)
         regime_state = None
         if self.use_regimes:
             regime_state = detect_role_regime(
                 status=status,
                 chance_of_playing=chance_of_playing_next_round,
-                season_starts=season_starts,
-                finished_matches=finished_matches,
+                season_starts=eff_season_starts,
+                finished_matches=eff_finished_matches,
                 starts_last_3=starts_last_3,
                 starts_last_5=starts_last_5,
                 minutes_last_3=minutes_last_3,
@@ -342,6 +376,7 @@ class HierarchicalParticipationModel:
             consecutive_zero_mins=consecutive_zero_mins,
             days_since_prev_fixture=days_since_prev_fixture,
             matches_last_7_days=matches_last_7_days,
+            finished_matches=eff_finished_matches,
         )
         raw_p_start = self.model_start.predict_proba(x_start)
 
@@ -364,6 +399,7 @@ class HierarchicalParticipationModel:
             price_tenths=price_tenths,
             starts_last_3=starts_last_3,
             consecutive_zero_mins=consecutive_zero_mins,
+            finished_matches=eff_finished_matches,
         )
         cond_p_sub = self.model_sub.predict_proba(x_sub)
 

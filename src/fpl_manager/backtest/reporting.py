@@ -73,13 +73,36 @@ def format_decision_report(
         bank_str = f"£{s.final_bank_tenths / 10:.1f}m"
         gw_count = s.gameweeks_played if s.gameweeks_played > 0 else (end_gw - start_gw + 1)
         pts_per_gw = round(s.total_net_points / gw_count, 1) if gw_count > 0 else 0.0
+        pred_label = getattr(s, "predictor_version", "v0.9")
+        strat_display = f"**{s.strategy_name}** (`{pred_label}`)"
         lines.append(
-            f"| {rank} | **{s.strategy_name}** | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
+            f"| {rank} | {strat_display} | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
         )
 
     lines.extend([
         "",
-        "## 2. Head-to-Head Comparisons",
+        "## 2. Decision Quality, Transfer ROI & Participation Risk Decomposition",
+        "",
+        "| Strategy | Predictor | 0-Min Starters | 0-Min Captains | Bench Regret | Gross Transfer Gain | Transfer Net ROI |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+    ])
+
+    for s in sorted_sims:
+        pred_label = getattr(s, "predictor_version", "v0.9")
+        zero_starts = getattr(s, "total_zero_min_starters", 0)
+        cap_zeros = getattr(s, "captain_zero_min_count", 0)
+        bench_regret = getattr(s, "total_bench_regret_points", 0)
+        t_gross = getattr(s, "total_transfer_gross_gain", 0)
+        t_net = getattr(s, "total_transfer_net_gain", 0)
+        net_roi_str = f"+{t_net}" if t_net > 0 else str(t_net)
+
+        lines.append(
+            f"| **{s.strategy_name}** | `{pred_label}` | {zero_starts} | {cap_zeros} | {bench_regret} pts | {t_gross:+} pts | **{net_roi_str} pts** |"
+        )
+
+    lines.extend([
+        "",
+        "## 3. Head-to-Head Comparisons",
         "",
     ])
 
@@ -92,14 +115,15 @@ def format_decision_report(
             ),
             simulations[-1],
         )
+        base_pred = getattr(baseline, "predictor_version", "v0.9")
         lines.extend([
-            f"**Baseline Strategy:** {baseline.strategy_name} ({baseline.total_net_points} net pts)",
+            f"**Baseline Strategy:** {baseline.strategy_name} (`{base_pred}`) — {baseline.total_net_points} net pts",
             "",
             "| Strategy | vs Baseline Net Pts | Net Difference | Wins | Losses | Ties | Mean GW Diff |",
             "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
         ])
         for s in sorted_sims:
-            if s.strategy_name == baseline.strategy_name:
+            if s is baseline:
                 continue
             net_diff = s.total_net_points - baseline.total_net_points
             diff_str = f"+{net_diff}" if net_diff > 0 else str(net_diff)
@@ -112,8 +136,9 @@ def format_decision_report(
             ties = sum(1 for d in gw_diffs if d == 0)
             mean_d = round(sum(gw_diffs) / len(gw_diffs), 2) if gw_diffs else 0.0
             mean_d_str = f"+{mean_d:.2f}" if mean_d > 0 else f"{mean_d:.2f}"
+            s_pred = getattr(s, "predictor_version", "v0.9")
             lines.append(
-                f"| **{s.strategy_name}** | {s.total_net_points} vs {baseline.total_net_points} | **{diff_str}** | {wins} | {losses} | {ties} | {mean_d_str} pts/GW |"
+                f"| **{s.strategy_name}** (`{s_pred}`) | {s.total_net_points} vs {baseline.total_net_points} | **{diff_str}** | {wins} | {losses} | {ties} | {mean_d_str} pts/GW |"
             )
         lines.append("")
     else:
@@ -123,18 +148,19 @@ def format_decision_report(
         ])
 
     lines.extend([
-        "## 3. Gameweek-by-Gameweek Progression",
+        "## 4. Gameweek-by-Gameweek Progression",
         "",
-        "| GW | Strategy | Net Points | Gross Points | Hits | Transfers | Auto-Subs | Captain Promoted |",
-        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "| GW | Strategy | Predictor | Net Points | Gross Points | Hits | Transfers | Auto-Subs | Captain Promoted |",
+        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ])
 
     for s in sorted_sims:
+        s_pred = getattr(s, "predictor_version", "v0.9")
         for rec in s.history:
             subs_str = len(rec.autosubs) if rec.autosubs else 0
             cap_prom = "Yes" if rec.captain_promoted else "No"
             lines.append(
-                f"| GW{rec.gameweek} | {s.strategy_name} | {rec.net_points} | {rec.gross_points} | -{rec.transfer_hits} | {len(rec.transfers)} | {subs_str} | {cap_prom} |"
+                f"| GW{rec.gameweek} | {s.strategy_name} | `{s_pred}` | {rec.net_points} | {rec.gross_points} | -{rec.transfer_hits} | {len(rec.transfers)} | {subs_str} | {cap_prom} |"
             )
 
     lines.append("")
