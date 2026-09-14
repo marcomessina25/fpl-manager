@@ -392,7 +392,7 @@ def project_player_gameweek(
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
     avail = calculate_availability(status, chance_of_playing_next_round)
 
-    if predictor_version == "v0.7":
+    if predictor_version in ("v0.7", "v07"):
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
             chance_of_playing_next_round=chance_of_playing_next_round,
@@ -403,6 +403,29 @@ def project_player_gameweek(
             position=position,
         )
         p_play = round(min(1.0, p_start + prob_sub), 3)
+    elif predictor_version in ("v0.9", "v09"):
+        from .learned_participation import predict_player_participation_v09
+        part = predict_player_participation_v09(
+            status=status,
+            chance_of_playing_next_round=chance_of_playing_next_round,
+            season_starts=starts,
+            season_minutes=minutes,
+            finished_matches=finished_matches,
+            starts_last_3=starts_last_3,
+            starts_last_5=starts_last_5,
+            minutes_last_3=minutes_last_3,
+            minutes_last_5=minutes_last_5,
+            consecutive_zero_mins=consecutive_zero_mins,
+            price_tenths=price_tenths,
+            position=position,
+            days_since_prev_fixture=days_since_prev_fixture,
+            matches_last_7_days=matches_last_7_days,
+        )
+        exp_mins = part.expected_minutes
+        p_start = part.p_start
+        prob_60 = part.prob_60_plus
+        prob_sub = part.p_sub
+        p_play = part.p_play
     else:
         from .participation import predict_player_participation
         part = predict_player_participation(

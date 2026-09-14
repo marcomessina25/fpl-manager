@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.8 is implemented and verified on the `v08` branch. It delivers the dedicated probabilistic participation engine ($P(\text{start})$, $P(\text{play})$, conditional $xM$), zero-leakage rotation and turnaround schedule features, empirical participation error diagnostics (`fpl backtest-participation`), comparative out-of-sample prediction and decision A/B backtesting (+9 net points on optimizer, 16.8% reduction in $xM$ error), rank-aware optimization risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`), a structured qualitative football context layer (`FACT`, `INFERENCE`, `RUMOUR`, `MODEL_ASSUMPTION`), and an LLM strategy dossier critique maintaining strict deterministic legality. Phase 0 through Phase 23 of V0.8 in [`docs/v08/v08.md`](v08/v08.md) are complete.
-
-See `docs/architecture.md`, `docs/expected_points.md`, and `docs/v08/v08.md` for the deeper architecture and projection-model design.
+> **Current planning baseline:** V0.8 is delivered and merged on `master`. Active development is on branch `v09` delivering V0.9 ([`docs/v09/v09.md`](v09/v09.md)). Phase 0 (baseline freeze), Phase 1 (residual error dataset & 9-class error taxonomy), Phase 2 (structured hierarchical participation architecture), and Phase 3 (learned regularized statistical $P(\text{start})$ and $P(\text{sub})$ models) are implemented, demonstrating a 78.7% reduction in high-confidence false positives and 77.6% reduction in participation decision penalty over frozen V0.8.
+>
+> See `docs/architecture.md`, `docs/expected_points.md`, `docs/v08/v08.md`, and `docs/v09/v09.md` for architecture and projection-model design.
 
 ---
 

@@ -289,13 +289,17 @@ def run_participation_diagnostics(
     end_gw: int = 38,
     save_report: bool = False,
     output_path: Path | None = None,
+    predictor_version: str = "v0.8",
 ) -> tuple[dict[str, Any], list[ParticipationDiagnosticRecord]]:
     """Execute complete historical participation error diagnostics across gameweeks."""
     all_records: list[ParticipationDiagnosticRecord] = []
 
     for gw in range(start_gw, end_gw + 1):
         snapshot = build_historical_snapshot(season_dir, gw)
-        projections = reconstruct_features_and_project(snapshot)
+        projections = reconstruct_features_and_project(
+            snapshot,
+            predictor_version=predictor_version,
+        )
         outcomes = load_gameweek_outcomes(season_dir, gw)
 
         proj_map = {p.player_id: p for p in projections}
