@@ -18,8 +18,10 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .calibration import PlattCalibrator, IsotonicCalibrator
 from .historical.models import Position
 from .participation import ParticipationPrediction, get_position_price_priors
+from .regimes import RoleRegime, RegimeTransition, detect_role_regime
 
 
 def _safe_sigmoid(z: float) -> float:
@@ -182,6 +184,14 @@ class HierarchicalParticipationModel:
     subs_conditional_minutes: dict[str, dict[str, float]] = field(
         default_factory=lambda: json.loads(json.dumps(DEFAULT_SUBS_CONDITIONAL_MINUTES))
     )
+    calibrator_start: PlattCalibrator | None = field(
+        default_factory=lambda: PlattCalibrator(a=0.68337, b=-0.22483)
+    )
+    calibrator_sub: PlattCalibrator | None = field(
+        default_factory=lambda: PlattCalibrator(a=0.85000, b=-0.10000)
+    )
+    use_calibration: bool = True
+    use_regimes: bool = True
 
     @classmethod
     def default(cls) -> "HierarchicalParticipationModel":
@@ -204,7 +214,8 @@ class HierarchicalParticipationModel:
         """Extract pre-deadline feature vector for P(start)."""
         prior_p_start, _ = get_position_price_priors(position, price_tenths)
         s3_rate = starts_last_3 / 3.0
-        s5_rate = starts_last_5 / 5.0
+        eff_starts_5 = max(starts_last_5, starts_last_3)
+        s5_rate = eff_starts_5 / 5.0
         m3_rate = min(1.0, minutes_last_3 / 270.0)
         c_zero = min(4.0, float(consecutive_zero_mins)) / 4.0
 
@@ -305,7 +316,23 @@ class HierarchicalParticipationModel:
         else:
             avail_factor = 1.0
 
-        # 2. Estimate P(start) using learned statistical model
+        # 2. Dynamic Regime Detection & Role Transitions (Phase 5)
+        regime_state = None
+        if self.use_regimes:
+            regime_state = detect_role_regime(
+                status=status,
+                chance_of_playing=chance_of_playing_next_round,
+                season_starts=season_starts,
+                finished_matches=finished_matches,
+                starts_last_3=starts_last_3,
+                starts_last_5=starts_last_5,
+                minutes_last_3=minutes_last_3,
+                consecutive_zero_mins=consecutive_zero_mins,
+                price_tenths=price_tenths,
+                position=position,
+            )
+
+        # 3. Estimate P(start) using learned statistical model
         x_start = self.extract_start_features(
             position=position,
             price_tenths=price_tenths,
@@ -318,10 +345,20 @@ class HierarchicalParticipationModel:
         )
         raw_p_start = self.model_start.predict_proba(x_start)
 
-        # Apply availability scaling
-        p_start = round(max(0.0, min(1.0, raw_p_start * avail_factor)), 3)
+        # Apply dynamic regime transition adjustment
+        if regime_state is not None and regime_state.start_probability_adjustment != 0.0:
+            raw_p_start = max(0.0, min(1.0, raw_p_start + regime_state.start_probability_adjustment))
 
-        # 3. Estimate P(sub | not start) using learned statistical model
+        # Probability Calibration (Phase 4: Platt Scaling)
+        if self.use_calibration and self.calibrator_start is not None:
+            p_start_cal = self.calibrator_start.calibrate(raw_p_start)
+        else:
+            p_start_cal = raw_p_start
+
+        # Apply availability scaling
+        p_start = round(max(0.0, min(1.0, p_start_cal * avail_factor)), 3)
+
+        # 4. Estimate P(sub | not start) using learned statistical model
         x_sub = self.extract_sub_features(
             position=position,
             price_tenths=price_tenths,
@@ -330,13 +367,17 @@ class HierarchicalParticipationModel:
         )
         cond_p_sub = self.model_sub.predict_proba(x_sub)
 
+        # Calibrate substitute probability
+        if self.use_calibration and self.calibrator_sub is not None:
+            cond_p_sub = self.calibrator_sub.calibrate(cond_p_sub)
+
         # P(sub) is joint probability: (1 - P(start)) * P(sub | not start) * avail_factor
         p_sub = round(max(0.0, min(1.0, (1.0 - p_start) * cond_p_sub * avail_factor)), 3)
 
         # Total probability of playing
         p_play = round(min(1.0, p_start + p_sub), 3)
 
-        # 4. Conditional minutes distributions by position
+        # 5. Conditional minutes distributions by position
         pos_str = position.name
         start_info = self.starters_conditional_minutes.get(pos_str, {"mean_minutes": 85.0, "prob_60_plus": 0.95})
         sub_info = self.subs_conditional_minutes.get(pos_str, {"mean_minutes": 25.0})
@@ -345,14 +386,16 @@ class HierarchicalParticipationModel:
         mins_if_sub = sub_info["mean_minutes"]
         prob_60_start = start_info["prob_60_plus"]
 
-        # 5. Two-Stage Conditional Expected Minutes
+        # 6. Two-Stage Conditional Expected Minutes
         expected_minutes = round(min(90.0, p_start * mins_if_start + p_sub * mins_if_sub), 1)
 
         # Probability of 60+ minutes
         prob_60_plus = round(min(1.0, p_start * prob_60_start), 3)
 
-        # Role Categorization
-        if p_start >= 0.80 and expected_minutes >= 65.0:
+        # Dynamic Role Categorization from detected regime
+        if regime_state is not None:
+            role = regime_state.regime.value.lower()
+        elif p_start >= 0.80 and expected_minutes >= 65.0:
             role = "nailed_starter"
         elif p_start >= 0.60:
             role = "regular_starter"

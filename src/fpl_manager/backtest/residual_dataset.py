@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..calibration import compute_reliability_curve
 from ..evaluation import mean_absolute_error, root_mean_squared_error
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import Position
@@ -344,9 +345,17 @@ def diagnose_residual_dataset(records: list[ResidualRecord]) -> dict[str, Any]:
     xp_mae = mean_absolute_error(pred_xps, act_pts)
     xp_rmse = root_mean_squared_error(pred_xps, act_pts)
 
-    # Probability calibration metrics (Brier Scores)
-    start_brier = _brier_score([r.p_start for r in records], [1 if r.actual_started else 0 for r in records])
-    play_brier = _brier_score([r.p_play for r in records], [1 if r.actual_minutes > 0 else 0 for r in records])
+    # Probability calibration metrics (Brier Scores, Log Loss & ECE)
+    start_curve = compute_reliability_curve(
+        [r.p_start for r in records],
+        [1 if r.actual_started else 0 for r in records],
+        n_bins=10,
+    )
+    play_curve = compute_reliability_curve(
+        [r.p_play for r in records],
+        [1 if r.actual_minutes > 0 else 0 for r in records],
+        n_bins=10,
+    )
 
     # Inactive rate
     zero_mins = sum(1 for r in records if r.actual_minutes == 0)
@@ -435,8 +444,25 @@ def diagnose_residual_dataset(records: list[ResidualRecord]) -> dict[str, Any]:
         "xm_bias": xm_bias,
         "xp_mae": xp_mae,
         "xp_rmse": xp_rmse,
-        "brier_start": start_brier,
-        "brier_play": play_brier,
+        "brier_start": start_curve.brier_score,
+        "brier_play": play_curve.brier_score,
+        "ece_start": start_curve.expected_calibration_error,
+        "mce_start": start_curve.maximum_calibration_error,
+        "log_loss_start": start_curve.log_loss,
+        "ece_play": play_curve.expected_calibration_error,
+        "mce_play": play_curve.maximum_calibration_error,
+        "log_loss_play": play_curve.log_loss,
+        "start_curve_buckets": [
+            {
+                "bin_min": b.bin_min,
+                "bin_max": b.bin_max,
+                "count": b.count,
+                "mean_predicted": b.mean_predicted,
+                "empirical_rate": b.empirical_rate,
+                "calibration_error": b.calibration_error,
+            }
+            for b in start_curve.buckets
+        ],
         "zero_min_count": zero_mins,
         "zero_min_rate": zero_min_rate,
         "high_confidence_false_positives": len(fp_records),
@@ -462,6 +488,8 @@ def format_residual_dataset_report(
     xm_rmse = summary.get("xm_rmse", 0.0)
     xm_bias = summary.get("xm_bias", 0.0)
     brier_start = summary.get("brier_start", 0.0)
+    ece_start = summary.get("ece_start", 0.0)
+    log_loss_start = summary.get("log_loss_start", 0.0)
     brier_play = summary.get("brier_play", 0.0)
     zero_pct = round(summary.get("zero_min_rate", 0.0) * 100.0, 1)
     zero_cnt = summary.get("zero_min_count", 0)
@@ -476,7 +504,8 @@ def format_residual_dataset_report(
         f"- **Generated At:** `{now_utc}`",
         f"- **Total Evaluated Observations:** `{total_recs:,}`",
         f"- **Global xM MAE:** `{xm_mae:.2f} mins` (RMSE: `{xm_rmse:.2f}`, Bias: `{xm_bias:+.2f}` mins)",
-        f"- **Probability Calibration:** Brier P(start)=`{brier_start:.4f}`, Brier P(play)=`{brier_play:.4f}`",
+        f"- **Probability Calibration (P(start)):** Brier=`{brier_start:.4f}`, ECE=`{ece_start:.4f}`, LogLoss=`{log_loss_start:.4f}`",
+        f"- **Probability Calibration (P(play)):** Brier=`{brier_play:.4f}`",
         f"- **Zero-Minute Inactive Rate:** `{zero_pct}%` ({zero_cnt:,} occurrences)",
         "",
         "---",
@@ -503,11 +532,28 @@ def format_residual_dataset_report(
             f"{b_data.get('zero_min_count', 0):,} | {z_pct}% |"
         )
 
+    start_buckets = summary.get("start_curve_buckets", [])
+    if start_buckets:
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## 3. Probability Calibration Reliability Diagram (P(start))",
+            "",
+            "| Probability Bin | Count | Mean Predicted P(start) | Empirical Start Rate | Calibration Error |",
+            "|---|---|---|---|---|",
+        ])
+        for b in start_buckets:
+            b_range = f"[{b['bin_min']:.1f}, {b['bin_max']:.1f})"
+            lines.append(
+                f"| `{b_range}` | {b['count']:,} | {b['mean_predicted']:.3f} | {b['empirical_rate']:.3f} | **{b['calibration_error']:.3f}** |"
+            )
+
     lines.extend([
         "",
         "---",
         "",
-        "## 3. V0.9 9-Class Residual Error Taxonomy Decomposition",
+        "## 4. V0.9 9-Class Residual Error Taxonomy Decomposition",
         "",
         "| Residual Classification | Count | % of Errors | % of All Obs | Mean Min Error | MAE (mins) | Total Penalty (pts) | Mean Penalty / Case |",
         "|---|---|---|---|---|---|---|---|",
@@ -532,7 +578,7 @@ def format_residual_dataset_report(
             "",
             "---",
             "",
-            "## 4. Top False Positive Culprits (High Projected xP with 0 Minutes)",
+            "## 5. Top False Positive Culprits (High Projected xP with 0 Minutes)",
             "",
             "| GW | Player | Pos | Price | Pred xP | Pred xM | Pred P(start) | Status | V0.9 Taxonomy | Penalty |",
             "|---|---|---|---|---|---|---|---|---|---|",

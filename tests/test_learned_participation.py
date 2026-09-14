@@ -127,7 +127,9 @@ def test_project_player_gameweek_v09_routing() -> None:
         starts=10,
         minutes=850,
         starts_last_3=3,
+        starts_last_5=5,
         minutes_last_3=270,
+        minutes_last_5=450,
         predictor_version="v0.9",
     )
 
