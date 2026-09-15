@@ -1,0 +1,206 @@
+{
+  "season": "2025-26",
+  "gameweeks": "1-38",
+  "sample_count": 29338,
+  "duration_seconds": 52.0,
+  "metrics": {
+    "expected_points": {
+      "v08": {
+        "mae": 1.15,
+        "rmse": 1.984,
+        "spearman": 0.675,
+        "bias": 0.087
+      },
+      "v09": {
+        "mae": 1.127,
+        "rmse": 1.978,
+        "spearman": 0.6779,
+        "bias": 0.058
+      },
+      "delta": {
+        "mae": -0.023,
+        "spearman": 0.0029
+      }
+    },
+    "expected_minutes": {
+      "v08": {
+        "mae": 13.919,
+        "rmse": 23.619,
+        "bias": -0.121
+      },
+      "v09": {
+        "mae": 13.679,
+        "rmse": 23.498,
+        "bias": -1.226
+      },
+      "delta": {
+        "mae": -0.24,
+        "bias": -1.105
+      }
+    },
+    "availability": {
+      "v08": {
+        "precision": 0.7875,
+        "recall": 0.8745,
+        "false_positives": 2676,
+        "false_negatives": 392
+      },
+      "v09": {
+        "precision": 0.7868,
+        "recall": 0.8964,
+        "false_positives": 2755,
+        "false_negatives": 340
+      }
+    },
+    "calibration": {
+      "p_start_v08": {
+        "ece": 0.0219,
+        "brier": 0.0925
+      },
+      "p_start_v09": {
+        "ece": 0.0225,
+        "brier": 0.0898
+      },
+      "p_play_v09": {
+        "ece": 0.0412,
+        "brier": 0.1004
+      }
+    },
+    "by_minute_bucket": {
+      "0-15 mins": {
+        "v08": {
+          "count": 16755,
+          "mae": 4.351,
+          "bias": -0.502
+        },
+        "v09": {
+          "count": 16419,
+          "mae": 2.881,
+          "bias": -1.816,
+          "zero_min_pct": 92.8
+        }
+      },
+      "16-30 mins": {
+        "v08": {
+          "count": 2117,
+          "mae": 26.775,
+          "bias": -2.46
+        },
+        "v09": {
+          "count": 2665,
+          "mae": 25.714,
+          "bias": 1.222,
+          "zero_min_pct": 43.3
+        }
+      },
+      "31-60 mins": {
+        "v08": {
+          "count": 4281,
+          "mae": 33.903,
+          "bias": 0.689
+        },
+        "v09": {
+          "count": 5300,
+          "mae": 33.924,
+          "bias": 0.41,
+          "zero_min_pct": 21.9
+        }
+      },
+      "61-75 mins": {
+        "v08": {
+          "count": 2924,
+          "mae": 26.757,
+          "bias": 0.458
+        },
+        "v09": {
+          "count": 1684,
+          "mae": 26.698,
+          "bias": -2.195,
+          "zero_min_pct": 11.7
+        }
+      },
+      "76-90 mins": {
+        "v08": {
+          "count": 2627,
+          "mae": 14.702,
+          "bias": 3.061
+        },
+        "v09": {
+          "count": 2975,
+          "mae": 17.63,
+          "bias": -2.586,
+          "zero_min_pct": 6.4
+        }
+      }
+    },
+    "decision_simulation": {
+      "v08_frozen_baseline": {
+        "No-Transfer Baseline": {
+          "net_points": 1443,
+          "gross_points": 1443,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 106,
+          "captain_zero_mins": 3,
+          "bench_regret": 5,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1817,
+          "gross_points": 1817,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 56,
+          "captain_zero_mins": 3,
+          "bench_regret": 273,
+          "transfer_gain": 62
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1948,
+          "gross_points": 1948,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 50,
+          "captain_zero_mins": 3,
+          "bench_regret": 273,
+          "transfer_gain": 95
+        }
+      },
+      "v09_candidate": {
+        "No-Transfer Baseline": {
+          "net_points": 1602,
+          "gross_points": 1602,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 74,
+          "captain_zero_mins": 1,
+          "bench_regret": 85,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1919,
+          "gross_points": 1919,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 43,
+          "captain_zero_mins": 2,
+          "bench_regret": 294,
+          "transfer_gain": 87
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 2015,
+          "gross_points": 2015,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 42,
+          "captain_zero_mins": 4,
+          "bench_regret": 246,
+          "transfer_gain": 154
+        }
+      },
+      "optimizer_delta_net_points": 67,
+      "optimizer_delta_zero_min_starters": -8
+    }
+  },
+  "verdict": "P6 Final Evaluation completed successfully."
+}

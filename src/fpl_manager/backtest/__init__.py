@@ -1,5 +1,9 @@
-"""Backtesting and evaluation subsystem for FPL Manager V0.7."""
-
+from .decision_engine import (
+    BaseDecisionEngine,
+    DecisionEngineV08,
+    DecisionEngineV09,
+    resolve_decision_engine,
+)
 from .engine import SimulationResult, run_decision_backtest, run_sequential_simulation
 from .metrics import PredictionEvaluationRecord, evaluate_predictions, run_prediction_backtest
 from .participation import (
@@ -28,6 +32,9 @@ from .reporting import (
 )
 
 __all__ = [
+    "BaseDecisionEngine",
+    "DecisionEngineV08",
+    "DecisionEngineV09",
     "ParticipationDiagnosticRecord",
     "ResidualRecord",
     "SimulationResult",
@@ -45,6 +52,7 @@ __all__ = [
     "format_participation_report",
     "format_prediction_report",
     "format_residual_dataset_report",
+    "resolve_decision_engine",
     "run_decision_backtest",
     "run_participation_diagnostics",
     "run_prediction_backtest",

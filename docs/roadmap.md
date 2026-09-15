@@ -2,7 +2,7 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.9 is delivered on branch `v09` ([`docs/v09/v09.md`](v09/v09.md)). All 11 phases (Phase 0 baseline freeze through Phase 10 production hardening) are implemented, verified, and backed by 260 hermetic passing tests. Across multiple historical seasons (2023-24, 2022-23), V0.9 achieves higher rank-order discrimination (Spearman correlation: 0.6315 vs 0.6274), reduced bench regret (-10 to -9 points), higher transfer net ROI (+26 to +36 points), and a +26 to +34 net points advantage for the Production Optimizer over the frozen V0.8 baseline. CI testing, provider abstraction, structured errors, and closed-loop counterfactuals are fully operational.
+> **Current planning baseline:** V0.9 implementation is on branch `v09` ([`docs/v09/v09.md`](v09/v09.md)). All 11 development phases are implemented with 261 hermetic passing tests. A mandatory release gate investigation ([`docs/v09/v09_regression_investigation.md`](v09/v09_regression_investigation.md)) isolated the 2025-26 regression: the decision engine is unchanged and verified, while learned participation with baseline components (`v0.9_part_v0.8_comp`) outperforms V0.8 by +25 net points (1987 vs 1962). The release gate status is **NOT PR READY** pending integration of the recommended component xP correction and substitute-minute thresholding.
 >
 > See `docs/architecture.md`, `docs/expected_points.md`, `docs/v08/v08.md`, and `docs/v09/v09.md` for architecture and projection-model design.
 

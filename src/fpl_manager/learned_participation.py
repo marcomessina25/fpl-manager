@@ -158,18 +158,32 @@ DEFAULT_SUB_WEIGHTS = [
 ]
 
 DEFAULT_STARTERS_CONDITIONAL_MINUTES = {
-    "GOALKEEPER": {"mean_minutes": 89.8, "prob_60_plus": 0.997},
-    "DEFENDER": {"mean_minutes": 87.4, "prob_60_plus": 0.981},
-    "MIDFIELDER": {"mean_minutes": 82.9, "prob_60_plus": 0.960},
-    "FORWARD": {"mean_minutes": 82.4, "prob_60_plus": 0.962},
+    "GOALKEEPER": {"mean_minutes": 89.4, "prob_60_plus": 0.989},
+    "DEFENDER": {"mean_minutes": 85.3, "prob_60_plus": 0.946},
+    "MIDFIELDER": {"mean_minutes": 80.0, "prob_60_plus": 0.912},
+    "FORWARD": {"mean_minutes": 79.4, "prob_60_plus": 0.921},
 }
 
 DEFAULT_SUBS_CONDITIONAL_MINUTES = {
-    "GOALKEEPER": {"mean_minutes": 86.8},
-    "DEFENDER": {"mean_minutes": 53.5},
-    "MIDFIELDER": {"mean_minutes": 39.2},
-    "FORWARD": {"mean_minutes": 32.6},
+    "GOALKEEPER": {"mean_minutes": 20.0},
+    "DEFENDER": {"mean_minutes": 18.9},
+    "MIDFIELDER": {"mean_minutes": 18.1},
+    "FORWARD": {"mean_minutes": 17.0},
 }
+
+DEFAULT_ISOTONIC_THRESHOLDS = [
+    0.0, 0.002, 0.041, 0.081, 0.098, 0.139, 0.141, 0.148, 0.16, 0.161,
+    0.162, 0.163, 0.308, 0.318, 0.332, 0.334, 0.628, 0.631, 0.637, 0.666,
+    0.693, 0.705, 0.726, 0.734, 0.87, 0.893, 0.898, 0.906, 0.927, 0.929,
+    0.93, 0.935, 1.0,
+]
+
+DEFAULT_ISOTONIC_VALUES = [
+    0.0, 0.0158, 0.0453, 0.0459, 0.0469, 0.0964, 0.1127, 0.1354, 0.1931, 0.2162,
+    0.2174, 0.2326, 0.2452, 0.3148, 0.4645, 0.4762, 0.5144, 0.575, 0.5902, 0.6104,
+    0.6303, 0.6444, 0.6722, 0.6829, 0.6974, 0.7387, 0.7723, 0.8161, 0.837, 0.8678,
+    0.8689, 0.878, 0.8864,
+]
 
 
 @dataclass
@@ -184,12 +198,13 @@ class HierarchicalParticipationModel:
     subs_conditional_minutes: dict[str, dict[str, float]] = field(
         default_factory=lambda: json.loads(json.dumps(DEFAULT_SUBS_CONDITIONAL_MINUTES))
     )
-    calibrator_start: PlattCalibrator | None = field(
-        default_factory=lambda: PlattCalibrator(a=0.68337, b=-0.22483)
+    calibrator_start: IsotonicCalibrator | PlattCalibrator | None = field(
+        default_factory=lambda: IsotonicCalibrator(
+            thresholds=list(DEFAULT_ISOTONIC_THRESHOLDS),
+            calibrated_values=list(DEFAULT_ISOTONIC_VALUES),
+        )
     )
-    calibrator_sub: PlattCalibrator | None = field(
-        default_factory=lambda: PlattCalibrator(a=0.85000, b=-0.10000)
-    )
+    calibrator_sub: PlattCalibrator | None = None
     use_calibration: bool = True
     use_regimes: bool = True
 
@@ -384,11 +399,15 @@ class HierarchicalParticipationModel:
         if regime_state is not None and regime_state.start_probability_adjustment != 0.0:
             raw_p_start = max(0.0, min(1.0, raw_p_start + regime_state.start_probability_adjustment))
 
-        # Probability Calibration (Phase 4: Platt Scaling)
+        # Probability Calibration (Phase 4: Isotonic Regression on pre-evaluation data)
         if self.use_calibration and self.calibrator_start is not None:
             p_start_cal = self.calibrator_start.calibrate(raw_p_start)
         else:
             p_start_cal = raw_p_start
+
+        # Cap start probability at realistic empirical ceiling
+        start_ceil = 0.95 if position == Position.GOALKEEPER else 0.90
+        p_start_cal = min(start_ceil, p_start_cal)
 
         # Apply availability scaling
         p_start = round(max(0.0, min(1.0, p_start_cal * avail_factor)), 3)
@@ -403,26 +422,42 @@ class HierarchicalParticipationModel:
         )
         cond_p_sub = self.model_sub.predict_proba(x_sub)
 
-        # Calibrate substitute probability
+        # Calibrate substitute probability if calibrator provided
         if self.use_calibration and self.calibrator_sub is not None:
             cond_p_sub = self.calibrator_sub.calibrate(cond_p_sub)
 
-        # P(sub) is joint probability: (1 - P(start)) * P(sub | not start) * avail_factor
+        # Joint substitute probability: (1 - P(start)) * P(sub | not start) * avail_factor
         p_sub = round(max(0.0, min(1.0, (1.0 - p_start) * cond_p_sub * avail_factor)), 3)
 
-        # Total probability of playing
+        # Deep bench pruning rule (P4 Recommendation):
+        # Inactive squad players with low start and sub probabilities should not receive cameo inflation
+        if p_start < 0.15 and p_sub < 0.35:
+            p_sub = 0.0
+
+        # Stage 1 Total appearance probability
         p_play = round(min(1.0, p_start + p_sub), 3)
 
-        # 5. Conditional minutes distributions by position
+        # 5. Conditional minutes distributions by position and regime
         pos_str = position.name
-        start_info = self.starters_conditional_minutes.get(pos_str, {"mean_minutes": 85.0, "prob_60_plus": 0.95})
-        sub_info = self.subs_conditional_minutes.get(pos_str, {"mean_minutes": 25.0})
+        start_info = self.starters_conditional_minutes.get(pos_str, {"mean_minutes": 82.0, "prob_60_plus": 0.93})
+        sub_info = self.subs_conditional_minutes.get(pos_str, {"mean_minutes": 18.0})
 
         mins_if_start = start_info["mean_minutes"]
         mins_if_sub = sub_info["mean_minutes"]
         prob_60_start = start_info["prob_60_plus"]
 
-        # 6. Two-Stage Conditional Expected Minutes
+        # Regime-sensitive conditional minutes modulation
+        if regime_state is not None:
+            if regime_state.regime == RoleRegime.RETURNING_FROM_INJURY:
+                mins_if_start = min(mins_if_start, 75.0)
+                mins_if_sub = 14.0
+            elif regime_state.regime == RoleRegime.FRINGE_RESERVE:
+                mins_if_start = min(mins_if_start, 70.0)
+                mins_if_sub = 13.0
+            elif regime_state.regime == RoleRegime.NAILED_STARTER:
+                mins_if_start = max(mins_if_start, 86.0)
+
+        # 6. Three-Stage Conditional Expected Minutes
         expected_minutes = round(min(90.0, p_start * mins_if_start + p_sub * mins_if_sub), 1)
 
         # Probability of 60+ minutes

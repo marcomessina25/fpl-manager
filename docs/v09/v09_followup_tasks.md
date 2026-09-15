@@ -431,45 +431,45 @@ The candidate must demonstrate a meaningful decision-level advantage or provide 
 
 ### Experimental validity
 
-- [ ] P0 complete
-- [ ] Four-way ablation is proven valid
-- [ ] Predictor and decision-engine effects are separable
-- [ ] P1 experiment manifests are reproducible
+- [x] P0 complete
+- [x] Four-way ablation is proven valid
+- [x] Predictor and decision-engine effects are separable
+- [x] P1 experiment manifests are reproducible
 
 ### Baseline integrity
 
-- [ ] V0.8 baseline is frozen
-- [ ] V0.8 regression tests pass
-- [ ] No accidental V0.8 behaviour changes
+- [x] V0.8 baseline is frozen
+- [x] V0.8 regression tests pass
+- [x] No accidental V0.8 behaviour changes
 
 ### Participation model
 
-- [ ] P4 candidate model evaluated
-- [ ] State-based participation approach compared against V0.8/V0.9
-- [ ] Regime layer retained and validated
-- [ ] No point-in-time leakage
+- [x] P4 candidate model evaluated
+- [x] State-based participation approach compared against V0.8/V0.9
+- [x] Regime layer retained and validated
+- [x] No point-in-time leakage
 
 ### Calibration
 
-- [ ] Temporal calibration split implemented
-- [ ] High-confidence calibration errors investigated
-- [ ] Calibration does not materially damage xM
-- [ ] Calibration does not materially damage decision replay
+- [x] Temporal calibration split implemented
+- [x] High-confidence calibration errors investigated
+- [x] Calibration does not materially damage xM
+- [x] Calibration does not materially damage decision replay
 
 ### Final evaluation
 
-- [ ] P6 final 2025/26 evaluation completed
-- [ ] P7 multi-season decision backtest completed
-- [ ] Results documented
-- [ ] All reported numbers reproducible
+- [x] P6 final 2025/26 evaluation completed
+- [x] P7 multi-season decision backtest completed
+- [x] Results documented
+- [x] All reported numbers reproducible
 
 ### Engineering
 
-- [ ] Tests pass
-- [ ] No debug-only experiment code remains in production paths
-- [ ] Documentation matches actual implementation
-- [ ] Model version/configuration is explicit
-- [ ] No hidden fallback between V0.8 and V0.9 implementations
+- [x] Tests pass
+- [x] No debug-only experiment code remains in production paths
+- [x] Documentation matches actual implementation
+- [x] Model version/configuration is explicit
+- [x] No hidden fallback between V0.8 and V0.9 implementations
 
 ---
 

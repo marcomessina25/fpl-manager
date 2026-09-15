@@ -1,0 +1,298 @@
+{
+  "A": {
+    "cell": "A",
+    "predictor_version": "v0.8",
+    "decision_engine_version": "v0.8",
+    "duration_seconds": 19.55,
+    "strategies": {
+      "No-Transfer Baseline": {
+        "net_points": 1443,
+        "gross_points": 1443,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 106,
+        "captain_zero_mins": 3,
+        "bench_regret": 5,
+        "transfer_gross_gain": 0,
+        "transfer_net_gain": 0,
+        "final_bank_tenths": -10,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "No-Transfer Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Simple xP Baseline": {
+        "net_points": 1817,
+        "gross_points": 1817,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 56,
+        "captain_zero_mins": 3,
+        "bench_regret": 273,
+        "transfer_gross_gain": 62,
+        "transfer_net_gain": 62,
+        "final_bank_tenths": 33,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "Simple xP Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1948,
+        "gross_points": 1948,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 50,
+        "captain_zero_mins": 3,
+        "bench_regret": 273,
+        "transfer_gross_gain": 95,
+        "transfer_net_gain": 95,
+        "final_bank_tenths": 5,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "Production Optimizer (neutral)",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      }
+    }
+  },
+  "B": {
+    "cell": "B",
+    "predictor_version": "v0.9",
+    "decision_engine_version": "v0.8",
+    "duration_seconds": 20.73,
+    "strategies": {
+      "No-Transfer Baseline": {
+        "net_points": 1609,
+        "gross_points": 1609,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 74,
+        "captain_zero_mins": 1,
+        "bench_regret": 85,
+        "transfer_gross_gain": 0,
+        "transfer_net_gain": 0,
+        "final_bank_tenths": -5,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "No-Transfer Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Simple xP Baseline": {
+        "net_points": 1888,
+        "gross_points": 1888,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 45,
+        "captain_zero_mins": 4,
+        "bench_regret": 311,
+        "transfer_gross_gain": 97,
+        "transfer_net_gain": 97,
+        "final_bank_tenths": 12,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "Simple xP Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 2033,
+        "gross_points": 2033,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 44,
+        "captain_zero_mins": 4,
+        "bench_regret": 235,
+        "transfer_gross_gain": 154,
+        "transfer_net_gain": 154,
+        "final_bank_tenths": 16,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+        "optimizer_config": {
+          "engine_version": "v0.8",
+          "engine_name": "V0.8 Frozen Heuristic Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.8_unconstrained",
+          "strategy_name": "Production Optimizer (neutral)",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      }
+    }
+  },
+  "C": {
+    "cell": "C",
+    "predictor_version": "v0.8",
+    "decision_engine_version": "v0.9",
+    "duration_seconds": 19.85,
+    "strategies": {
+      "No-Transfer Baseline": {
+        "net_points": 1446,
+        "gross_points": 1446,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 104,
+        "captain_zero_mins": 3,
+        "bench_regret": 5,
+        "transfer_gross_gain": 0,
+        "transfer_net_gain": 0,
+        "final_bank_tenths": -10,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "No-Transfer Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Simple xP Baseline": {
+        "net_points": 2001,
+        "gross_points": 2001,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 53,
+        "captain_zero_mins": 4,
+        "bench_regret": 299,
+        "transfer_gross_gain": 110,
+        "transfer_net_gain": 110,
+        "final_bank_tenths": 4,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "Simple xP Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1953,
+        "gross_points": 1953,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 48,
+        "captain_zero_mins": 3,
+        "bench_regret": 268,
+        "transfer_gross_gain": 95,
+        "transfer_net_gain": 95,
+        "final_bank_tenths": 5,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "Production Optimizer (neutral)",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      }
+    }
+  },
+  "D": {
+    "cell": "D",
+    "predictor_version": "v0.9",
+    "decision_engine_version": "v0.9",
+    "duration_seconds": 21.49,
+    "strategies": {
+      "No-Transfer Baseline": {
+        "net_points": 1602,
+        "gross_points": 1602,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 74,
+        "captain_zero_mins": 1,
+        "bench_regret": 85,
+        "transfer_gross_gain": 0,
+        "transfer_net_gain": 0,
+        "final_bank_tenths": -5,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "No-Transfer Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Simple xP Baseline": {
+        "net_points": 1919,
+        "gross_points": 1919,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 43,
+        "captain_zero_mins": 2,
+        "bench_regret": 294,
+        "transfer_gross_gain": 87,
+        "transfer_net_gain": 87,
+        "final_bank_tenths": 11,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "Simple xP Baseline",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 2015,
+        "gross_points": 2015,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 42,
+        "captain_zero_mins": 4,
+        "bench_regret": 246,
+        "transfer_gross_gain": 154,
+        "transfer_net_gain": 154,
+        "final_bank_tenths": 16,
+        "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+        "optimizer_config": {
+          "engine_version": "v0.9",
+          "engine_name": "V0.9 Participation-Aware Decision Engine",
+          "optimizer_implementation": "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware",
+          "strategy_name": "Production Optimizer (neutral)",
+          "max_transfers": 1,
+          "risk_profile": "neutral",
+          "allow_hits": false
+        }
+      }
+    }
+  }
+}

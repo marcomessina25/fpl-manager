@@ -65,8 +65,8 @@ def format_decision_report(
         "",
         "## 1. Strategy Rankings & Executive Summary",
         "",
-        "| Rank | Strategy | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |",
-        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "| Rank | Strategy | Predictor | Decision Engine | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |",
+        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
 
     for rank, s in enumerate(sorted_sims, 1):
@@ -74,21 +74,24 @@ def format_decision_report(
         gw_count = s.gameweeks_played if s.gameweeks_played > 0 else (end_gw - start_gw + 1)
         pts_per_gw = round(s.total_net_points / gw_count, 1) if gw_count > 0 else 0.0
         pred_label = getattr(s, "predictor_version", "v0.9")
-        strat_display = f"**{s.strategy_name}** (`{pred_label}`)"
+        engine_label = getattr(s, "decision_engine_version", "v0.9")
+        strat_display = f"**{s.strategy_name}**"
         lines.append(
-            f"| {rank} | {strat_display} | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
+            f"| {rank} | {strat_display} | `{pred_label}` | `{engine_label}` | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
         )
 
     lines.extend([
         "",
         "## 2. Decision Quality, Transfer ROI & Participation Risk Decomposition",
         "",
-        "| Strategy | Predictor | 0-Min Starters | 0-Min Captains | Bench Regret | Gross Transfer Gain | Transfer Net ROI |",
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "| Strategy | Predictor | Engine | Optimizer Implementation | 0-Min Starters | 0-Min Captains | Bench Regret | Gross Transfer Gain | Transfer Net ROI |",
+        "| :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: |",
     ])
 
     for s in sorted_sims:
         pred_label = getattr(s, "predictor_version", "v0.9")
+        engine_label = getattr(s, "decision_engine_version", "v0.9")
+        opt_impl = getattr(s, "optimizer_implementation", "fpl_manager.optimizer.solve_transfers")
         zero_starts = getattr(s, "total_zero_min_starters", 0)
         cap_zeros = getattr(s, "captain_zero_min_count", 0)
         bench_regret = getattr(s, "total_bench_regret_points", 0)
@@ -97,7 +100,7 @@ def format_decision_report(
         net_roi_str = f"+{t_net}" if t_net > 0 else str(t_net)
 
         lines.append(
-            f"| **{s.strategy_name}** | `{pred_label}` | {zero_starts} | {cap_zeros} | {bench_regret} pts | {t_gross:+} pts | **{net_roi_str} pts** |"
+            f"| **{s.strategy_name}** | `{pred_label}` | `{engine_label}` | `{opt_impl}` | {zero_starts} | {cap_zeros} | {bench_regret} pts | {t_gross:+} pts | **{net_roi_str} pts** |"
         )
 
     lines.extend([

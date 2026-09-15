@@ -51,7 +51,7 @@ def test_hierarchical_participation_model_defaults() -> None:
         assert pos_str in model.starters_conditional_minutes
         assert pos_str in model.subs_conditional_minutes
         assert model.starters_conditional_minutes[pos_str]["mean_minutes"] >= 70.0
-        assert model.subs_conditional_minutes[pos_str]["mean_minutes"] >= 20.0
+        assert model.subs_conditional_minutes[pos_str]["mean_minutes"] >= 15.0
 
 
 def test_hierarchical_participation_model_unavailable() -> None:

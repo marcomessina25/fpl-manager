@@ -1,0 +1,1943 @@
+{
+  "meta": {
+    "season": "2025-26",
+    "gameweeks": "1-38",
+    "generated_at": "2026-09-15T03:14:41Z"
+  },
+  "four_way_ablation": {
+    "A_v08_pred_v08_engine": {
+      "No-Transfer Baseline": {
+        "net_points": 1386,
+        "gross_points": 1386,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 93,
+        "captain_zero_mins": 6,
+        "bench_regret": 2,
+        "transfer_gain": 0,
+        "final_bank_tenths": -5
+      },
+      "Simple xP Baseline": {
+        "net_points": 2063,
+        "gross_points": 2063,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 59,
+        "captain_zero_mins": 3,
+        "bench_regret": 244,
+        "transfer_gain": 72,
+        "final_bank_tenths": 6
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1962,
+        "gross_points": 1962,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 49,
+        "captain_zero_mins": 3,
+        "bench_regret": 286,
+        "transfer_gain": 110,
+        "final_bank_tenths": 37
+      },
+      "execution_time_seconds": 11.44
+    },
+    "B_v09_pred_v08_engine": {
+      "No-Transfer Baseline": {
+        "net_points": 1340,
+        "gross_points": 1340,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 104,
+        "captain_zero_mins": 4,
+        "bench_regret": 1,
+        "transfer_gain": 0,
+        "final_bank_tenths": 0
+      },
+      "Simple xP Baseline": {
+        "net_points": 1903,
+        "gross_points": 1903,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 53,
+        "captain_zero_mins": 5,
+        "bench_regret": 279,
+        "transfer_gain": 68,
+        "final_bank_tenths": 4
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1901,
+        "gross_points": 1901,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 58,
+        "captain_zero_mins": 6,
+        "bench_regret": 198,
+        "transfer_gain": 108,
+        "final_bank_tenths": 2
+      },
+      "execution_time_seconds": 12.29
+    },
+    "C_v08_pred_v09_engine": {
+      "No-Transfer Baseline": {
+        "net_points": 1386,
+        "gross_points": 1386,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 93,
+        "captain_zero_mins": 6,
+        "bench_regret": 2,
+        "transfer_gain": 0,
+        "final_bank_tenths": -5
+      },
+      "Simple xP Baseline": {
+        "net_points": 2063,
+        "gross_points": 2063,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 59,
+        "captain_zero_mins": 3,
+        "bench_regret": 244,
+        "transfer_gain": 72,
+        "final_bank_tenths": 6
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1962,
+        "gross_points": 1962,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 49,
+        "captain_zero_mins": 3,
+        "bench_regret": 286,
+        "transfer_gain": 110,
+        "final_bank_tenths": 37
+      },
+      "execution_time_seconds": 11.44
+    },
+    "D_v09_pred_v09_engine": {
+      "No-Transfer Baseline": {
+        "net_points": 1340,
+        "gross_points": 1340,
+        "hits": 0,
+        "transfers": 0,
+        "zero_min_starters": 104,
+        "captain_zero_mins": 4,
+        "bench_regret": 1,
+        "transfer_gain": 0,
+        "final_bank_tenths": 0
+      },
+      "Simple xP Baseline": {
+        "net_points": 1903,
+        "gross_points": 1903,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 53,
+        "captain_zero_mins": 5,
+        "bench_regret": 279,
+        "transfer_gain": 68,
+        "final_bank_tenths": 4
+      },
+      "Production Optimizer (neutral)": {
+        "net_points": 1901,
+        "gross_points": 1901,
+        "hits": 0,
+        "transfers": 37,
+        "zero_min_starters": 58,
+        "captain_zero_mins": 6,
+        "bench_regret": 198,
+        "transfer_gain": 108,
+        "final_bank_tenths": 2
+      },
+      "execution_time_seconds": 12.29
+    }
+  },
+  "predictor_ablations": {
+    "v0.8": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.15,
+        "xp_rmse": 1.984,
+        "xp_spearman": 0.675,
+        "xp_bias": 0.087,
+        "xm_mae": 13.919,
+        "xm_rmse": 23.619,
+        "xm_bias": -0.121,
+        "availability_precision": 0.8176,
+        "availability_recall": 0.8368,
+        "false_positives": 2118,
+        "false_negatives": 1851,
+        "mins_calibration": {
+          "0-15": {
+            "count": 16755,
+            "mean_predicted": 2.446,
+            "mean_actual": 2.948,
+            "mae": 4.351
+          },
+          "16-30": {
+            "count": 2225,
+            "mean_predicted": 22.032,
+            "mean_actual": 24.45,
+            "mae": 26.548
+          },
+          "31-60": {
+            "count": 4435,
+            "mean_predicted": 46.113,
+            "mean_actual": 45.664,
+            "mae": 33.934
+          },
+          "61-75": {
+            "count": 3090,
+            "mean_predicted": 67.738,
+            "mean_actual": 67.524,
+            "mae": 26.985
+          },
+          "76-90": {
+            "count": 2833,
+            "mean_predicted": 81.643,
+            "mean_actual": 78.97,
+            "mae": 15.005
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1386,
+          "gross_points": 1386,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 93,
+          "captain_zero_mins": 6,
+          "bench_regret": 2,
+          "transfer_gain": 0,
+          "final_bank_tenths": -5
+        },
+        "Simple xP Baseline": {
+          "net_points": 2063,
+          "gross_points": 2063,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 59,
+          "captain_zero_mins": 3,
+          "bench_regret": 244,
+          "transfer_gain": 72,
+          "final_bank_tenths": 6
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1962,
+          "gross_points": 1962,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 49,
+          "captain_zero_mins": 3,
+          "bench_regret": 286,
+          "transfer_gain": 110,
+          "final_bank_tenths": 37
+        },
+        "execution_time_seconds": 11.44
+      }
+    },
+    "v0.9": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.174,
+        "xp_rmse": 1.99,
+        "xp_spearman": 0.6835,
+        "xp_bias": 0.13,
+        "xm_mae": 15.905,
+        "xm_rmse": 24.318,
+        "xm_bias": 3.107,
+        "availability_precision": 0.7989,
+        "availability_recall": 0.8875,
+        "false_positives": 2534,
+        "false_negatives": 1276,
+        "mins_calibration": {
+          "0-15": {
+            "count": 14662,
+            "mean_predicted": 2.984,
+            "mean_actual": 1.81,
+            "mae": 4.312
+          },
+          "16-30": {
+            "count": 2072,
+            "mean_predicted": 22.69,
+            "mean_actual": 9.988,
+            "mae": 22.749
+          },
+          "31-60": {
+            "count": 6381,
+            "mean_predicted": 44.117,
+            "mean_actual": 38.688,
+            "mae": 33.507
+          },
+          "61-75": {
+            "count": 3590,
+            "mean_predicted": 68.941,
+            "mean_actual": 67.286,
+            "mae": 25.994
+          },
+          "76-90": {
+            "count": 2633,
+            "mean_predicted": 79.783,
+            "mean_actual": 77.108,
+            "mae": 18.658
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1340,
+          "gross_points": 1340,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 104,
+          "captain_zero_mins": 4,
+          "bench_regret": 1,
+          "transfer_gain": 0,
+          "final_bank_tenths": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1903,
+          "gross_points": 1903,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 53,
+          "captain_zero_mins": 5,
+          "bench_regret": 279,
+          "transfer_gain": 68,
+          "final_bank_tenths": 4
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1901,
+          "gross_points": 1901,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 58,
+          "captain_zero_mins": 6,
+          "bench_regret": 198,
+          "transfer_gain": 108,
+          "final_bank_tenths": 2
+        },
+        "execution_time_seconds": 12.29
+      }
+    },
+    "v0.9_part_v0.8_comp": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.178,
+        "xp_rmse": 1.988,
+        "xp_spearman": 0.6841,
+        "xp_bias": 0.146,
+        "xm_mae": 15.905,
+        "xm_rmse": 24.318,
+        "xm_bias": 3.107,
+        "availability_precision": 0.7989,
+        "availability_recall": 0.8875,
+        "false_positives": 2534,
+        "false_negatives": 1276,
+        "mins_calibration": {
+          "0-15": {
+            "count": 14662,
+            "mean_predicted": 2.984,
+            "mean_actual": 1.81,
+            "mae": 4.312
+          },
+          "16-30": {
+            "count": 2072,
+            "mean_predicted": 22.69,
+            "mean_actual": 9.988,
+            "mae": 22.749
+          },
+          "31-60": {
+            "count": 6381,
+            "mean_predicted": 44.117,
+            "mean_actual": 38.688,
+            "mae": 33.507
+          },
+          "61-75": {
+            "count": 3590,
+            "mean_predicted": 68.941,
+            "mean_actual": 67.286,
+            "mae": 25.994
+          },
+          "76-90": {
+            "count": 2633,
+            "mean_predicted": 79.783,
+            "mean_actual": 77.108,
+            "mae": 18.658
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1561,
+          "gross_points": 1561,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 62,
+          "captain_zero_mins": 4,
+          "bench_regret": 22,
+          "transfer_gain": 0,
+          "final_bank_tenths": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1894,
+          "gross_points": 1894,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 47,
+          "captain_zero_mins": 4,
+          "bench_regret": 340,
+          "transfer_gain": 104,
+          "final_bank_tenths": 23
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1987,
+          "gross_points": 1987,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 45,
+          "captain_zero_mins": 8,
+          "bench_regret": 251,
+          "transfer_gain": 114,
+          "final_bank_tenths": 1
+        },
+        "execution_time_seconds": 12.16
+      }
+    },
+    "v0.8_part_v0.9_comp": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.147,
+        "xp_rmse": 1.987,
+        "xp_spearman": 0.6744,
+        "xp_bias": 0.072,
+        "xm_mae": 13.919,
+        "xm_rmse": 23.619,
+        "xm_bias": -0.121,
+        "availability_precision": 0.8176,
+        "availability_recall": 0.8368,
+        "false_positives": 2118,
+        "false_negatives": 1851,
+        "mins_calibration": {
+          "0-15": {
+            "count": 16755,
+            "mean_predicted": 2.446,
+            "mean_actual": 2.948,
+            "mae": 4.351
+          },
+          "16-30": {
+            "count": 2225,
+            "mean_predicted": 22.032,
+            "mean_actual": 24.45,
+            "mae": 26.548
+          },
+          "31-60": {
+            "count": 4435,
+            "mean_predicted": 46.113,
+            "mean_actual": 45.664,
+            "mae": 33.934
+          },
+          "61-75": {
+            "count": 3090,
+            "mean_predicted": 67.738,
+            "mean_actual": 67.524,
+            "mae": 26.985
+          },
+          "76-90": {
+            "count": 2833,
+            "mean_predicted": 81.643,
+            "mean_actual": 78.97,
+            "mae": 15.005
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1331,
+          "gross_points": 1331,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 106,
+          "captain_zero_mins": 6,
+          "bench_regret": 1,
+          "transfer_gain": 0,
+          "final_bank_tenths": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1857,
+          "gross_points": 1857,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 61,
+          "captain_zero_mins": 3,
+          "bench_regret": 243,
+          "transfer_gain": 62,
+          "final_bank_tenths": 4
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1922,
+          "gross_points": 1922,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 60,
+          "captain_zero_mins": 3,
+          "bench_regret": 268,
+          "transfer_gain": 51,
+          "final_bank_tenths": 24
+        },
+        "execution_time_seconds": 11.17
+      }
+    },
+    "v0.9_no_regimes": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.229,
+        "xp_rmse": 2.009,
+        "xp_spearman": 0.682,
+        "xp_bias": 0.176,
+        "xm_mae": 18.715,
+        "xm_rmse": 24.791,
+        "xm_bias": 4.975,
+        "availability_precision": 0.7952,
+        "availability_recall": 0.8953,
+        "false_positives": 2616,
+        "false_negatives": 1187,
+        "mins_calibration": {
+          "0-15": {
+            "count": 13799,
+            "mean_predicted": 6.881,
+            "mean_actual": 1.257,
+            "mae": 7.538
+          },
+          "16-30": {
+            "count": 2430,
+            "mean_predicted": 23.16,
+            "mean_actual": 8.773,
+            "mae": 23.814
+          },
+          "31-60": {
+            "count": 7169,
+            "mean_predicted": 45.136,
+            "mean_actual": 37.679,
+            "mae": 33.471
+          },
+          "61-75": {
+            "count": 5351,
+            "mean_predicted": 68.114,
+            "mean_actual": 71.221,
+            "mae": 25.537
+          },
+          "76-90": {
+            "count": 589,
+            "mean_predicted": 77.019,
+            "mean_actual": 82.837,
+            "mae": 17.932
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1543,
+          "gross_points": 1543,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 73,
+          "captain_zero_mins": 3,
+          "bench_regret": 15,
+          "transfer_gain": 0,
+          "final_bank_tenths": 0
+        },
+        "Simple xP Baseline": {
+          "net_points": 1914,
+          "gross_points": 1914,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 62,
+          "captain_zero_mins": 4,
+          "bench_regret": 213,
+          "transfer_gain": 90,
+          "final_bank_tenths": 13
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1917,
+          "gross_points": 1917,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 58,
+          "captain_zero_mins": 5,
+          "bench_regret": 160,
+          "transfer_gain": 112,
+          "final_bank_tenths": 0
+        },
+        "execution_time_seconds": 13.2
+      }
+    },
+    "v0.9_no_calib": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.179,
+        "xp_rmse": 1.985,
+        "xp_spearman": 0.6822,
+        "xp_bias": 0.17,
+        "xm_mae": 14.749,
+        "xm_rmse": 24.576,
+        "xm_bias": 4.335,
+        "availability_precision": 0.8027,
+        "availability_recall": 0.8858,
+        "false_positives": 2469,
+        "false_negatives": 1295,
+        "mins_calibration": {
+          "0-15": {
+            "count": 15247,
+            "mean_predicted": 2.674,
+            "mean_actual": 1.971,
+            "mae": 4.124
+          },
+          "16-30": {
+            "count": 1923,
+            "mean_predicted": 23.309,
+            "mean_actual": 12.467,
+            "mae": 23.123
+          },
+          "31-60": {
+            "count": 4616,
+            "mean_predicted": 42.674,
+            "mean_actual": 36.273,
+            "mae": 33.676
+          },
+          "61-75": {
+            "count": 2511,
+            "mean_predicted": 68.158,
+            "mean_actual": 56.729,
+            "mae": 31.342
+          },
+          "76-90": {
+            "count": 5041,
+            "mean_predicted": 81.761,
+            "mean_actual": 74.347,
+            "mae": 18.095
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1585,
+          "gross_points": 1585,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 64,
+          "captain_zero_mins": 1,
+          "bench_regret": 33,
+          "transfer_gain": 0,
+          "final_bank_tenths": 40
+        },
+        "Simple xP Baseline": {
+          "net_points": 1960,
+          "gross_points": 1960,
+          "hits": 0,
+          "transfers": 38,
+          "zero_min_starters": 54,
+          "captain_zero_mins": 2,
+          "bench_regret": 280,
+          "transfer_gain": 93,
+          "final_bank_tenths": 11
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1887,
+          "gross_points": 1887,
+          "hits": 0,
+          "transfers": 38,
+          "zero_min_starters": 54,
+          "captain_zero_mins": 6,
+          "bench_regret": 270,
+          "transfer_gain": 123,
+          "final_bank_tenths": 1
+        },
+        "execution_time_seconds": 13.6
+      }
+    },
+    "v0.9_raw": {
+      "prediction": {
+        "evaluated_records": 29338,
+        "xp_mae": 1.21,
+        "xp_rmse": 1.993,
+        "xp_spearman": 0.6825,
+        "xp_bias": 0.201,
+        "xm_mae": 16.382,
+        "xm_rmse": 24.608,
+        "xm_bias": 5.585,
+        "availability_precision": 0.7971,
+        "availability_recall": 0.8895,
+        "false_positives": 2568,
+        "false_negatives": 1253,
+        "mins_calibration": {
+          "0-15": {
+            "count": 14314,
+            "mean_predicted": 4.379,
+            "mean_actual": 1.513,
+            "mae": 5.375
+          },
+          "16-30": {
+            "count": 2140,
+            "mean_predicted": 21.974,
+            "mean_actual": 9.418,
+            "mae": 22.701
+          },
+          "31-60": {
+            "count": 5286,
+            "mean_predicted": 43.41,
+            "mean_actual": 33.802,
+            "mae": 33.17
+          },
+          "61-75": {
+            "count": 3579,
+            "mean_predicted": 68.508,
+            "mean_actual": 58.433,
+            "mae": 29.963
+          },
+          "76-90": {
+            "count": 4019,
+            "mean_predicted": 79.165,
+            "mean_actual": 76.899,
+            "mae": 18.048
+          }
+        }
+      },
+      "decision": {
+        "No-Transfer Baseline": {
+          "net_points": 1476,
+          "gross_points": 1476,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 74,
+          "captain_zero_mins": 2,
+          "bench_regret": 13,
+          "transfer_gain": 0,
+          "final_bank_tenths": 60
+        },
+        "Simple xP Baseline": {
+          "net_points": 1908,
+          "gross_points": 1908,
+          "hits": 0,
+          "transfers": 38,
+          "zero_min_starters": 57,
+          "captain_zero_mins": 5,
+          "bench_regret": 263,
+          "transfer_gain": 84,
+          "final_bank_tenths": 2
+        },
+        "Production Optimizer (neutral)": {
+          "net_points": 1961,
+          "gross_points": 1961,
+          "hits": 0,
+          "transfers": 38,
+          "zero_min_starters": 56,
+          "captain_zero_mins": 5,
+          "bench_regret": 213,
+          "transfer_gain": 112,
+          "final_bank_tenths": 1
+        },
+        "execution_time_seconds": 13.18
+      }
+    }
+  },
+  "intermediate_minutes_analysis": {
+    "v0.9": {
+      "16-30": {
+        "total_count": 2072,
+        "mean_predicted": 22.69,
+        "mean_actual": 9.988,
+        "mae": 22.749,
+        "rmse": 25.62,
+        "actual_starters_count": 168,
+        "actual_subs_count": 467,
+        "zero_mins_count": 1437,
+        "zero_mins_pct": 69.4,
+        "mean_actual_mins_when_started": 77.399,
+        "mean_actual_mins_when_sub": 16.471,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 84,
+            "mean_pred": 19.596,
+            "mean_act": 1.071,
+            "mae": 20.296,
+            "zero_min_rate": 0.988
+          },
+          "DEFENDER": {
+            "count": 668,
+            "mean_pred": 23.103,
+            "mean_act": 12.153,
+            "mae": 25.481,
+            "zero_min_rate": 0.71
+          },
+          "MIDFIELDER": {
+            "count": 940,
+            "mean_pred": 21.426,
+            "mean_act": 9.002,
+            "mae": 21.336,
+            "zero_min_rate": 0.716
+          },
+          "FORWARD": {
+            "count": 380,
+            "mean_pred": 25.773,
+            "mean_act": 10.592,
+            "mae": 21.986,
+            "zero_min_rate": 0.545
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 1427,
+            "mean_pred": 22.097,
+            "mean_act": 8.206,
+            "mae": 22.694,
+            "zero_min_rate": 0.758
+          },
+          "mid_price": {
+            "count": 629,
+            "mean_pred": 24.04,
+            "mean_act": 13.913,
+            "mae": 22.842,
+            "zero_min_rate": 0.548
+          },
+          "premium": {
+            "count": 16,
+            "mean_pred": 22.419,
+            "mean_act": 14.625,
+            "mae": 24.019,
+            "zero_min_rate": 0.688
+          }
+        }
+      },
+      "31-60": {
+        "total_count": 6381,
+        "mean_predicted": 44.117,
+        "mean_actual": 38.688,
+        "mae": 33.507,
+        "rmse": 36.259,
+        "actual_starters_count": 2720,
+        "actual_subs_count": 1681,
+        "zero_mins_count": 1980,
+        "zero_mins_pct": 31.0,
+        "mean_actual_mins_when_started": 79.221,
+        "mean_actual_mins_when_sub": 18.672,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 218,
+            "mean_pred": 42.126,
+            "mean_act": 26.009,
+            "mae": 39.033,
+            "zero_min_rate": 0.711
+          },
+          "DEFENDER": {
+            "count": 1910,
+            "mean_pred": 45.924,
+            "mean_act": 39.648,
+            "mae": 37.716,
+            "zero_min_rate": 0.385
+          },
+          "MIDFIELDER": {
+            "count": 3496,
+            "mean_pred": 43.39,
+            "mean_act": 38.24,
+            "mae": 31.63,
+            "zero_min_rate": 0.274
+          },
+          "FORWARD": {
+            "count": 757,
+            "mean_pred": 43.492,
+            "mean_act": 41.987,
+            "mae": 29.969,
+            "zero_min_rate": 0.176
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 3401,
+            "mean_pred": 43.55,
+            "mean_act": 34.207,
+            "mae": 35.413,
+            "zero_min_rate": 0.397
+          },
+          "mid_price": {
+            "count": 2804,
+            "mean_pred": 44.538,
+            "mean_act": 43.193,
+            "mae": 31.223,
+            "zero_min_rate": 0.214
+          },
+          "premium": {
+            "count": 176,
+            "mean_pred": 48.373,
+            "mean_act": 53.511,
+            "mae": 33.068,
+            "zero_min_rate": 0.176
+          }
+        }
+      },
+      "61-75": {
+        "total_count": 3590,
+        "mean_predicted": 68.941,
+        "mean_actual": 67.286,
+        "mae": 25.994,
+        "rmse": 32.404,
+        "actual_starters_count": 2802,
+        "actual_subs_count": 350,
+        "zero_mins_count": 438,
+        "zero_mins_pct": 12.2,
+        "mean_actual_mins_when_started": 83.338,
+        "mean_actual_mins_when_sub": 22.986,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 108,
+            "mean_pred": 67.602,
+            "mean_act": 56.667,
+            "mae": 39.352,
+            "zero_min_rate": 0.37
+          },
+          "DEFENDER": {
+            "count": 865,
+            "mean_pred": 68.046,
+            "mean_act": 62.725,
+            "mae": 31.953,
+            "zero_min_rate": 0.19
+          },
+          "MIDFIELDER": {
+            "count": 2160,
+            "mean_pred": 69.446,
+            "mean_act": 69.723,
+            "mae": 23.826,
+            "zero_min_rate": 0.094
+          },
+          "FORWARD": {
+            "count": 457,
+            "mean_pred": 68.564,
+            "mean_act": 66.915,
+            "mae": 21.808,
+            "zero_min_rate": 0.066
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 1341,
+            "mean_pred": 68.654,
+            "mean_act": 64.388,
+            "mae": 29.028,
+            "zero_min_rate": 0.166
+          },
+          "mid_price": {
+            "count": 2013,
+            "mean_pred": 69.038,
+            "mean_act": 68.769,
+            "mae": 24.357,
+            "zero_min_rate": 0.096
+          },
+          "premium": {
+            "count": 236,
+            "mean_pred": 69.746,
+            "mean_act": 71.114,
+            "mae": 22.727,
+            "zero_min_rate": 0.097
+          }
+        }
+      }
+    },
+    "v0.8": {
+      "16-30": {
+        "total_count": 2225,
+        "mean_predicted": 22.032,
+        "mean_actual": 24.45,
+        "mae": 26.548,
+        "rmse": 32.378,
+        "actual_starters_count": 546,
+        "actual_subs_count": 701,
+        "zero_mins_count": 978,
+        "zero_mins_pct": 44.0,
+        "mean_actual_mins_when_started": 76.879,
+        "mean_actual_mins_when_sub": 17.726,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 62,
+            "mean_pred": 20.635,
+            "mean_act": 26.129,
+            "mae": 34.352,
+            "zero_min_rate": 0.71
+          },
+          "DEFENDER": {
+            "count": 738,
+            "mean_pred": 21.973,
+            "mean_act": 28.217,
+            "mae": 30.906,
+            "zero_min_rate": 0.493
+          },
+          "MIDFIELDER": {
+            "count": 1118,
+            "mean_pred": 22.299,
+            "mean_act": 22.992,
+            "mae": 24.562,
+            "zero_min_rate": 0.405
+          },
+          "FORWARD": {
+            "count": 307,
+            "mean_pred": 21.486,
+            "mean_act": 20.368,
+            "mae": 21.729,
+            "zero_min_rate": 0.381
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 1296,
+            "mean_pred": 21.988,
+            "mean_act": 24.808,
+            "mae": 28.035,
+            "zero_min_rate": 0.476
+          },
+          "mid_price": {
+            "count": 894,
+            "mean_pred": 22.036,
+            "mean_act": 24.17,
+            "mae": 24.45,
+            "zero_min_rate": 0.385
+          },
+          "premium": {
+            "count": 35,
+            "mean_pred": 23.554,
+            "mean_act": 18.371,
+            "mae": 25.069,
+            "zero_min_rate": 0.486
+          }
+        }
+      },
+      "31-60": {
+        "total_count": 4435,
+        "mean_predicted": 46.113,
+        "mean_actual": 45.664,
+        "mae": 33.934,
+        "rmse": 36.908,
+        "actual_starters_count": 2292,
+        "actual_subs_count": 1032,
+        "zero_mins_count": 1111,
+        "zero_mins_pct": 25.1,
+        "mean_actual_mins_when_started": 79.366,
+        "mean_actual_mins_when_sub": 19.975,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 105,
+            "mean_pred": 47.831,
+            "mean_act": 57.848,
+            "mae": 42.534,
+            "zero_min_rate": 0.352
+          },
+          "DEFENDER": {
+            "count": 1365,
+            "mean_pred": 46.163,
+            "mean_act": 47.187,
+            "mae": 38.359,
+            "zero_min_rate": 0.319
+          },
+          "MIDFIELDER": {
+            "count": 2392,
+            "mean_pred": 46.223,
+            "mean_act": 44.625,
+            "mae": 32.029,
+            "zero_min_rate": 0.228
+          },
+          "FORWARD": {
+            "count": 573,
+            "mean_pred": 45.22,
+            "mean_act": 44.147,
+            "mae": 29.766,
+            "zero_min_rate": 0.162
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 2290,
+            "mean_pred": 46.101,
+            "mean_act": 46.056,
+            "mae": 36.283,
+            "zero_min_rate": 0.296
+          },
+          "mid_price": {
+            "count": 2058,
+            "mean_pred": 46.066,
+            "mean_act": 45.17,
+            "mae": 31.369,
+            "zero_min_rate": 0.2
+          },
+          "premium": {
+            "count": 87,
+            "mean_pred": 47.541,
+            "mean_act": 47.057,
+            "mae": 32.767,
+            "zero_min_rate": 0.241
+          }
+        }
+      },
+      "61-75": {
+        "total_count": 3090,
+        "mean_predicted": 67.738,
+        "mean_actual": 67.524,
+        "mae": 26.985,
+        "rmse": 32.905,
+        "actual_starters_count": 2424,
+        "actual_subs_count": 286,
+        "zero_mins_count": 380,
+        "zero_mins_pct": 12.3,
+        "mean_actual_mins_when_started": 83.69,
+        "mean_actual_mins_when_sub": 20.224,
+        "by_position": {
+          "GOALKEEPER": {
+            "count": 101,
+            "mean_pred": 67.326,
+            "mean_act": 67.723,
+            "mae": 33.7,
+            "zero_min_rate": 0.248
+          },
+          "DEFENDER": {
+            "count": 1154,
+            "mean_pred": 67.575,
+            "mean_act": 71.212,
+            "mae": 28.358,
+            "zero_min_rate": 0.129
+          },
+          "MIDFIELDER": {
+            "count": 1478,
+            "mean_pred": 67.973,
+            "mean_act": 65.717,
+            "mae": 26.036,
+            "zero_min_rate": 0.117
+          },
+          "FORWARD": {
+            "count": 357,
+            "mean_pred": 67.409,
+            "mean_act": 63.025,
+            "mae": 24.578,
+            "zero_min_rate": 0.092
+          }
+        },
+        "by_price_tier": {
+          "budget": {
+            "count": 1434,
+            "mean_pred": 67.504,
+            "mean_act": 71.416,
+            "mae": 27.302,
+            "zero_min_rate": 0.119
+          },
+          "mid_price": {
+            "count": 1543,
+            "mean_pred": 67.957,
+            "mean_act": 64.321,
+            "mae": 26.676,
+            "zero_min_rate": 0.124
+          },
+          "premium": {
+            "count": 113,
+            "mean_pred": 67.714,
+            "mean_act": 61.876,
+            "mae": 27.183,
+            "zero_min_rate": 0.15
+          }
+        }
+      }
+    }
+  },
+  "probability_calibration_audit": {
+    "v0.9_calibrated": {
+      "p_start": {
+        "brier_score": 0.0939,
+        "log_loss": 0.5537,
+        "expected_calibration_error": 0.0324,
+        "maximum_calibration_error": 0.2263,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 15197,
+            "mean_predicted": 0.0044,
+            "empirical_rate": 0.0176,
+            "calibration_error": 0.0132
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 1800,
+            "mean_predicted": 0.1576,
+            "empirical_rate": 0.1061,
+            "calibration_error": 0.0515
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 1910,
+            "mean_predicted": 0.2376,
+            "empirical_rate": 0.2356,
+            "calibration_error": 0.002
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1719,
+            "mean_predicted": 0.35,
+            "empirical_rate": 0.502,
+            "calibration_error": 0.152
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 598,
+            "mean_predicted": 0.4373,
+            "empirical_rate": 0.4749,
+            "calibration_error": 0.0376
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 1573,
+            "mean_predicted": 0.5536,
+            "empirical_rate": 0.5537,
+            "calibration_error": 0.0001
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 1041,
+            "mean_predicted": 0.6405,
+            "empirical_rate": 0.6792,
+            "calibration_error": 0.0387
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 1438,
+            "mean_predicted": 0.758,
+            "empirical_rate": 0.7316,
+            "calibration_error": 0.0264
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 3538,
+            "mean_predicted": 0.8453,
+            "empirical_rate": 0.894,
+            "calibration_error": 0.0487
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 524,
+            "mean_predicted": 0.9935,
+            "empirical_rate": 0.7672,
+            "calibration_error": 0.2263
+          }
+        ]
+      },
+      "p_sub_conditional": {
+        "brier_score": 0.0904,
+        "log_loss": 0.3622,
+        "expected_calibration_error": 0.0376,
+        "maximum_calibration_error": 0.0954,
+        "total_samples": 21088,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 12261,
+            "mean_predicted": 0.0466,
+            "empirical_rate": 0.0219,
+            "calibration_error": 0.0247
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 2397,
+            "mean_predicted": 0.1289,
+            "empirical_rate": 0.1064,
+            "calibration_error": 0.0225
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 1427,
+            "mean_predicted": 0.2615,
+            "empirical_rate": 0.1927,
+            "calibration_error": 0.0688
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1561,
+            "mean_predicted": 0.376,
+            "empirical_rate": 0.2806,
+            "calibration_error": 0.0954
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 1573,
+            "mean_predicted": 0.4555,
+            "empirical_rate": 0.5092,
+            "calibration_error": 0.0537
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 1869,
+            "mean_predicted": 0.5081,
+            "empirical_rate": 0.5645,
+            "calibration_error": 0.0564
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 0,
+            "mean_predicted": 0.65,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 0,
+            "mean_predicted": 0.75,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 0,
+            "mean_predicted": 0.85,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 0,
+            "mean_predicted": 0.95,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          }
+        ]
+      },
+      "p_play": {
+        "brier_score": 0.099,
+        "log_loss": 0.3597,
+        "expected_calibration_error": 0.0308,
+        "maximum_calibration_error": 0.1156,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 12265,
+            "mean_predicted": 0.0472,
+            "empirical_rate": 0.0267,
+            "calibration_error": 0.0205
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 1979,
+            "mean_predicted": 0.1211,
+            "empirical_rate": 0.1364,
+            "calibration_error": 0.0153
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 635,
+            "mean_predicted": 0.2471,
+            "empirical_rate": 0.2378,
+            "calibration_error": 0.0093
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 969,
+            "mean_predicted": 0.3499,
+            "empirical_rate": 0.2343,
+            "calibration_error": 0.1156
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 901,
+            "mean_predicted": 0.4539,
+            "empirical_rate": 0.3385,
+            "calibration_error": 0.1154
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 1193,
+            "mean_predicted": 0.5579,
+            "empirical_rate": 0.4996,
+            "calibration_error": 0.0583
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 3202,
+            "mean_predicted": 0.6438,
+            "empirical_rate": 0.7196,
+            "calibration_error": 0.0758
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 2028,
+            "mean_predicted": 0.7559,
+            "empirical_rate": 0.7855,
+            "calibration_error": 0.0296
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 2585,
+            "mean_predicted": 0.8602,
+            "empirical_rate": 0.8704,
+            "calibration_error": 0.0102
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 3581,
+            "mean_predicted": 0.9271,
+            "empirical_rate": 0.9266,
+            "calibration_error": 0.0005
+          }
+        ]
+      },
+      "p_60_plus": {
+        "brier_score": 0.0959,
+        "log_loss": 0.4548,
+        "expected_calibration_error": 0.0302,
+        "maximum_calibration_error": 0.239,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 15272,
+            "mean_predicted": 0.0047,
+            "empirical_rate": 0.0161,
+            "calibration_error": 0.0114
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 2125,
+            "mean_predicted": 0.1616,
+            "empirical_rate": 0.1144,
+            "calibration_error": 0.0472
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 1672,
+            "mean_predicted": 0.2422,
+            "empirical_rate": 0.2081,
+            "calibration_error": 0.0341
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1725,
+            "mean_predicted": 0.3454,
+            "empirical_rate": 0.4742,
+            "calibration_error": 0.1288
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 568,
+            "mean_predicted": 0.4457,
+            "empirical_rate": 0.3838,
+            "calibration_error": 0.0619
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 1742,
+            "mean_predicted": 0.5447,
+            "empirical_rate": 0.5488,
+            "calibration_error": 0.0041
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 945,
+            "mean_predicted": 0.6393,
+            "empirical_rate": 0.6349,
+            "calibration_error": 0.0044
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 2125,
+            "mean_predicted": 0.7569,
+            "empirical_rate": 0.7468,
+            "calibration_error": 0.0101
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 2672,
+            "mean_predicted": 0.8205,
+            "empirical_rate": 0.8754,
+            "calibration_error": 0.0549
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 492,
+            "mean_predicted": 0.9585,
+            "empirical_rate": 0.7195,
+            "calibration_error": 0.239
+          }
+        ]
+      }
+    },
+    "v0.9_uncalibrated": {
+      "p_start": {
+        "brier_score": 0.0955,
+        "log_loss": 0.5606,
+        "expected_calibration_error": 0.0476,
+        "maximum_calibration_error": 0.1742,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 16134,
+            "mean_predicted": 0.0068,
+            "empirical_rate": 0.0201,
+            "calibration_error": 0.0133
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 1896,
+            "mean_predicted": 0.1549,
+            "empirical_rate": 0.2062,
+            "calibration_error": 0.0513
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 1019,
+            "mean_predicted": 0.2476,
+            "empirical_rate": 0.2169,
+            "calibration_error": 0.0307
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1323,
+            "mean_predicted": 0.3564,
+            "empirical_rate": 0.5306,
+            "calibration_error": 0.1742
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 624,
+            "mean_predicted": 0.4443,
+            "empirical_rate": 0.5128,
+            "calibration_error": 0.0685
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 290,
+            "mean_predicted": 0.5438,
+            "empirical_rate": 0.4,
+            "calibration_error": 0.1438
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 1390,
+            "mean_predicted": 0.6532,
+            "empirical_rate": 0.5511,
+            "calibration_error": 0.1021
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 1025,
+            "mean_predicted": 0.75,
+            "empirical_rate": 0.6907,
+            "calibration_error": 0.0593
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 1278,
+            "mean_predicted": 0.8663,
+            "empirical_rate": 0.7019,
+            "calibration_error": 0.1644
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 4359,
+            "mean_predicted": 0.9472,
+            "empirical_rate": 0.8727,
+            "calibration_error": 0.0745
+          }
+        ]
+      },
+      "p_sub_conditional": {
+        "brier_score": 0.0896,
+        "log_loss": 0.3575,
+        "expected_calibration_error": 0.0261,
+        "maximum_calibration_error": 0.0951,
+        "total_samples": 21088,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 13693,
+            "mean_predicted": 0.04,
+            "empirical_rate": 0.0295,
+            "calibration_error": 0.0105
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 980,
+            "mean_predicted": 0.15,
+            "empirical_rate": 0.1276,
+            "calibration_error": 0.0224
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 1449,
+            "mean_predicted": 0.2516,
+            "empirical_rate": 0.1912,
+            "calibration_error": 0.0604
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1180,
+            "mean_predicted": 0.3739,
+            "empirical_rate": 0.2788,
+            "calibration_error": 0.0951
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 1049,
+            "mean_predicted": 0.415,
+            "empirical_rate": 0.3565,
+            "calibration_error": 0.0585
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 2737,
+            "mean_predicted": 0.5335,
+            "empirical_rate": 0.5784,
+            "calibration_error": 0.0449
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 0,
+            "mean_predicted": 0.65,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 0,
+            "mean_predicted": 0.75,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 0,
+            "mean_predicted": 0.85,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 0,
+            "mean_predicted": 0.95,
+            "empirical_rate": 0.0,
+            "calibration_error": 0.0
+          }
+        ]
+      },
+      "p_play": {
+        "brier_score": 0.0991,
+        "log_loss": 0.3632,
+        "expected_calibration_error": 0.0294,
+        "maximum_calibration_error": 0.1137,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 13637,
+            "mean_predicted": 0.04,
+            "empirical_rate": 0.0359,
+            "calibration_error": 0.0041
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 788,
+            "mean_predicted": 0.148,
+            "empirical_rate": 0.1751,
+            "calibration_error": 0.0271
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 968,
+            "mean_predicted": 0.2517,
+            "empirical_rate": 0.2149,
+            "calibration_error": 0.0368
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 588,
+            "mean_predicted": 0.3489,
+            "empirical_rate": 0.3197,
+            "calibration_error": 0.0292
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 853,
+            "mean_predicted": 0.4396,
+            "empirical_rate": 0.3259,
+            "calibration_error": 0.1137
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 967,
+            "mean_predicted": 0.5502,
+            "empirical_rate": 0.514,
+            "calibration_error": 0.0362
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 2546,
+            "mean_predicted": 0.642,
+            "empirical_rate": 0.7176,
+            "calibration_error": 0.0756
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 1322,
+            "mean_predicted": 0.7412,
+            "empirical_rate": 0.7315,
+            "calibration_error": 0.0097
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 2085,
+            "mean_predicted": 0.849,
+            "empirical_rate": 0.8014,
+            "calibration_error": 0.0476
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 5584,
+            "mean_predicted": 0.9628,
+            "empirical_rate": 0.9096,
+            "calibration_error": 0.0532
+          }
+        ]
+      },
+      "p_60_plus": {
+        "brier_score": 0.0978,
+        "log_loss": 0.4604,
+        "expected_calibration_error": 0.0456,
+        "maximum_calibration_error": 0.2302,
+        "total_samples": 29338,
+        "buckets": [
+          {
+            "bin_index": 0,
+            "bin_min": 0.0,
+            "bin_max": 0.1,
+            "count": 16201,
+            "mean_predicted": 0.0069,
+            "empirical_rate": 0.0189,
+            "calibration_error": 0.012
+          },
+          {
+            "bin_index": 1,
+            "bin_min": 0.1,
+            "bin_max": 0.2,
+            "count": 1967,
+            "mean_predicted": 0.1537,
+            "empirical_rate": 0.183,
+            "calibration_error": 0.0293
+          },
+          {
+            "bin_index": 2,
+            "bin_min": 0.2,
+            "bin_max": 0.3,
+            "count": 933,
+            "mean_predicted": 0.2472,
+            "empirical_rate": 0.1886,
+            "calibration_error": 0.0586
+          },
+          {
+            "bin_index": 3,
+            "bin_min": 0.3,
+            "bin_max": 0.4,
+            "count": 1421,
+            "mean_predicted": 0.349,
+            "empirical_rate": 0.4821,
+            "calibration_error": 0.1331
+          },
+          {
+            "bin_index": 4,
+            "bin_min": 0.4,
+            "bin_max": 0.5,
+            "count": 578,
+            "mean_predicted": 0.4469,
+            "empirical_rate": 0.4706,
+            "calibration_error": 0.0237
+          },
+          {
+            "bin_index": 5,
+            "bin_min": 0.5,
+            "bin_max": 0.6,
+            "count": 384,
+            "mean_predicted": 0.5661,
+            "empirical_rate": 0.3359,
+            "calibration_error": 0.2302
+          },
+          {
+            "bin_index": 6,
+            "bin_min": 0.6,
+            "bin_max": 0.7,
+            "count": 1431,
+            "mean_predicted": 0.6422,
+            "empirical_rate": 0.5451,
+            "calibration_error": 0.0971
+          },
+          {
+            "bin_index": 7,
+            "bin_min": 0.7,
+            "bin_max": 0.8,
+            "count": 946,
+            "mean_predicted": 0.7392,
+            "empirical_rate": 0.6385,
+            "calibration_error": 0.1007
+          },
+          {
+            "bin_index": 8,
+            "bin_min": 0.8,
+            "bin_max": 0.9,
+            "count": 2503,
+            "mean_predicted": 0.8655,
+            "empirical_rate": 0.7443,
+            "calibration_error": 0.1212
+          },
+          {
+            "bin_index": 9,
+            "bin_min": 0.9,
+            "bin_max": 1.0,
+            "count": 2974,
+            "mean_predicted": 0.9195,
+            "empirical_rate": 0.8517,
+            "calibration_error": 0.0678
+          }
+        ]
+      }
+    }
+  }
+}

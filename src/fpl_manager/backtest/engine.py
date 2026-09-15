@@ -10,6 +10,7 @@ from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Pos
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
 from ..rules import validate_starting_lineup
+from .decision_engine import BaseDecisionEngine, DecisionEngineV08, DecisionEngineV09, resolve_decision_engine
 from .strategies import BacktestStrategy
 
 LEGAL_FORMATIONS = (
@@ -69,6 +70,9 @@ class SimulationResult:
     total_transfer_gross_gain: int = 0
     total_transfer_net_gain: int = 0
     predictor_version: str = "v0.9"
+    decision_engine_version: str = "v0.9"
+    optimizer_implementation: str = "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware"
+    optimizer_config: dict[str, Any] = field(default_factory=dict)
 
 
 
@@ -330,14 +334,19 @@ def run_sequential_simulation(
     save_report: bool = False,
     output_path: Path | None = None,
     predictor_version: str = "v0.9",
+    decision_engine: str | BaseDecisionEngine = "v0.9",
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
+    dec_engine = resolve_decision_engine(decision_engine)
+    if hasattr(strategy, "decision_engine"):
+        strategy.decision_engine = dec_engine
+
     # 1. Initialize squad at start_gw
     init_snap = build_historical_snapshot(season_dir, start_gw)
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        squad_ids, purchase_prices, bank = initialize_greedy_squad(init_snap, init_projs, budget_tenths=1000)
+        squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
     else:
         squad_ids = list(initial_squad_ids)
         purchase_prices = {p.player_id: p.price_tenths for p in init_projs if p.player_id in squad_ids}
@@ -395,8 +404,8 @@ def run_sequential_simulation(
         total_transfers += num_transfers
         total_hits += hits
 
-        # Lineup selection
-        starters, bench, cap_id, vc_id, pred_xp = select_best_lineup(squad_ids, projections)
+        # Lineup selection via Decision Engine
+        starters, bench, cap_id, vc_id, pred_xp = dec_engine.select_lineup(squad_ids, projections)
 
         # Matchday execution
         outcomes = load_gameweek_outcomes(season_dir, gw)
@@ -446,18 +455,17 @@ def run_sequential_simulation(
             )
         )
 
+    # 3. Compile summary metrics
     target_path_str: str | None = None
     if save_report:
-        from .reporting import build_backtest_report_path, save_backtest_report
-
-        season_name = season_dir.name
-        strategy_slug = strategy.name.lower().replace(" ", "_")
+        from .reporting import build_backtest_report_path
         target_path = output_path or build_backtest_report_path(
             "decisions",
-            season_name,
-            strategy_slug,
+            season_dir.name,
+            strategy.name.lower().replace(" ", "_"),
             start_gw,
             end_gw,
+            predictor_version,
         )
         target_path_str = str(target_path)
 
@@ -466,6 +474,13 @@ def run_sequential_simulation(
     tot_bench_regret = sum(h.bench_regret_points for h in history)
     tot_t_gross_gain = sum(h.transfers_gross_gain for h in history)
     tot_t_net_gain = sum(h.transfers_net_gain for h in history)
+
+    opt_cfg = dec_engine.get_strategy_config(
+        strategy_name=strategy.name,
+        max_transfers=getattr(strategy, "max_transfers", 1),
+        risk_profile=getattr(strategy, "risk_profile", "neutral"),
+        allow_hits=getattr(strategy, "allow_hits", False),
+    )
 
     result = SimulationResult(
         strategy_name=strategy.name,
@@ -486,6 +501,9 @@ def run_sequential_simulation(
         total_transfer_gross_gain=tot_t_gross_gain,
         total_transfer_net_gain=tot_t_net_gain,
         predictor_version=predictor_version,
+        decision_engine_version=dec_engine.version,
+        optimizer_implementation=dec_engine.optimizer_implementation,
+        optimizer_config=opt_cfg,
     )
 
     if save_report and target_path_str is not None:
@@ -512,6 +530,7 @@ def run_decision_backtest(
     save_report: bool = False,
     output_path: Path | None = None,
     predictor_version: str = "v0.9",
+    decision_engine: str | BaseDecisionEngine = "v0.9",
 ) -> list[SimulationResult]:
     """Execute sequential manager decision simulations across one or more strategies.
 
@@ -525,6 +544,7 @@ def run_decision_backtest(
         save_report: Whether to save formatted Markdown decision report to reports/backtests/.
         output_path: Optional custom path for the saved Markdown report.
         predictor_version: Prediction model version to evaluate ("v0.9", "v0.8", or "v0.7").
+        decision_engine: Decision engine version to evaluate ("v0.9" or "v0.8").
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
@@ -532,6 +552,7 @@ def run_decision_backtest(
     from .reporting import build_backtest_report_path, format_decision_report, save_backtest_report
     from .strategies import NoTransferStrategy, OptimizerStrategy, SimpleXpStrategy
 
+    dec_engine = resolve_decision_engine(decision_engine)
     strategies: list[BacktestStrategy] = []
     strategy_label = "all"
 
@@ -539,17 +560,22 @@ def run_decision_backtest(
         strat_key = strategy.lower().strip()
         strategy_label = strat_key
         if strat_key in ("all", "notransfer"):
-            strategies.append(NoTransferStrategy())
+            strategies.append(NoTransferStrategy(decision_engine=dec_engine))
         if strat_key in ("all", "simplexp"):
-            strategies.append(SimpleXpStrategy())
+            strategies.append(SimpleXpStrategy(decision_engine=dec_engine))
         if strat_key in ("all", "optimizer"):
-            strategies.append(OptimizerStrategy(max_transfers=max_transfers))
+            strategies.append(OptimizerStrategy(max_transfers=max_transfers, decision_engine=dec_engine))
         if not strategies:
             raise ValueError(f"Unknown strategy name: '{strategy}'. Supported: all, notransfer, simplexp, optimizer")
     elif isinstance(strategy, BacktestStrategy):
+        if hasattr(strategy, "decision_engine"):
+            strategy.decision_engine = dec_engine
         strategies.append(strategy)
         strategy_label = strategy.name.lower().replace(" ", "_")
     elif isinstance(strategy, (list, tuple)):
+        for s in strategy:
+            if hasattr(s, "decision_engine"):
+                s.decision_engine = dec_engine
         strategies.extend(strategy)
         strategy_label = "_".join(s.name.lower().replace(" ", "_") for s in strategies) if len(strategies) > 1 else strategies[0].name.lower().replace(" ", "_")
     else:
@@ -565,6 +591,7 @@ def run_decision_backtest(
             end_gw=end_gw,
             save_report=False,
             predictor_version=predictor_version,
+            decision_engine=dec_engine,
         )
         simulations.append(sim)
 
@@ -605,6 +632,9 @@ def run_decision_backtest(
                 total_transfer_gross_gain=s.total_transfer_gross_gain,
                 total_transfer_net_gain=s.total_transfer_net_gain,
                 predictor_version=s.predictor_version,
+                decision_engine_version=s.decision_engine_version,
+                optimizer_implementation=s.optimizer_implementation,
+                optimizer_config=s.optimizer_config,
             )
             for s in simulations
         ]

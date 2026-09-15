@@ -440,7 +440,33 @@ def project_player_gameweek(
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
     avail = calculate_availability(status, chance_of_playing_next_round)
 
-    if predictor_version in ("v0.7", "v07"):
+    pred_clean = predictor_version.lower()
+    if pred_clean in ("v0.7", "v07"):
+        part_mode = "v0.7"
+        comp_version = "v0.7"
+    elif pred_clean in ("v0.8", "v08"):
+        part_mode = "v0.8"
+        comp_version = "v0.8"
+    elif pred_clean in ("v0.9_part_v0.8_comp", "v09_part_v08_comp"):
+        part_mode = "v0.9"
+        comp_version = "v0.8"
+    elif pred_clean in ("v0.8_part_v0.9_comp", "v08_part_v09_comp"):
+        part_mode = "v0.8"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_no_regimes", "v09_no_regimes"):
+        part_mode = "v0.9_no_regimes"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_no_calib", "v09_no_calib"):
+        part_mode = "v0.9_no_calib"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_raw", "v09_raw"):
+        part_mode = "v0.9_raw"
+        comp_version = "v0.9"
+    else:
+        part_mode = "v0.9"
+        comp_version = "v0.9"
+
+    if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
             chance_of_playing_next_round=chance_of_playing_next_round,
@@ -451,8 +477,21 @@ def project_player_gameweek(
             position=position,
         )
         p_play = round(min(1.0, p_start + prob_sub), 3)
-    elif predictor_version in ("v0.9", "v09"):
-        from .learned_participation import predict_player_participation_v09
+    elif part_mode.startswith("v0.9"):
+        from .learned_participation import (
+            HierarchicalParticipationModel,
+            get_default_v09_participation_model,
+            predict_player_participation_v09,
+        )
+        use_reg = not ("no_regimes" in part_mode or "raw" in part_mode)
+        use_cal = not ("no_calib" in part_mode or "raw" in part_mode)
+        if not use_reg or not use_cal:
+            p_model = HierarchicalParticipationModel.default()
+            p_model.use_regimes = use_reg
+            p_model.use_calibration = use_cal
+        else:
+            p_model = None
+
         part = predict_player_participation_v09(
             status=status,
             chance_of_playing_next_round=chance_of_playing_next_round,
@@ -468,6 +507,7 @@ def project_player_gameweek(
             position=position,
             days_since_prev_fixture=days_since_prev_fixture,
             matches_last_7_days=matches_last_7_days,
+            model=p_model,
         )
         exp_mins = part.expected_minutes
         p_start = part.p_start
@@ -525,7 +565,7 @@ def project_player_gameweek(
             expected_goals_conceded_per_90=expected_goals_conceded_per_90,
             clean_sheets_per_90=clean_sheets_per_90,
             finished_matches=finished_matches,
-            predictor_version=predictor_version,
+            predictor_version=comp_version,
         )
 
         if avail <= 0.0:
