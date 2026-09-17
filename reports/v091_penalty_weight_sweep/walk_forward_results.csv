@@ -1,0 +1,4 @@
+target_season,train_seasons,selected_weight,train_mean_points,test_points,test_zero_min_starters,test_zero_min_captains,test_bench_regret,prod_points,prod_zero_min_starters,prod_zero_min_captains,prod_bench_regret,w0_points,w0_zero_min_starters,w0_zero_min_captains,w0_bench_regret,delta_vs_prod,delta_vs_w0
+2023-24,"2021-22, 2022-23",0.2,1791,2244,44,4,254,2244,44,4,254,2260,43,4,238,0,-16
+2024-25,"2021-22, 2022-23, 2023-24",0.0,1946,2335,37,0,304,2331,36,0,308,2335,37,0,304,4,0
+2025-26,"2021-22, 2022-23, 2023-24, 2024-25",0.0,2043.2,2014,44,4,247,2015,42,4,246,2014,44,4,247,-1,0

@@ -373,6 +373,18 @@ class DecisionEngineV08(BaseDecisionEngine):
         return best_moves
 
 
+def calculate_lineup_risk_score(expected_points: float, start_probability: float, penalty_weight: float = 0.20) -> float:
+    """Calculate risk-adjusted lineup score.
+
+    Formula: score = xp * [1 - weight * (1 - p_start)]
+    At weight=0.20 (production default):
+        score = xp * (0.80 + 0.20 * p_start)
+    At weight=0.00 (unconstrained):
+        score = xp
+    """
+    return expected_points * (1.0 - penalty_weight * (1.0 - start_probability))
+
+
 class DecisionEngineV09(BaseDecisionEngine):
     """V0.9 Participation-Aware Decision Engine:
 
@@ -383,13 +395,18 @@ class DecisionEngineV09(BaseDecisionEngine):
     - Transfers: Rejection/discounting of low-start-probability rotation traps.
     """
 
+    def __init__(self, lineup_penalty_weight: float = 0.20) -> None:
+        self.lineup_penalty_weight = lineup_penalty_weight
+
     @property
     def version(self) -> str:
         return "v0.9"
 
     @property
     def name(self) -> str:
-        return "V0.9 Participation-Aware Decision Engine"
+        if abs(self.lineup_penalty_weight - 0.20) < 1e-6:
+            return "V0.9 Participation-Aware Decision Engine"
+        return f"V0.9 Participation-Aware Decision Engine (w={self.lineup_penalty_weight:.2f})"
 
     @property
     def optimizer_implementation(self) -> str:
@@ -512,10 +529,11 @@ class DecisionEngineV09(BaseDecisionEngine):
 
         # In V0.9, rank players within position by risk-adjusted starting utility:
         # players with high P(start) are prioritized over players with low P(start)
+        w = self.lineup_penalty_weight
         for pos in by_pos:
             by_pos[pos].sort(
                 key=lambda p: (
-                    p.expected_points * (0.80 + 0.20 * p.start_probability),
+                    calculate_lineup_risk_score(p.expected_points, p.start_probability, w),
                     p.expected_points,
                     p.base_xp_per_match,
                 ),
@@ -542,7 +560,7 @@ class DecisionEngineV09(BaseDecisionEngine):
             cur_starters.extend(p.player_id for p in fwds[:f_cnt])
 
             tot_score = sum(
-                proj_map[pid].expected_points * (0.80 + 0.20 * proj_map[pid].start_probability)
+                calculate_lineup_risk_score(proj_map[pid].expected_points, proj_map[pid].start_probability, w)
                 for pid in cur_starters if pid in proj_map
             )
             raw_xp = sum(proj_map[pid].expected_points for pid in cur_starters if pid in proj_map)
@@ -738,6 +756,11 @@ class DecisionEngineV09(BaseDecisionEngine):
 
         return best_moves
 
+    def get_strategy_config(self, strategy_name: str, **kwargs: Any) -> dict[str, Any]:
+        cfg = super().get_strategy_config(strategy_name, **kwargs)
+        cfg["lineup_penalty_weight"] = self.lineup_penalty_weight
+        return cfg
+
 
 def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -> BaseDecisionEngine:
     """Instantiate and return the appropriate DecisionEngine implementation."""
@@ -749,5 +772,13 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
         return DecisionEngineV09()
-    else:
-        raise ValueError(f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9'")
+    elif "_w" in clean:
+        parts = clean.split("_w")
+        base = parts[0].replace(".", "")
+        try:
+            w_val = float(parts[1])
+            if base == "v09":
+                return DecisionEngineV09(lineup_penalty_weight=w_val)
+        except ValueError:
+            pass
+    raise ValueError(f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v0.9_w<float>'")
