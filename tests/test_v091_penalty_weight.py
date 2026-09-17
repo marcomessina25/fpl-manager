@@ -22,11 +22,13 @@ def test_calculate_lineup_risk_score_equivalence():
 
 
 def test_calculate_lineup_risk_score_w0():
-    """Verify w=0.00 yields raw unconstrained expected points."""
+    """Verify default and w=0.00 yield raw unconstrained expected points."""
     for xp in [1.5, 4.0, 7.2, 10.0]:
         for p_start in [0.0, 0.3, 0.6, 1.0]:
-            score = calculate_lineup_risk_score(xp, p_start, penalty_weight=0.00)
-            assert abs(score - xp) < 1e-9
+            score_default = calculate_lineup_risk_score(xp, p_start)
+            score_explicit = calculate_lineup_risk_score(xp, p_start, penalty_weight=0.00)
+            assert abs(score_default - xp) < 1e-9
+            assert abs(score_explicit - xp) < 1e-9
 
 
 def test_calculate_lineup_risk_score_weights():
@@ -38,9 +40,9 @@ def test_calculate_lineup_risk_score_weights():
 
 
 def test_decision_engine_v09_resolution_and_defaults():
-    """Verify DecisionEngineV09 defaults to w=0.20 and resolves _w strings."""
+    """Verify DecisionEngineV09 defaults to w=0.00 and resolves _w strings."""
     eng_default = DecisionEngineV09()
-    assert eng_default.lineup_penalty_weight == 0.20
+    assert eng_default.lineup_penalty_weight == 0.00
     assert eng_default.name == "V0.9 Participation-Aware Decision Engine"
 
     eng_custom = DecisionEngineV09(lineup_penalty_weight=0.15)
@@ -60,7 +62,7 @@ def test_decision_engine_v09_resolution_and_defaults():
 
 
 def test_lineup_selection_equivalence():
-    """Verify DecisionEngineV09(lineup_penalty_weight=0.20) produces identical lineups to DecisionEngineV09()."""
+    """Verify DecisionEngineV09(lineup_penalty_weight=0.00) produces identical lineups to default DecisionEngineV09()."""
     def make_p(pid, pos, xp, p_start):
         return ExpectedPointsProjection(
             player_id=pid,
@@ -100,13 +102,14 @@ def test_lineup_selection_equivalence():
     squad_ids = [p.player_id for p in projs]
 
     eng_prod = DecisionEngineV09()
-    eng_w020 = DecisionEngineV09(lineup_penalty_weight=0.20)
+    eng_w00 = DecisionEngineV09(lineup_penalty_weight=0.00)
 
     s_prod, b_prod, c_prod, vc_prod, xp_prod = eng_prod.select_lineup(squad_ids, projs)
-    s_w020, b_w020, c_w020, vc_w020, xp_w020 = eng_w020.select_lineup(squad_ids, projs)
+    s_w00, b_w00, c_w00, vc_w00, xp_w00 = eng_w00.select_lineup(squad_ids, projs)
 
-    assert s_prod == s_w020
-    assert b_prod == b_w020
-    assert c_prod == c_w020
-    assert vc_prod == vc_w020
-    assert xp_prod == xp_w020
+    assert s_prod == s_w00
+    assert b_prod == b_w00
+    assert c_prod == c_w00
+    assert vc_prod == vc_w00
+    assert xp_prod == xp_w00
+

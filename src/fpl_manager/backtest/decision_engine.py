@@ -373,29 +373,29 @@ class DecisionEngineV08(BaseDecisionEngine):
         return best_moves
 
 
-def calculate_lineup_risk_score(expected_points: float, start_probability: float, penalty_weight: float = 0.20) -> float:
+def calculate_lineup_risk_score(expected_points: float, start_probability: float, penalty_weight: float = 0.0) -> float:
     """Calculate risk-adjusted lineup score.
 
     Formula: score = xp * [1 - weight * (1 - p_start)]
-    At weight=0.20 (production default):
-        score = xp * (0.80 + 0.20 * p_start)
-    At weight=0.00 (unconstrained):
+    At weight=0.00 (V0.9.1 default / unconstrained):
         score = xp
+    At weight=0.20 (legacy V0.9 baseline):
+        score = xp * (0.80 + 0.20 * p_start)
     """
     return expected_points * (1.0 - penalty_weight * (1.0 - start_probability))
 
 
 class DecisionEngineV09(BaseDecisionEngine):
-    """V0.9 Participation-Aware Decision Engine:
+    """V0.9 / V0.9.1 Participation-Aware Decision Engine:
 
     - Squad Init: Saturation-swap enabled greedy selection.
-    - Lineup: Participation-risk adjusted starter valuation (penalizes uncertain starters).
+    - Lineup: Participation-risk adjusted starter valuation (penalizes uncertain starters if weight > 0; default weight=0.00 based on multi-year calibration).
     - Captaincy: Captain requires high start confidence (P(start) >= 0.60) to eliminate 0-min captains.
     - Bench: Outfield bench ordered by expected points weighted by play probability.
     - Transfers: Rejection/discounting of low-start-probability rotation traps.
     """
 
-    def __init__(self, lineup_penalty_weight: float = 0.20) -> None:
+    def __init__(self, lineup_penalty_weight: float = 0.0) -> None:
         self.lineup_penalty_weight = lineup_penalty_weight
 
     @property
@@ -404,7 +404,7 @@ class DecisionEngineV09(BaseDecisionEngine):
 
     @property
     def name(self) -> str:
-        if abs(self.lineup_penalty_weight - 0.20) < 1e-6:
+        if abs(self.lineup_penalty_weight - 0.0) < 1e-6:
             return "V0.9 Participation-Aware Decision Engine"
         return f"V0.9 Participation-Aware Decision Engine (w={self.lineup_penalty_weight:.2f})"
 
