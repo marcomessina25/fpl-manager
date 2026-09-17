@@ -703,6 +703,17 @@ def format_chip_strategy_concise(result: dict[str, Any]) -> str:
 import sys
 
 
+def resolve_predictor_version(name: str) -> str:
+    clean = name.lower()
+    if clean in ("v0.9", "v09"):
+        return "v0.9"
+    if clean in ("v0.8", "v08"):
+        return "v0.8"
+    if clean in ("v0.7", "v07"):
+        return "v0.7"
+    return clean
+
+
 def main(argv: list[str] | None = None) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         try:
@@ -906,11 +917,19 @@ def main(argv: list[str] | None = None) -> None:
         ap.add_argument("--api-key", type=str, default=None, help="API key for Gemini/OpenAI/OpenRouter")
         ap.add_argument("--model", type=str, default=None, help="Model name override")
 
+    PREDICTOR_CHOICES = [
+        "v0.9", "v0.8", "v0.7", "v09", "v08", "v07",
+        "v0.9_part_v0.8_comp", "v0.8_part_v0.9_comp",
+        "v0.9_no_regimes", "v0.9_no_calib", "v0.9_raw",
+        "v09_part_v08_comp", "v08_part_v09_comp",
+        "v09_no_regimes", "v09_no_calib", "v09_raw",
+    ]
+
     bt_pred_parser = subcommands.add_parser("backtest-predictions", help="Run historical prediction backtest against point-in-time datasets")
     bt_pred_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
     bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
-    bt_pred_parser.add_argument("--predictor", choices=["v0.8", "v0.7", "v08", "v07"], default="v0.8", help="Prediction model version (v0.8 or v0.7)")
+    bt_pred_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
     bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
     bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
@@ -920,7 +939,11 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
-    bt_dec_parser.add_argument("--predictor", choices=["v0.8", "v0.7", "v08", "v07"], default="v0.8", help="Prediction model version (v0.8 or v0.7)")
+    bt_dec_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
+    bt_dec_parser.add_argument("--decision-engine", choices=["v0.9", "v0.8", "v09", "v08"], default="v0.9", help="Decision engine version ('v0.9' participation-aware or 'v0.8' frozen heuristic)")
+    bt_dec_parser.add_argument("--compare-predictors", action="store_true", help="Run comparative A/B backtest against frozen baseline predictor")
+    bt_dec_parser.add_argument("--baseline-predictor", choices=PREDICTOR_CHOICES, default="v0.8", help="Baseline predictor to compare against (default: v0.8)")
+    bt_dec_parser.add_argument("--baseline-decision-engine", choices=["v0.9", "v0.8", "v09", "v08"], default="v0.8", help="Baseline decision engine to compare against (default: v0.8)")
     bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
 
     for part_cmd in ("backtest-participation", "diagnose-participation"):
@@ -928,8 +951,20 @@ def main(argv: list[str] | None = None) -> None:
         bt_part_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
         bt_part_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
         bt_part_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        bt_part_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
         bt_part_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
         bt_part_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
+
+    for res_cmd in ("residual-dataset", "residuals"):
+        res_parser = subcommands.add_parser(res_cmd, help="Extract point-in-time residual observation dataset and 9-class error taxonomy (V0.9 Phase 1)")
+        res_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2024-25, 2025-26)")
+        res_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+        res_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
+        res_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
+        res_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
+        res_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report")
+        res_parser.add_argument("--export", type=Path, default=None, help="Export observation dataset to file path (.json or .csv)")
+        res_parser.add_argument("--format", choices=["json", "csv"], default="json", help="Export dataset format (json or csv)")
 
     for dl_cmd, dl_help in (
         ("download-historical", "Download and normalize historical season data to data/historical"),
@@ -1215,7 +1250,7 @@ def main(argv: list[str] | None = None) -> None:
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
-            pred_ver = "v0.7" if arguments.predictor in ("v0.7", "v07") else "v0.8"
+            pred_ver = resolve_predictor_version(arguments.predictor)
             metrics, _ = run_prediction_backtest(
                 season_dir,
                 start_gw=arguments.start_gw,
@@ -1234,31 +1269,70 @@ def main(argv: list[str] | None = None) -> None:
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
-            pred_ver = "v0.7" if arguments.predictor in ("v0.7", "v07") else "v0.8"
-            simulations = run_decision_backtest(
-                season_dir=season_dir,
-                strategy=arguments.strategy,
-                start_gw=arguments.start_gw,
-                end_gw=arguments.end_gw,
-                max_transfers=arguments.max_transfers,
-                save_report=arguments.save_report,
-                predictor_version=pred_ver,
-            )
+            pred_ver = resolve_predictor_version(arguments.predictor)
+            dec_engine_ver = "v0.8" if arguments.decision_engine in ("v0.8", "v08") else "v0.9"
+            if getattr(arguments, "compare_predictors", False):
+                base_ver = resolve_predictor_version(arguments.baseline_predictor)
+                base_dec_engine_ver = "v0.8" if getattr(arguments, "baseline_decision_engine", "v0.8") in ("v0.8", "v08") else "v0.9"
+                sims_primary = run_decision_backtest(
+                    season_dir=season_dir,
+                    strategy=arguments.strategy,
+                    start_gw=arguments.start_gw,
+                    end_gw=arguments.end_gw,
+                    max_transfers=arguments.max_transfers,
+                    save_report=False,
+                    predictor_version=pred_ver,
+                    decision_engine=dec_engine_ver,
+                )
+                sims_baseline = run_decision_backtest(
+                    season_dir=season_dir,
+                    strategy=arguments.strategy,
+                    start_gw=arguments.start_gw,
+                    end_gw=arguments.end_gw,
+                    max_transfers=arguments.max_transfers,
+                    save_report=False,
+                    predictor_version=base_ver,
+                    decision_engine=base_dec_engine_ver,
+                )
+                all_sims = sims_primary + sims_baseline
+                for sim in all_sims:
+                    print(f"[{sim.strategy_name} (pred={sim.predictor_version}, engine={sim.decision_engine_version})] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
 
-            for sim in simulations:
-                print(f"[{sim.strategy_name} ({pred_ver})] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
-            if arguments.save_report and simulations and simulations[0].saved_report_path:
-                print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
+                if arguments.save_report:
+                    from .backtest.reporting import build_backtest_report_path, format_decision_report, save_backtest_report
+                    strat_label = arguments.strategy.lower().replace(" ", "_")
+                    report_path = build_backtest_report_path("decisions_ab", arguments.season, strat_label, f"{pred_ver}_vs_{base_ver}", arguments.start_gw, arguments.end_gw)
+                    report_text = format_decision_report(all_sims, season=arguments.season, start_gw=arguments.start_gw, end_gw=arguments.end_gw)
+                    save_backtest_report(report_text, report_path)
+                    print(f"Decision A/B backtest report saved to: {report_path}")
+            else:
+                simulations = run_decision_backtest(
+                    season_dir=season_dir,
+                    strategy=arguments.strategy,
+                    start_gw=arguments.start_gw,
+                    end_gw=arguments.end_gw,
+                    max_transfers=arguments.max_transfers,
+                    save_report=arguments.save_report,
+                    predictor_version=pred_ver,
+                    decision_engine=dec_engine_ver,
+                )
+
+                for sim in simulations:
+                    print(f"[{sim.strategy_name} (pred={pred_ver}, engine={sim.decision_engine_version})] Net Points: {sim.total_net_points} (Gross: {sim.total_gross_points}, Hits: {sim.total_hits}, Transfers: {sim.total_transfers})")
+                if arguments.save_report and simulations and simulations[0].saved_report_path:
+                    print(f"Decision backtest report saved to: {simulations[0].saved_report_path}")
         elif arguments.command in ("backtest-participation", "diagnose-participation"):
             from .backtest.participation import format_participation_report, run_participation_diagnostics
             season_dir = DATA_DIRECTORY / "historical" / arguments.season
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            pred_ver = resolve_predictor_version(arguments.predictor)
             diagnostics, _ = run_participation_diagnostics(
                 season_dir,
                 start_gw=arguments.start_gw,
                 end_gw=arguments.end_gw,
                 save_report=arguments.save_report,
+                predictor_version=pred_ver,
             )
             if arguments.save_report:
                 print(f"Participation diagnostics report saved to: {diagnostics.get('saved_report_path')}")
@@ -1266,6 +1340,29 @@ def main(argv: list[str] | None = None) -> None:
                 print(format_participation_report(diagnostics, season=arguments.season, gameweek_range=f"{arguments.start_gw}-{arguments.end_gw}"))
             elif not arguments.save_report:
                 print(json.dumps(diagnostics, indent=2, ensure_ascii=False))
+        elif arguments.command in ("residual-dataset", "residuals"):
+            from .backtest.residual_dataset import run_residual_dataset_pipeline
+            season_dir = DATA_DIRECTORY / "historical" / arguments.season
+            if not season_dir.exists():
+                raise RuntimeError(f"Historical season dataset not found: {season_dir}")
+            pred_ver = resolve_predictor_version(arguments.predictor)
+            summary, _ = run_residual_dataset_pipeline(
+                season_dir=season_dir,
+                start_gw=arguments.start_gw,
+                end_gw=arguments.end_gw,
+                predictor_version=pred_ver,
+                export_path=arguments.export,
+                export_format=arguments.format,
+                save_report=arguments.save_report,
+            )
+            if arguments.save_report:
+                print(f"Residual dataset report saved to: {summary.get('saved_report_path')}")
+            if arguments.export:
+                print(f"Residual dataset exported to: {summary.get('saved_dataset_path')}")
+            if arguments.report:
+                print(summary.get("markdown", ""))
+            elif not arguments.save_report and not arguments.export:
+                print(json.dumps(summary, indent=2, ensure_ascii=False))
         elif arguments.command in ("download-historical", "download-season"):
             from .historical.ingestion import SeasonManifest, download_historical_season, normalize_season_name
             canonical_season = normalize_season_name(arguments.season)

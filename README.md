@@ -2,13 +2,15 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
+![Version](https://img.shields.io/badge/Version-0.9.0-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+
+---
+
 The project deliberately separates deterministic facts and rule checks from strategic judgement:
 
 ```
 FPL API -> local SQLite snapshots -> rules + validation -> reports -> human / LLM analysis
 ```
-
-V0.1 does not make transfers or call an LLM. It provides a reliable data and rules foundation first.
 
 ## Living roadmap
 

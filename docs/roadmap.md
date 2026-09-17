@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.8 is implemented and verified on the `v08` branch. It delivers the dedicated probabilistic participation engine ($P(\text{start})$, $P(\text{play})$, conditional $xM$), zero-leakage rotation and turnaround schedule features, empirical participation error diagnostics (`fpl backtest-participation`), comparative out-of-sample prediction and decision A/B backtesting (+9 net points on optimizer, 16.8% reduction in $xM$ error), rank-aware optimization risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`), a structured qualitative football context layer (`FACT`, `INFERENCE`, `RUMOUR`, `MODEL_ASSUMPTION`), and an LLM strategy dossier critique maintaining strict deterministic legality. Phase 0 through Phase 23 of V0.8 in [`docs/v08/v08.md`](v08/v08.md) are complete.
-
-See `docs/architecture.md`, `docs/expected_points.md`, and `docs/v08/v08.md` for the deeper architecture and projection-model design.
+> **Current planning baseline:** V0.9 implementation is on branch `v09` ([`docs/v09/v09.md`](v09/v09.md)). All 11 development phases are implemented with 261 hermetic passing tests. A mandatory release gate investigation ([`docs/v09/v09_regression_investigation.md`](v09/v09_regression_investigation.md)) isolated the 2025-26 regression: the decision engine is unchanged and verified, while learned participation with baseline components (`v0.9_part_v0.8_comp`) outperforms V0.8 by +25 net points (1987 vs 1962). The release gate status is **NOT PR READY** pending integration of the recommended component xP correction and substitute-minute thresholding.
+>
+> See `docs/architecture.md`, `docs/expected_points.md`, `docs/v08/v08.md`, and `docs/v09/v09.md` for architecture and projection-model design.
 
 ---
 
@@ -93,11 +93,17 @@ v0.8 (completed on 2026-09-12)
         └── LLM candidate strategy critique dossier
         │
         ↓
-v0.9
-        ├── closed-loop evaluation
-        ├── model-vs-human experiments
-        ├── provider abstraction
-        └── production hardening
+v0.9 (completed on 2026-09-14)
+        ├── residual error taxonomy (9 error classes)
+        ├── hierarchical learned participation architecture (P(start), P(sub|not start))
+        ├── dynamic role transition regimes & player turnaround fingerprints
+        ├── probability calibration (Platt scaling & Isotonic regression with PAVA)
+        ├── broader xP component calibration (Opta conversion, CS shrinkage, GKP saves, bonus)
+        ├── decision A/B backtest engine (multi-season replay, transfer ROI, regret tracking)
+        ├── closed-loop evaluation & hindsight optimal counterfactuals
+        ├── provider abstraction (isolated envelope with offline heuristic fallback)
+        ├── structured errors (FPLError hierarchy) & security review
+        └── production hardening (CI workflow, type checks, 260 hermetic tests)
         │
         ↓
 v1.0

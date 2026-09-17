@@ -1,0 +1,60 @@
+{
+  "total_observations": 21444,
+  "season": "2025-26",
+  "gameweeks": "1-28",
+  "predictor_version": "v0.9",
+  "by_regime": {
+    "REGULAR_STARTER": {
+      "count": 144,
+      "selection_frequency_pct": 0.7,
+      "mean_predicted_xm": 64.12,
+      "mean_actual_xm": 50.73,
+      "xm_mae": 35.947,
+      "xm_bias": 13.39,
+      "zero_min_rate": 0.292,
+      "mean_predicted_p_start": 0.664,
+      "actual_start_rate": 0.569,
+      "overconfidence_gap": 0.095,
+      "calibration_status": "MODERATE_OVERCONFIDENCE"
+    },
+    "ROTATION_REGULAR": {
+      "count": 8864,
+      "selection_frequency_pct": 41.3,
+      "mean_predicted_xm": 28.96,
+      "mean_actual_xm": 23.09,
+      "xm_mae": 24.852,
+      "xm_bias": 5.87,
+      "zero_min_rate": 0.548,
+      "mean_predicted_p_start": 0.224,
+      "actual_start_rate": 0.246,
+      "overconfidence_gap": -0.022,
+      "calibration_status": "WELL_CALIBRATED"
+    },
+    "EMERGING_STARTER": {
+      "count": 4630,
+      "selection_frequency_pct": 21.6,
+      "mean_predicted_xm": 72.79,
+      "mean_actual_xm": 72.36,
+      "xm_mae": 22.179,
+      "xm_bias": 0.43,
+      "zero_min_rate": 0.09,
+      "mean_predicted_p_start": 0.806,
+      "actual_start_rate": 0.833,
+      "overconfidence_gap": -0.027,
+      "calibration_status": "WELL_CALIBRATED"
+    },
+    "RETURNING_FROM_INJURY": {
+      "count": 7806,
+      "selection_frequency_pct": 36.4,
+      "mean_predicted_xm": 2.25,
+      "mean_actual_xm": 0.58,
+      "xm_mae": 2.696,
+      "xm_bias": 1.67,
+      "zero_min_rate": 0.981,
+      "mean_predicted_p_start": 0.0,
+      "actual_start_rate": 0.005,
+      "overconfidence_gap": -0.005,
+      "calibration_status": "WELL_CALIBRATED"
+    }
+  }
+}

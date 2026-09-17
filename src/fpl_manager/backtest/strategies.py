@@ -7,6 +7,7 @@ from typing import Any
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import HistoricalGameweekSnapshot, Position
 from ..models import Player
+from .decision_engine import BaseDecisionEngine, resolve_decision_engine
 
 
 class BacktestStrategy(ABC):
@@ -35,6 +36,9 @@ class BacktestStrategy(ABC):
 class NoTransferStrategy(BacktestStrategy):
     """Baseline A: Zero transfers made. Retains initial squad throughout the season."""
 
+    def __init__(self, decision_engine: str | BaseDecisionEngine = "v0.9") -> None:
+        self.decision_engine = resolve_decision_engine(decision_engine)
+
     @property
     def name(self) -> str:
         return "No-Transfer Baseline"
@@ -48,14 +52,27 @@ class NoTransferStrategy(BacktestStrategy):
         snapshot: HistoricalGameweekSnapshot,
         projections: list[ExpectedPointsProjection],
     ) -> list[tuple[int, int]]:
-        return []
+        return self.decision_engine.decide_transfers(
+            strategy_name=self.name,
+            current_squad_ids=current_squad_ids,
+            purchase_prices=purchase_prices,
+            bank_tenths=bank_tenths,
+            free_transfers=free_transfers,
+            snapshot=snapshot,
+            projections=projections,
+        )
 
 
 class SimpleXpStrategy(BacktestStrategy):
     """Baseline B: Greedy single transfer replacing lowest-xP starter with highest-xP affordable player."""
 
-    def __init__(self, min_gain_threshold: float = 0.50) -> None:
+    def __init__(
+        self,
+        min_gain_threshold: float = 0.50,
+        decision_engine: str | BaseDecisionEngine = "v0.9",
+    ) -> None:
         self.min_gain_threshold = min_gain_threshold
+        self.decision_engine = resolve_decision_engine(decision_engine)
 
     @property
     def name(self) -> str:
@@ -70,65 +87,16 @@ class SimpleXpStrategy(BacktestStrategy):
         snapshot: HistoricalGameweekSnapshot,
         projections: list[ExpectedPointsProjection],
     ) -> list[tuple[int, int]]:
-        if free_transfers <= 0:
-            return []
-
-        proj_by_id = {p.player_id: p for p in projections}
-        squad_set = set(current_squad_ids)
-
-        # Team counts
-        team_counts: dict[int, int] = {}
-        for pid in current_squad_ids:
-            p = proj_by_id.get(pid)
-            if p:
-                team_counts[p.team_id] = team_counts.get(p.team_id, 0) + 1
-
-        # Calculate selling prices
-        selling_prices: dict[int, int] = {}
-        for pid in current_squad_ids:
-            p = proj_by_id.get(pid)
-            cur_price = p.price_tenths if p else 50
-            bought_price = purchase_prices.get(pid, cur_price)
-            if cur_price > bought_price:
-                selling_prices[pid] = bought_price + (cur_price - bought_price) // 2
-            else:
-                selling_prices[pid] = cur_price
-
-        # Sort squad players by projected xP ascending
-        squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
-        squad_projs.sort(key=lambda p: p.expected_points)
-
-        best_transfer: tuple[int, int] | None = None
-        max_gain = self.min_gain_threshold
-
-        for out_p in squad_projs:
-            sell_price = selling_prices.get(out_p.player_id, out_p.price_tenths)
-            available_budget = bank_tenths + sell_price
-
-            # Candidate pool of same position not in squad
-            candidates = [
-                cand for cand in projections
-                if cand.position == out_p.position
-                and cand.player_id not in squad_set
-                and cand.price_tenths <= available_budget
-            ]
-
-            for cand in candidates:
-                # Check club quota
-                allowed_quota = 3 if cand.team_id != out_p.team_id else 4
-                if team_counts.get(cand.team_id, 0) >= allowed_quota:
-                    continue
-
-                gain = cand.expected_points - out_p.expected_points
-                if gain > max_gain:
-                    max_gain = gain
-                    best_transfer = (out_p.player_id, cand.player_id)
-
-            if best_transfer:
-                break
-
-        return [best_transfer] if best_transfer else []
-
+        return self.decision_engine.decide_transfers(
+            strategy_name=self.name,
+            current_squad_ids=current_squad_ids,
+            purchase_prices=purchase_prices,
+            bank_tenths=bank_tenths,
+            free_transfers=free_transfers,
+            snapshot=snapshot,
+            projections=projections,
+            min_net_gain=self.min_gain_threshold,
+        )
 
 class OptimizerStrategy(BacktestStrategy):
     """Baseline C: Production combinatorial branch-and-bound transfer optimizer."""
@@ -139,11 +107,13 @@ class OptimizerStrategy(BacktestStrategy):
         allow_hits: bool = False,
         risk_profile: str = "neutral",
         min_net_gain: float = 0.50,
+        decision_engine: str | BaseDecisionEngine = "v0.9",
     ) -> None:
         self.max_transfers = max(1, min(3, max_transfers))
         self.allow_hits = allow_hits
         self.risk_profile = risk_profile
         self.min_net_gain = min_net_gain
+        self.decision_engine = resolve_decision_engine(decision_engine)
 
     @property
     def name(self) -> str:
@@ -158,88 +128,19 @@ class OptimizerStrategy(BacktestStrategy):
         snapshot: HistoricalGameweekSnapshot,
         projections: list[ExpectedPointsProjection],
     ) -> list[tuple[int, int]]:
-        from ..optimizer import PlayerOptInfo, solve_transfers
-
-        # 1. Build PlayerOptInfo map
-        opt_map: dict[int, PlayerOptInfo] = {}
-        for p in projections:
-            opt_map[p.player_id] = PlayerOptInfo(
-                id=p.player_id,
-                name=p.web_name,
-                position=p.position,
-                team_id=p.team_id,
-                team_short=p.team_short,
-                price_tenths=p.price_tenths,
-                status=p.status,
-                total_points=0,
-                expected_points=p.expected_points,
-                expected_minutes=p.expected_minutes,
-                xp_floor=p.xp_floor,
-                xp_ceiling=p.xp_ceiling,
-                standard_deviation=p.standard_deviation,
-            )
-
-        squad_set = set(current_squad_ids)
-        squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
-        cand_pool = [opt for pid, opt in opt_map.items() if pid not in squad_set]
-
-        # 2. Build selling prices
-        selling_prices: dict[int, int] = {}
-        for pid in current_squad_ids:
-            cur_p = opt_map.get(pid)
-            cur_price = cur_p.price_tenths if cur_p else 50
-            bought = purchase_prices.get(pid, cur_price)
-            if cur_price > bought:
-                selling_prices[pid] = bought + (cur_price - bought) // 2
-            else:
-                selling_prices[pid] = cur_price
-
-        # 3. FDR & Ticker maps
-        fdr_map: dict[str, float] = {}
-        ticker_map: dict[str, str] = {}
-        for fix in snapshot.fixtures:
-            h_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_h), "")
-            a_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_a), "")
-            if h_team:
-                fdr_map[h_team] = float(fix.team_h_difficulty)
-                ticker_map[h_team] = f"{a_team} (H)"
-            if a_team:
-                fdr_map[a_team] = float(fix.team_a_difficulty)
-                ticker_map[a_team] = f"{h_team} (A)"
-
-        best_moves: list[tuple[int, int]] = []
-        best_gain = self.min_net_gain
-
-        # Evaluate transfer count options
-        k_max = self.max_transfers if self.allow_hits else min(self.max_transfers, free_transfers)
-        if k_max <= 0:
-            return []
-
-        for k in range(1, k_max + 1):
-            recs, _ = solve_transfers(
-                num_transfers=k,
-                squad_players=squad_opt,
-                candidate_pool=cand_pool,
-                bank_tenths=bank_tenths,
-                free_transfers=free_transfers,
-                selling_prices=selling_prices,
-                fdr_map=fdr_map,
-                ticker_map=ticker_map,
-                risk_profile=self.risk_profile,
-                max_results=5,
-            )
-
-            for rec in recs:
-                if not self.allow_hits and rec.get("hit_cost", 0) > 0:
-                    continue
-                net_gain = rec.get("score", rec.get("xp_delta", 0.0))
-                if net_gain > best_gain:
-                    best_gain = net_gain
-                    out_list = [p["id"] for p in rec.get("outgoing", [])]
-                    in_list = [p["id"] for p in rec.get("incoming", [])]
-                    best_moves = list(zip(out_list, in_list))
-
-        return best_moves
+        return self.decision_engine.decide_transfers(
+            strategy_name=self.name,
+            current_squad_ids=current_squad_ids,
+            purchase_prices=purchase_prices,
+            bank_tenths=bank_tenths,
+            free_transfers=free_transfers,
+            snapshot=snapshot,
+            projections=projections,
+            max_transfers=self.max_transfers,
+            allow_hits=self.allow_hits,
+            risk_profile=self.risk_profile,
+            min_net_gain=self.min_net_gain,
+        )
 
 
 @dataclass(frozen=True, slots=True)

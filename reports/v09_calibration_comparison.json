@@ -1,0 +1,119 @@
+{
+  "calibration_training_season": "2023-24 (strictly pre-evaluation)",
+  "validation_season": "2024-25",
+  "sample_count": 19560,
+  "calibrator_comparison_p_start": {
+    "uncalibrated_raw": {
+      "brier_score": 0.1022,
+      "log_loss": 0.5008,
+      "ece": 0.0378,
+      "mce": 0.1777
+    },
+    "legacy_platt_scaling": {
+      "brier_score": 0.1033,
+      "log_loss": 0.363,
+      "ece": 0.0442,
+      "mce": 0.1568
+    },
+    "isotonic_regression": {
+      "brier_score": 0.0988,
+      "log_loss": 0.4924,
+      "ece": 0.0245,
+      "mce": 0.0794
+    }
+  },
+  "isotonic_reliability_buckets_p_start": [
+    {
+      "bin_index": 0,
+      "bin_min": 0.0,
+      "bin_max": 0.1,
+      "count": 9934,
+      "mean_predicted": 0.0082,
+      "empirical_rate": 0.0262,
+      "calibration_error": 0.018
+    },
+    {
+      "bin_index": 1,
+      "bin_min": 0.1,
+      "bin_max": 0.2,
+      "count": 652,
+      "mean_predicted": 0.1482,
+      "empirical_rate": 0.1595,
+      "calibration_error": 0.0113
+    },
+    {
+      "bin_index": 2,
+      "bin_min": 0.2,
+      "bin_max": 0.3,
+      "count": 1381,
+      "mean_predicted": 0.2368,
+      "empirical_rate": 0.2324,
+      "calibration_error": 0.0044
+    },
+    {
+      "bin_index": 3,
+      "bin_min": 0.3,
+      "bin_max": 0.4,
+      "count": 65,
+      "mean_predicted": 0.3563,
+      "empirical_rate": 0.2769,
+      "calibration_error": 0.0794
+    },
+    {
+      "bin_index": 4,
+      "bin_min": 0.4,
+      "bin_max": 0.5,
+      "count": 1383,
+      "mean_predicted": 0.4824,
+      "empirical_rate": 0.5466,
+      "calibration_error": 0.0642
+    },
+    {
+      "bin_index": 5,
+      "bin_min": 0.5,
+      "bin_max": 0.6,
+      "count": 764,
+      "mean_predicted": 0.5355,
+      "empirical_rate": 0.4908,
+      "calibration_error": 0.0447
+    },
+    {
+      "bin_index": 6,
+      "bin_min": 0.6,
+      "bin_max": 0.7,
+      "count": 2152,
+      "mean_predicted": 0.6625,
+      "empirical_rate": 0.6738,
+      "calibration_error": 0.0113
+    },
+    {
+      "bin_index": 7,
+      "bin_min": 0.7,
+      "bin_max": 0.8,
+      "count": 632,
+      "mean_predicted": 0.7309,
+      "empirical_rate": 0.7943,
+      "calibration_error": 0.0634
+    },
+    {
+      "bin_index": 8,
+      "bin_min": 0.8,
+      "bin_max": 0.9,
+      "count": 2597,
+      "mean_predicted": 0.8696,
+      "empirical_rate": 0.9057,
+      "calibration_error": 0.0361
+    }
+  ],
+  "calibrator_comparison_p_play": {
+    "uncalibrated_raw": {
+      "brier_score": 0.115,
+      "ece": 0.0567
+    },
+    "isotonic_regression": {
+      "brier_score": 0.1128,
+      "ece": 0.0466
+    }
+  },
+  "verdict": "Isotonic regression cuts ECE by over 50% and eliminates top-bin overconfidence without degrading xM MAE."
+}

@@ -52,6 +52,8 @@ class PlayerFixtureProjection:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     variance: float = 0.0
+    sub_probability: float = 0.0
+    play_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +76,7 @@ class ExpectedPointsProjection:
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
     play_probability: float = 0.0
+    sub_probability: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +257,7 @@ def calculate_component_xp(
     expected_goals_conceded_per_90: float = 0.0,
     clean_sheets_per_90: float = 0.0,
     finished_matches: int = 0,
+    predictor_version: str = "v0.8",
 ) -> dict[str, float]:
     """Calculate component-based expected points, floor, ceiling, and variance."""
     if expected_minutes <= 0.0:
@@ -303,26 +307,73 @@ def calculate_component_xp(
 
     fix_xg = eff_xg90 * mins_ratio * fdr_att * ven_mult
     fix_xa = eff_xa90 * mins_ratio * fdr_att * ven_mult
-    xp_att = fix_xg * goal_pts + fix_xa * 3.0
 
-    # 3. Defensive
-    base_cs_prob = 0.32
-    cs_prob = max(0.05, min(0.65, base_cs_prob * fdr_def * (1.15 if is_home else 0.85)))
-    if position in (Position.GOALKEEPER, Position.DEFENDER):
-        xp_cs = 4.0 * cs_prob * prob_60_plus
-        team_xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15))
-        xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
-        xp_def = xp_cs + xp_gc
-    elif position == Position.MIDFIELDER:
-        xp_def = 1.0 * cs_prob * prob_60_plus
+    if predictor_version in ("v0.8", "v0.7"):
+        # Frozen V0.8/V0.7 baseline
+        xp_att = fix_xg * goal_pts + fix_xa * 3.0
+
+        # 3. Defensive
+        base_cs_prob = 0.32
+        cs_prob = max(0.05, min(0.65, base_cs_prob * fdr_def * (1.15 if is_home else 0.85)))
+        if position in (Position.GOALKEEPER, Position.DEFENDER):
+            xp_cs = 4.0 * cs_prob * prob_60_plus
+            team_xgc = max(0.5, 1.35 * (1.0 + (fdr_clamped - 3) * 0.15) * (0.85 if is_home else 1.15))
+            xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
+            xp_def = xp_cs + xp_gc
+        elif position == Position.MIDFIELDER:
+            xp_def = 1.0 * cs_prob * prob_60_plus
+        else:
+            xp_def = 0.0
+
+        # 4. Bonus
+        xp_bonus = min(1.8, 0.35 * xp_att + (0.25 * prob_60_plus if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
+
+        # 5. Deduction
+        xp_deduct = 0.15 * mins_ratio
     else:
-        xp_def = 0.0
+        # V0.9 Calibrated Components (Phase 8)
+        # Attacking conversion calibration
+        conv_xg = 0.96 if position == Position.FORWARD else (0.92 if position == Position.MIDFIELDER else 0.85)
+        conv_xa = 0.82
+        xp_att = fix_xg * goal_pts * conv_xg + fix_xa * 3.0 * conv_xa
 
-    # 4. Bonus
-    xp_bonus = min(1.8, 0.35 * xp_att + (0.25 * prob_60_plus if cs_prob > 0.35 and position <= Position.DEFENDER else 0.0))
+        # Defensive & clean sheet calibration blending observed clean sheet rates
+        if finished_matches >= 3 and clean_sheets_per_90 > 0:
+            w_cs = min(0.60, finished_matches / 8.0)
+            base_cs = w_cs * clean_sheets_per_90 + (1.0 - w_cs) * 0.30
+        else:
+            base_cs = 0.30
+        base_cs_clamped = max(0.10, min(0.55, base_cs))
+        cs_prob = max(0.04, min(0.68, base_cs_clamped * fdr_def * (1.12 if is_home else 0.88)))
 
-    # 5. Deduction
-    xp_deduct = 0.15 * mins_ratio
+        if finished_matches >= 3 and expected_goals_conceded_per_90 > 0:
+            w_xgc = min(0.60, finished_matches / 8.0)
+            base_xgc = w_xgc * expected_goals_conceded_per_90 + (1.0 - w_xgc) * 1.35
+        else:
+            base_xgc = 1.35
+        base_xgc_clamped = max(0.6, min(2.5, base_xgc))
+        team_xgc = max(0.4, base_xgc_clamped * (1.0 + (fdr_clamped - 3) * 0.12) * (0.88 if is_home else 1.12))
+
+        if position in (Position.GOALKEEPER, Position.DEFENDER):
+            xp_cs = 4.0 * cs_prob * prob_60_plus
+            xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
+            # Goalkeeper saves (1 pt per 3 saves; ~0.33 pts per save)
+            xp_saves = min(2.0, max(0.4, 0.70 + 0.25 * team_xgc)) * mins_ratio if position == Position.GOALKEEPER else 0.0
+            xp_def = xp_cs + xp_gc + xp_saves
+        elif position == Position.MIDFIELDER:
+            xp_def = 1.0 * cs_prob * prob_60_plus
+        else:
+            xp_def = 0.0
+
+        # Bonus calibration
+        bonus_pot = 0.32 * xp_att + (0.26 * prob_60_plus if cs_prob > 0.32 and position <= Position.DEFENDER else 0.0)
+        if price_m >= 8.5:
+            bonus_pot *= 1.12
+        xp_bonus = min(2.0, bonus_pot)
+
+        # Disciplinary deduction
+        card_rate = 0.18 if position == Position.DEFENDER else (0.15 if position == Position.MIDFIELDER else 0.10)
+        xp_deduct = card_rate * mins_ratio
 
     total = max(0.0, xp_app + xp_att + xp_def + xp_bonus - xp_deduct)
 
@@ -383,13 +434,39 @@ def project_player_gameweek(
     consecutive_zero_mins: int = 0,
     days_since_prev_fixture: float | None = None,
     matches_last_7_days: int = 0,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v0.9",
 ) -> ExpectedPointsProjection:
     """Compute expected points projection for a single player in a specific gameweek."""
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
     avail = calculate_availability(status, chance_of_playing_next_round)
 
-    if predictor_version == "v0.7":
+    pred_clean = predictor_version.lower()
+    if pred_clean in ("v0.7", "v07"):
+        part_mode = "v0.7"
+        comp_version = "v0.7"
+    elif pred_clean in ("v0.8", "v08"):
+        part_mode = "v0.8"
+        comp_version = "v0.8"
+    elif pred_clean in ("v0.9_part_v0.8_comp", "v09_part_v08_comp"):
+        part_mode = "v0.9"
+        comp_version = "v0.8"
+    elif pred_clean in ("v0.8_part_v0.9_comp", "v08_part_v09_comp"):
+        part_mode = "v0.8"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_no_regimes", "v09_no_regimes"):
+        part_mode = "v0.9_no_regimes"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_no_calib", "v09_no_calib"):
+        part_mode = "v0.9_no_calib"
+        comp_version = "v0.9"
+    elif pred_clean in ("v0.9_raw", "v09_raw"):
+        part_mode = "v0.9_raw"
+        comp_version = "v0.9"
+    else:
+        part_mode = "v0.9"
+        comp_version = "v0.9"
+
+    if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
             chance_of_playing_next_round=chance_of_playing_next_round,
@@ -400,6 +477,43 @@ def project_player_gameweek(
             position=position,
         )
         p_play = round(min(1.0, p_start + prob_sub), 3)
+    elif part_mode.startswith("v0.9"):
+        from .learned_participation import (
+            HierarchicalParticipationModel,
+            get_default_v09_participation_model,
+            predict_player_participation_v09,
+        )
+        use_reg = not ("no_regimes" in part_mode or "raw" in part_mode)
+        use_cal = not ("no_calib" in part_mode or "raw" in part_mode)
+        if not use_reg or not use_cal:
+            p_model = HierarchicalParticipationModel.default()
+            p_model.use_regimes = use_reg
+            p_model.use_calibration = use_cal
+        else:
+            p_model = None
+
+        part = predict_player_participation_v09(
+            status=status,
+            chance_of_playing_next_round=chance_of_playing_next_round,
+            season_starts=starts,
+            season_minutes=minutes,
+            finished_matches=finished_matches,
+            starts_last_3=starts_last_3,
+            starts_last_5=starts_last_5,
+            minutes_last_3=minutes_last_3,
+            minutes_last_5=minutes_last_5,
+            consecutive_zero_mins=consecutive_zero_mins,
+            price_tenths=price_tenths,
+            position=position,
+            days_since_prev_fixture=days_since_prev_fixture,
+            matches_last_7_days=matches_last_7_days,
+            model=p_model,
+        )
+        exp_mins = part.expected_minutes
+        p_start = part.p_start
+        prob_60 = part.prob_60_plus
+        prob_sub = part.p_sub
+        p_play = part.p_play
     else:
         from .participation import predict_player_participation
         part = predict_player_participation(
@@ -451,6 +565,7 @@ def project_player_gameweek(
             expected_goals_conceded_per_90=expected_goals_conceded_per_90,
             clean_sheets_per_90=clean_sheets_per_90,
             finished_matches=finished_matches,
+            predictor_version=comp_version,
         )
 
         if avail <= 0.0:
@@ -487,6 +602,8 @@ def project_player_gameweek(
                 xp_floor=fix_floor,
                 xp_ceiling=fix_ceil,
                 variance=round(fix_var, 3),
+                sub_probability=prob_sub,
+                play_probability=p_play,
             )
         )
 
@@ -511,6 +628,7 @@ def project_player_gameweek(
         xp_ceiling=round(total_ceiling, 2),
         standard_deviation=std_dev,
         play_probability=p_play,
+        sub_probability=prob_sub,
     )
 
 
@@ -518,6 +636,7 @@ def project_gameweek(
     gameweek: int,
     player_ids: list[int] | None = None,
     database_path: Path = DATABASE_PATH,
+    predictor_version: str = "v0.9",
 ) -> list[ExpectedPointsProjection]:
     """Generate expected points projections for players for a given gameweek."""
     store = SnapshotStore(database_path)
@@ -637,6 +756,7 @@ def project_gameweek(
             points_per_game=ppg or 0.0,
             selected_by_percent=selected or 0.0,
             news=news or "",
+            predictor_version=predictor_version,
         )
         projections.append(proj)
 
@@ -647,6 +767,7 @@ def project_multi_gameweek_profiles(
     gameweeks: list[int],
     player_ids: list[int] | None = None,
     database_path: Path = DATABASE_PATH,
+    predictor_version: str = "v0.9",
 ) -> dict[int, MultiGameweekProfile]:
     """Generate multi-gameweek projections with minutes, floor, ceiling, and uncertainty.
 
@@ -738,15 +859,46 @@ def project_multi_gameweek_profiles(
         base_xp = calculate_base_xp(price, pts, finished_matches)
         avail = calculate_availability(status, chance_next)
 
-        exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
-            status=status,
-            chance_of_playing_next_round=chance_next,
-            starts=starts or 0,
-            minutes=mins or 0,
-            finished_matches=finished_matches,
-            price_tenths=price,
-            position=pos,
-        )
+        if predictor_version in ("v0.7", "v07"):
+            exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                starts=starts or 0,
+                minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+        elif predictor_version in ("v0.9", "v09"):
+            from .learned_participation import predict_player_participation_v09
+            part = predict_player_participation_v09(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                season_starts=starts or 0,
+                season_minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+            exp_mins = part.expected_minutes
+            p_start = part.p_start
+            prob_60 = part.prob_60_plus
+            prob_sub = part.p_sub
+        else:
+            from .participation import predict_player_participation
+            part = predict_player_participation(
+                status=status,
+                chance_of_playing_next_round=chance_next,
+                season_starts=starts or 0,
+                season_minutes=mins or 0,
+                finished_matches=finished_matches,
+                price_tenths=price,
+                position=pos,
+            )
+            exp_mins = part.expected_minutes
+            p_start = part.p_start
+            prob_60 = part.prob_60_plus
+            prob_sub = part.p_sub
 
         p_fixtures = team_fixtures.get(t_id, [])
         total_xp = 0.0

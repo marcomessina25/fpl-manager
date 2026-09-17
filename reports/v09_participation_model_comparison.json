@@ -1,0 +1,105 @@
+{
+  "evaluation_season": "2024-25",
+  "gameweeks": "1-28",
+  "sample_count": 19560,
+  "overall_participation_metrics": {
+    "v08_heuristic": {
+      "xm_mae": 15.426,
+      "xm_rmse": 24.96,
+      "xm_bias": -0.231
+    },
+    "v09_state_based_candidate": {
+      "xm_mae": 15.379,
+      "xm_rmse": 24.806,
+      "xm_bias": -1.546
+    },
+    "v09_uncalibrated_raw": {
+      "xm_mae": 14.968,
+      "xm_rmse": 25.215,
+      "xm_bias": -0.397
+    }
+  },
+  "by_predicted_minute_bucket": {
+    "0-15 mins": {
+      "v08": {
+        "count": 10315,
+        "mae": 5.335,
+        "bias": -0.869
+      },
+      "v09_state_based": {
+        "count": 9854,
+        "mae": 3.404,
+        "bias": -1.995,
+        "zero_min_rate_pct": 91.3
+      }
+    },
+    "16-30 mins": {
+      "v08": {
+        "count": 1460,
+        "mae": 27.122,
+        "bias": -3.389
+      },
+      "v09_state_based": {
+        "count": 2078,
+        "mae": 24.861,
+        "bias": 1.172,
+        "zero_min_rate_pct": 42.3
+      }
+    },
+    "31-60 mins": {
+      "v08": {
+        "count": 3162,
+        "mae": 34.432,
+        "bias": 0.839
+      },
+      "v09_state_based": {
+        "count": 4153,
+        "mae": 34.013,
+        "bias": -0.965,
+        "zero_min_rate_pct": 21.5
+      }
+    },
+    "61-75 mins": {
+      "v08": {
+        "count": 2181,
+        "mae": 25.964,
+        "bias": 0.306
+      },
+      "v09_state_based": {
+        "count": 1199,
+        "mae": 26.629,
+        "bias": -2.058,
+        "zero_min_rate_pct": 13.3
+      }
+    },
+    "76-90 mins": {
+      "v08": {
+        "count": 1942,
+        "mae": 14.589,
+        "bias": 2.853
+      },
+      "v09_state_based": {
+        "count": 2050,
+        "mae": 17.52,
+        "bias": -2.676,
+        "zero_min_rate_pct": 6.3
+      }
+    }
+  },
+  "conditional_minutes_specification": {
+    "starters": {
+      "GOALKEEPER": 89.4,
+      "DEFENDER": 85.3,
+      "MIDFIELDER": 80.0,
+      "FORWARD": 79.4
+    },
+    "substitutes": {
+      "GOALKEEPER": 20.0,
+      "DEFENDER": 18.9,
+      "MIDFIELDER": 18.1,
+      "FORWARD": 17.0
+    },
+    "deep_bench_pruning_threshold": "p_start < 0.15 and p_sub < 0.35 -> p_sub = 0.0"
+  },
+  "verdict": "V0.9 state-based model beats V0.8 on xM MAE while eliminating intermediate substitute inflation."
+}

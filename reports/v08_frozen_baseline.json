@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0.0",
+  "baseline_identifier": "V0.8-FROZEN-2025-26",
+  "season": "2025-26",
+  "gameweeks": "1-38",
+  "description": "Immutable scientific reference baseline for FPL Manager V0.8, recorded for V0.9 development and regression prevention.",
+  "frozen_at": "2026-09-15T12:00:00Z",
+  "reference_commit": "4300adb",
+  "implementation": {
+    "predictor_function": "fpl_manager.expected_points.project_player_gameweek(predictor_version='v0.8')",
+    "minutes_model": "fpl_manager.expected_points.calculate_expected_minutes",
+    "decision_engine": "fpl_manager.backtest.decision_engine.DecisionEngineV08",
+    "optimizer_function": "fpl_manager.optimizer.solve_transfers (unconstrained)"
+  },
+  "metrics": {
+    "expected_points": {
+      "total_evaluated_records": 29338,
+      "xp_mae": 1.150,
+      "xp_rmse": 1.984,
+      "xp_spearman": 0.6750,
+      "xp_bias": 0.087,
+      "active_players_mae": 1.943,
+      "active_players_spearman": 0.3252
+    },
+    "expected_minutes": {
+      "xm_mae": 13.919,
+      "xm_rmse": 23.619,
+      "xm_bias": -0.121,
+      "buckets": {
+        "0-15": {
+          "count": 16755,
+          "mean_predicted": 2.446,
+          "mean_actual": 2.948,
+          "mae": 4.351
+        },
+        "16-30": {
+          "count": 2225,
+          "mean_predicted": 22.032,
+          "mean_actual": 24.450,
+          "mae": 26.548
+        },
+        "31-60": {
+          "count": 4435,
+          "mean_predicted": 46.113,
+          "mean_actual": 45.664,
+          "mae": 33.934
+        },
+        "61-75": {
+          "count": 3090,
+          "mean_predicted": 67.738,
+          "mean_actual": 67.524,
+          "mae": 26.985
+        },
+        "76-90": {
+          "count": 2833,
+          "mean_predicted": 81.643,
+          "mean_actual": 78.970,
+          "mae": 15.005
+        }
+      }
+    },
+    "availability_classification": {
+      "accuracy": 0.8647,
+      "precision": 0.8176,
+      "recall": 0.8368,
+      "true_positives": 9491,
+      "false_positives": 2118,
+      "true_negatives": 15878,
+      "false_negatives": 1851
+    },
+    "decision_replay": {
+      "engine_version": "v0.8",
+      "optimizer_strategy": {
+        "net_points": 1948,
+        "gross_points": 2044,
+        "hits": 24,
+        "hit_penalty_points": 96,
+        "total_transfers": 37,
+        "zero_minute_starters": 50,
+        "zero_minute_captains": 3,
+        "bench_regret_points": 221,
+        "transfer_gross_gain": 168,
+        "transfer_net_gain": 72
+      },
+      "simple_xp_strategy": {
+        "net_points": 1817,
+        "gross_points": 1817,
+        "total_transfers": 37,
+        "zero_minute_starters": 56,
+        "zero_minute_captains": 3
+      },
+      "no_transfer_baseline": {
+        "net_points": 1443,
+        "gross_points": 1443,
+        "zero_minute_starters": 106,
+        "zero_minute_captains": 3
+      }
+    }
+  }
+}

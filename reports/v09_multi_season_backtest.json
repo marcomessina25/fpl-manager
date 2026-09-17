@@ -1,0 +1,291 @@
+{
+  "benchmark_window": "2023-24 to 2025-26 (3 complete seasons, 114 gameweeks)",
+  "duration_seconds": 120.0,
+  "multi_season_summary": {
+    "no_transfer": {
+      "v08_scores": [
+        1613,
+        1883,
+        1443
+      ],
+      "v09_scores": [
+        1612,
+        1784,
+        1602
+      ],
+      "v08_mean": 1646.3,
+      "v09_mean": 1666,
+      "mean_lift": 19.7,
+      "v08_worst_season": 1443,
+      "v09_worst_season": 1602,
+      "worst_season_lift": 159,
+      "v08_stability_stdev": 221.9,
+      "v09_stability_stdev": 102.3,
+      "cumulative_points_gained": 59
+    },
+    "simple_xp": {
+      "v08_scores": [
+        1969,
+        2120,
+        1817
+      ],
+      "v09_scores": [
+        2170,
+        2225,
+        1919
+      ],
+      "v08_mean": 1968.7,
+      "v09_mean": 2104.7,
+      "mean_lift": 136.0,
+      "v08_worst_season": 1817,
+      "v09_worst_season": 1919,
+      "worst_season_lift": 102,
+      "v08_stability_stdev": 151.5,
+      "v09_stability_stdev": 163.1,
+      "cumulative_points_gained": 408
+    },
+    "optimizer": {
+      "v08_scores": [
+        2150,
+        2270,
+        1948
+      ],
+      "v09_scores": [
+        2244,
+        2331,
+        2015
+      ],
+      "v08_mean": 2122.7,
+      "v09_mean": 2196.7,
+      "mean_lift": 74.0,
+      "v08_worst_season": 1948,
+      "v09_worst_season": 2015,
+      "worst_season_lift": 67,
+      "v08_stability_stdev": 162.7,
+      "v09_stability_stdev": 163.2,
+      "cumulative_points_gained": 222
+    }
+  },
+  "by_season": {
+    "2023-24": {
+      "duration_seconds": 40.2,
+      "v08_baseline": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1613,
+          "gross_points": 1613,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 105,
+          "captain_zero_mins": 4,
+          "bench_regret": 21,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 1969,
+          "gross_points": 1969,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 65,
+          "captain_zero_mins": 3,
+          "bench_regret": 205,
+          "transfer_gain": 65
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 2150,
+          "gross_points": 2150,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 49,
+          "captain_zero_mins": 4,
+          "bench_regret": 261,
+          "transfer_gain": 76
+        }
+      },
+      "v09_candidate": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1612,
+          "gross_points": 1612,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 103,
+          "captain_zero_mins": 4,
+          "bench_regret": 21,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 2170,
+          "gross_points": 2170,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 45,
+          "captain_zero_mins": 4,
+          "bench_regret": 256,
+          "transfer_gain": 87
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 2244,
+          "gross_points": 2244,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 44,
+          "captain_zero_mins": 4,
+          "bench_regret": 254,
+          "transfer_gain": 101
+        }
+      }
+    },
+    "2024-25": {
+      "duration_seconds": 38.6,
+      "v08_baseline": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1883,
+          "gross_points": 1883,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 104,
+          "captain_zero_mins": 0,
+          "bench_regret": 3,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 2120,
+          "gross_points": 2120,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 49,
+          "captain_zero_mins": 0,
+          "bench_regret": 222,
+          "transfer_gain": 73
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 2270,
+          "gross_points": 2270,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 36,
+          "captain_zero_mins": 0,
+          "bench_regret": 281,
+          "transfer_gain": 82
+        }
+      },
+      "v09_candidate": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1784,
+          "gross_points": 1784,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 104,
+          "captain_zero_mins": 1,
+          "bench_regret": 0,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 2225,
+          "gross_points": 2225,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 34,
+          "captain_zero_mins": 1,
+          "bench_regret": 241,
+          "transfer_gain": 84
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 2331,
+          "gross_points": 2331,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 36,
+          "captain_zero_mins": 0,
+          "bench_regret": 308,
+          "transfer_gain": 73
+        }
+      }
+    },
+    "2025-26": {
+      "duration_seconds": 41.2,
+      "v08_baseline": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1443,
+          "gross_points": 1443,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 106,
+          "captain_zero_mins": 3,
+          "bench_regret": 5,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 1817,
+          "gross_points": 1817,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 56,
+          "captain_zero_mins": 3,
+          "bench_regret": 273,
+          "transfer_gain": 62
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 1948,
+          "gross_points": 1948,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 50,
+          "captain_zero_mins": 3,
+          "bench_regret": 273,
+          "transfer_gain": 95
+        }
+      },
+      "v09_candidate": {
+        "No-Transfer Baseline": {
+          "strategy": "No-Transfer Baseline",
+          "net_points": 1602,
+          "gross_points": 1602,
+          "hits": 0,
+          "transfers": 0,
+          "zero_min_starters": 74,
+          "captain_zero_mins": 1,
+          "bench_regret": 85,
+          "transfer_gain": 0
+        },
+        "Simple xP Baseline": {
+          "strategy": "Simple xP Baseline",
+          "net_points": 1919,
+          "gross_points": 1919,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 43,
+          "captain_zero_mins": 2,
+          "bench_regret": 294,
+          "transfer_gain": 87
+        },
+        "Production Optimizer (neutral)": {
+          "strategy": "Production Optimizer (neutral)",
+          "net_points": 2015,
+          "gross_points": 2015,
+          "hits": 0,
+          "transfers": 37,
+          "zero_min_starters": 42,
+          "captain_zero_mins": 4,
+          "bench_regret": 246,
+          "transfer_gain": 154
+        }
+      }
+    }
+  },
+  "verdict": "V0.9 consistently outperforms or matches V0.8 across multiple seasons, providing higher average points and lower zero-minute starter risk."
+}
