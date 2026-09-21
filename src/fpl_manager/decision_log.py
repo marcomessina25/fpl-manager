@@ -17,7 +17,7 @@ from typing import Any
 from .expected_points import project_gameweek
 from .fixtures import get_current_gameweek
 from .models import Player, Position
-from .rules import validate_squad, validate_starting_lineup
+from .rules import is_free_transfers_chip, validate_squad, validate_starting_lineup
 from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
 from .transfers import resolve_chained_transfers
@@ -62,6 +62,9 @@ def record_gameweek_decision(
         raise ValueError(f"Vice-Captain ID {vice_captain_id} must be in the starting XI.")
     if captain_id == vice_captain_id:
         raise ValueError("Captain and Vice-Captain cannot be the same player.")
+
+    if is_free_transfers_chip(chip_played):
+        transfer_hits = 0
 
     store = SnapshotStore(database_path)
     store.initialize()
@@ -530,12 +533,14 @@ def log_decision_from_current_squad(
         store, base_squad, transfers, allow_past_outgoing=is_past
     )
 
-    if transfers is None and not is_past:
-        existing_dec = get_gameweek_decision(gameweek, season=state.season, team_id=team_id, database_path=database_path)
-        if existing_dec and existing_dec.get("transfers"):
-            parsed_transfers = list(existing_dec.get("transfers", []))
+    existing_dec = get_gameweek_decision(gameweek, season=state.season, team_id=team_id, database_path=database_path)
+    if chip_played is None and existing_dec is not None and existing_dec.get("chip_played"):
+        chip_played = existing_dec["chip_played"]
 
-    if not parsed_transfers and not is_past and gameweek > 1:
+    if transfers is None and existing_dec and existing_dec.get("transfers"):
+        parsed_transfers = list(existing_dec.get("transfers", []))
+
+    if not parsed_transfers and gameweek > 1:
         prev_dec = get_gameweek_decision(gameweek - 1, season=state.season, team_id=team_id, database_path=database_path)
         if prev_dec:
             prev_squad_ids = set(prev_dec.get("squad_player_ids") or (prev_dec.get("starting_player_ids", []) + prev_dec.get("bench_player_ids", [])))
@@ -609,7 +614,7 @@ def log_decision_from_current_squad(
                     tx["outgoing_purchase_price_tenths"] = out_purchase
 
     # 3. Compute transfer hits if not explicitly provided
-    if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+    if is_free_transfers_chip(chip_played):
         computed_hits = 0
     elif transfer_hits is None:
         if parsed_transfers:
@@ -858,7 +863,7 @@ def log_decision_from_current_squad(
         )
         remaining_ft = max(0, starting_ft - num_tx)
 
-        if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+        if is_free_transfers_chip(chip_played):
             new_ft = 1
         else:
             new_ft = remaining_ft
@@ -910,8 +915,7 @@ def compute_expected_free_transfers(
         for gw in range(2, target_gw):
             if gw in gw_decisions:
                 tx_list, chip = gw_decisions[gw]
-                chip_str = str(chip).lower().strip() if chip else ""
-                if chip_str in ("wildcard", "freehit", "free_hit", "wc", "fh"):
+                if is_free_transfers_chip(chip):
                     ft = 1
                 else:
                     tx_count = len(resolve_chained_transfers(tx_list))

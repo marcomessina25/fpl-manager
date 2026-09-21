@@ -379,11 +379,13 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     raise ValueError("Field 'transfers' is required.")
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 gw_val = body.get("gameweek")
+                chip_val = body.get("chip") or body.get("chip_played")
                 result = execute_transfers(
                     squad_path=squad_path,
                     transfers=tx_list,
                     database_path=self.database_path,
                     gameweek=int(gw_val) if gw_val is not None else None,
+                    chip_played=chip_val,
                 )
                 self._send_json(result)
             elif path == "/api/decisions":

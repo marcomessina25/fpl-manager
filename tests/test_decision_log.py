@@ -953,6 +953,93 @@ def test_automatic_squad_reconciliation_on_lineup_save(decision_test_env: tuple[
     assert dec2["transfer_hits"] == 0
 
 
+def test_record_gameweek_decision_drops_transfer_hits_when_wildcard_or_freehit(decision_test_env: tuple[Path, Path]) -> None:
+    db_path, _ = decision_test_env
+    squad_ids = list(range(1, 16))
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 15]
+
+    # Explicit transfer hits passed in with wildcard -> must be forced to 0
+    record_gameweek_decision(
+        gameweek=3,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="wildcard",
+        transfer_hits=12,
+        database_path=db_path,
+        overwrite=True,
+    )
+    dec = get_gameweek_decision(3, database_path=db_path)
+    assert dec is not None
+    assert dec["chip_played"] == "wildcard"
+    assert dec["transfer_hits"] == 0
+
+    # Explicit transfer hits passed in with free_hit -> must be forced to 0
+    record_gameweek_decision(
+        gameweek=4,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="free_hit",
+        transfer_hits=8,
+        database_path=db_path,
+        overwrite=True,
+    )
+    dec4 = get_gameweek_decision(4, database_path=db_path)
+    assert dec4 is not None
+    assert dec4["chip_played"] == "free_hit"
+    assert dec4["transfer_hits"] == 0
+
+
+def test_log_decision_preserves_existing_chip_and_drops_hits(decision_test_env: tuple[Path, Path]) -> None:
+    from fpl_manager.decision_log import log_decision_from_current_squad
+    from fpl_manager.squad_state import CurrentSquadState, load_current_squad, save_current_squad
+
+    db_path, squad_path = decision_test_env
+
+    # 1. Log GW5 with wildcard
+    log_decision_from_current_squad(
+        gameweek=5,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="wildcard",
+        overwrite=True,
+    )
+    dec5 = get_gameweek_decision(5, database_path=db_path)
+    assert dec5 is not None
+    assert dec5["chip_played"] == "wildcard"
+    assert dec5["transfer_hits"] == 0
+
+    # 2. Subsequent save (e.g. user changes captain or lineup from UI without specifying chip)
+    log_decision_from_current_squad(
+        gameweek=5,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=8,  # changed captain
+        vice_captain_id=13,
+        chip_played=None,  # chip not passed
+        overwrite=True,
+    )
+    dec5_updated = get_gameweek_decision(5, database_path=db_path)
+    assert dec5_updated is not None
+    assert dec5_updated["captain_id"] == 8
+    # Chip must be preserved and transfer hits must still be 0!
+    assert dec5_updated["chip_played"] == "wildcard"
+    assert dec5_updated["transfer_hits"] == 0
+
+
+
 
 
 

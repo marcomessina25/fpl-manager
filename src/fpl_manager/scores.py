@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .api import fetch_gameweek_live_data
+from .rules import is_free_transfers_chip
 from .storage import SnapshotStore, utc_timestamp, write_raw_snapshot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -235,6 +236,12 @@ def finalize_completed_gameweek_scores(
         dec_id, tid, season, gw, act_pts, start_json, bench_json, cap_id, vc_id, chip, hits = row
         starters = json.loads(start_json) if start_json else []
         bench = json.loads(bench_json) if bench_json else []
+        effective_hits = hits or 0
+        if is_free_transfers_chip(chip):
+            effective_hits = 0
+            if hits and hits > 0:
+                with closing(store._connect()) as repair_conn, repair_conn:
+                    repair_conn.execute("UPDATE decisions SET transfer_hits = 0 WHERE id = ?", (dec_id,))
         try:
             perf = compute_matchday_lineup_performance(
                 gameweek=gw,
@@ -243,7 +250,7 @@ def finalize_completed_gameweek_scores(
                 captain_id=cap_id,
                 vice_captain_id=vc_id,
                 chip_played=chip,
-                transfer_hits=hits or 0,
+                transfer_hits=effective_hits,
                 database_path=database_path,
             )
             if perf.get("has_match_data"):

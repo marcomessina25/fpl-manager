@@ -40,3 +40,36 @@ def test_rejects_illegal_formation() -> None:
     squad = legal_squad()
     starters = [1, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15]
     assert "defenders" in " ".join(validate_starting_lineup(squad, starters).errors)
+
+
+def test_is_free_transfers_chip() -> None:
+    from fpl_manager.rules import is_free_transfers_chip
+
+    # Wildcard variants
+    assert is_free_transfers_chip("wildcard") is True
+    assert is_free_transfers_chip("WILDCARD") is True
+    assert is_free_transfers_chip("Wildcard") is True
+    assert is_free_transfers_chip("wildcard_1") is True
+    assert is_free_transfers_chip("wildcard_2") is True
+    assert is_free_transfers_chip("wildcard1") is True
+    assert is_free_transfers_chip("wildcard2") is True
+    assert is_free_transfers_chip("wc") is True
+    assert is_free_transfers_chip("WC") is True
+
+    # Free Hit variants
+    assert is_free_transfers_chip("freehit") is True
+    assert is_free_transfers_chip("FREEHIT") is True
+    assert is_free_transfers_chip("free_hit") is True
+    assert is_free_transfers_chip("Free_Hit") is True
+    assert is_free_transfers_chip("fh") is True
+    assert is_free_transfers_chip("FH") is True
+
+    # Negative / other chips
+    assert is_free_transfers_chip(None) is False
+    assert is_free_transfers_chip("") is False
+    assert is_free_transfers_chip("bench_boost") is False
+    assert is_free_transfers_chip("triple_captain") is False
+    assert is_free_transfers_chip("bb") is False
+    assert is_free_transfers_chip("tc") is False
+    assert is_free_transfers_chip("unknown") is False
+

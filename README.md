@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-0.9.0-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-0.9.1-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -248,6 +248,7 @@ fpl backtest-participation --season 2023-24 --save-report
 Run out-of-sample prediction accuracy backtesting with comparative predictor versioning:
 
 ```powershell
+fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v0.9 --report
 fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v0.8 --report
 fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v0.7 --report
 ```
@@ -255,8 +256,8 @@ fpl backtest-predictions --season 2023-24 --start-gw 1 --end-gw 38 --predictor v
 Run sequential multi-gameweek decision simulations comparing the production optimizer against baselines:
 
 ```powershell
-fpl backtest-decisions --season 2023-24 --strategy optimizer --start-gw 1 --end-gw 10 --predictor v0.8
-fpl backtest-decisions --season 2023-24 --strategy notransfer --start-gw 1 --end-gw 10 --predictor v0.8
+fpl backtest-decisions --season 2023-24 --strategy optimizer --start-gw 1 --end-gw 10 --predictor v0.9
+fpl backtest-decisions --season 2023-24 --strategy notransfer --start-gw 1 --end-gw 10 --predictor v0.9
 ```
 
 ### Strategic LLM Advisory & Candidate Strategy Critique
@@ -268,18 +269,30 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V0.8 Completed)
+## Current scope (V0.9 & V0.9.1 Completed)
 
-- **Predictive Participation Engine**: Heuristic probabilistic $P(\text{start})$, $P(\text{sub})$, $P(\text{play})$ and conditional two-stage expected minutes ($xM$) model (Bayesian recency blending, exponential role-loss decay, turnaround congestion discounts) serving as a transitional stepping stone before learned ML models in V0.9. Reduces 2023-24 out-of-sample minutes MAE from 23.88 mins (V0.7) to 19.88 mins (V0.8, -16.8% error reduction; latest 2025-26 validation: 13.92 mins xM MAE, 1.150 xP MAE, 0.6750 Spearman).
-- **Point-in-Time Schedule & Rotation Features**: Turnaround congestion thresholds, 7d/14d match congestion, consecutive zero-minute role-loss decay, and recency starts/minutes computed strictly without future leakage.
-- **Empirical Participation Diagnostics (`fpl backtest-participation`)**: Automated pre-deadline root-cause decomposition (`ROLE_LOSS`, `TACTICAL_BENCH`, `CONGESTION_ROTATION`, `INJURY_FITNESS_DOUBT`, `EARLY_SUBSTITUTION`, `SUBSTITUTE_APPEARANCE`).
-- **A/B Backtesting Framework (`fpl backtest-predictions`, `fpl backtest-decisions`)**: Out-of-sample comparative evaluation across historical seasons with exact `--predictor v0.8|v0.7` controls (+9 net points gained on the production optimizer in 2023-24 controlled benchmark).
-- **Rank-Aware Decision Optimization**: Expanded utility objectives and risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`) across transfer suggestions, Wildcard, Free-Hit, and rolling planning.
-- **Structured Qualitative Football Context Layer**: Traceable observations categorized into `FACT`, `INFERENCE`, `RUMOUR`, and `MODEL_ASSUMPTION` with confidence weights, provenance, and gameweek expiration.
-- **LLM Qualitative Strategy Critique**: Pre-deadline strategy dossier analysis critiquing mathematical optimizer candidates against qualitative football context under strict deterministic rules.
-- **Interactive Local Graphical Dashboard (`fpl gui`)**: Zero-external-dependency local web app with visual football pitch lineup, team switcher, decision logger, transfers visualizer, Wildcard studio, and evaluation hub.
+### What's New in V0.9 & V0.9.1
+- **Learned Hierarchical Participation Model (V0.9)**: Replaced transitional heuristic rules with a two-stage hierarchical model trained on multi-year point-in-time features without future data leakage:
+  - *Stage 1*: Calibrated logistic regression predicting starting probability $P(\text{start})$.
+  - *Stage 2*: Conditional classifier predicting substitute probability $P(\text{sub} \mid \text{not start})$.
+  - *Expected Minutes ($xM$)*: $xM = P(\text{start}) \cdot \mathbb{E}[M \mid \text{start}] + P(\text{sub} \mid \text{not start}) \cdot (1 - P(\text{start})) \cdot \mathbb{E}[M \mid \text{sub}]$.
+- **Dynamic Rotation Regimes & Turnaround Fingerprints (V0.9)**: Player-specific turnaround congestion models capturing fast vs. slow recovery profiles, 7-day and 14-day match congestion, and exponential role-loss decay.
+- **Probability Calibration via Isotonic Regression & Platt Scaling (V0.9)**: Calibrated with Pool Adjacent Violators Algorithm (PAVA) and Platt scaling, directly aligning predicted participation probabilities with empirical base rates.
+- **Granular xP Component Calibration (V0.9)**: Empirical conversion shrinkage for Opta underlying metrics (xG/xA), defensive clean sheet Poisson shrinkage, goalkeeper save curves, and bonus point modeling.
+- **Decision A/B Backtesting Framework (`fpl backtest-decisions`) (V0.9)**: Multi-season sequential decision replay framework with realistic transfer bank constraints, transfer ROI tracking, and counterfactual regret analysis against `notransfer` and baseline policies.
+- **Closed-Loop Evaluation & Hindsight Counterfactuals (V0.9)**: Direct post-deadline comparison between actual human choices, model-recommended starting lineups, and hindsight-optimal legal maximums.
+- **Multi-Year Participation Risk Penalty Calibration (V0.9.1)**: Empirical multi-season calibration (2022/23 to 2025/26) determining the optimal participation risk weight ($w=0.0$), maximizing net fantasy points (+2033 in 2025/26) while eliminating unwarranted bench regret.
+- **Chip Lifecycle Hardening & Transfer Hit Elimination (V0.9.1)**: Full enforcement of zero transfer hit penalties (`-4` points dropped) when Wildcard or Free Hit chips are active across decision logging, transfer execution, live matchday scoring, finalized scoring, and evaluation. Comprehensive chip alias normalization (`wildcard`, `wildcard_1`, `wildcard_2`, `wc`, `freehit`, `free_hit`, `fh`).
+- **GUI Pitch & Trade Synchronization (V0.9.1)**: Auto-populates active chips in the Pitch view to prevent accidental chip clearing on lineup saves, passes active chips from trade execution modals, and displays dynamic `0 (Free with Chip)` placeholders.
+
+### Core Platform Capabilities
+- **Predictive Participation Engine**: Probabilistic participation and minutes estimation outperforming baseline minutes models.
+- **Rank-Aware Decision Optimization**: Risk profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`) across transfer suggestions, Wildcard, Free-Hit, and multi-gameweek planning.
+- **Structured Qualitative Football Context Layer**: Traceable observations categorized into `FACT`, `INFERENCE`, `RUMOUR`, and `MODEL_ASSUMPTION` with confidence weights and gameweek expiration.
+- **LLM Qualitative Strategy Critique**: Pre-deadline strategy dossiers critiquing optimizer candidates against qualitative context under deterministic rules.
+- **Interactive Local Graphical Dashboard (`fpl gui`)**: Zero-dependency local web app with visual football pitch lineup, team switcher, decision logger, transfers visualizer, Wildcard studio, and evaluation hub.
 - **Multi-Team Management Core (`fpl teams`, `fpl team`)**: Full multi-squad support with team isolation, active team switching, team cloning, and team-scoped decision persistence.
-- **Official FPL API ingestion**: Normalized SQLite snapshots with automated schema migration and raw payload preservation.
+- **Official FPL API Ingestion**: Normalized SQLite snapshots with automated schema migration and raw payload preservation.
 - **Combinatorial Optimizer**: Pure Python branch-and-bound optimizer for 1 to 5 transfers (`fpl suggest-transfers`) and rolling multi-gameweek transfer planning (`fpl plan`).
 - **Effective Ownership & Strategic Risk Index**: Template Shield vs Differential Sword categorization (`fpl ownership` / `fpl risk`).
 - **Chip Strategy Planner**: Multi-gameweek Blank and Double Gameweek calendar analyzer (`fpl chip-strategy`).

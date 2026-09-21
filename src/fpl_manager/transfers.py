@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .models import Player
-from .rules import ValidationResult, validate_squad
+from .rules import ValidationResult, is_free_transfers_chip, validate_squad
 from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
 from .storage import SnapshotStore
 
@@ -217,6 +217,7 @@ def execute_transfers(
     transfers: list[Transfer | dict[str, Any] | tuple[int, int]],
     database_path: Path = DATABASE_PATH,
     gameweek: int | None = None,
+    chip_played: str | None = None,
 ) -> dict[str, Any]:
     """Execute and persist proposed transfers directly to the squad state file and decision records."""
     orig_state_text = squad_path.read_text(encoding="utf-8") if squad_path.exists() else None
@@ -326,8 +327,12 @@ def execute_transfers(
     new_bank = val_res.bank_after_tenths if val_res.bank_after_tenths is not None else state.bank_tenths
 
     merged_tx = resolve_chained_transfers(list(existing_tx) + list(records)) if existing_tx else resolve_chained_transfers(records)
-    tx_hits = val_res.transfer_hits
     starting_ft = max(1, state.free_transfers)
+    active_chip = chip_played or (existing_dec.get("chip_played") if existing_dec else None)
+    if is_free_transfers_chip(active_chip):
+        tx_hits = 0
+    else:
+        tx_hits = max(0, len(merged_tx) - starting_ft)
 
     orig_decision_row = None
     orig_recommendation_row = None
@@ -378,7 +383,7 @@ def execute_transfers(
                 cur_bench = list(existing_dec.get("bench_player_ids", []))
                 cur_cap = existing_dec.get("captain_id")
                 cur_vc = existing_dec.get("vice_captain_id")
-                chip_played = existing_dec.get("chip_played")
+                chip_played = chip_played or existing_dec.get("chip_played")
                 notes = existing_dec.get("notes", "")
             else:
                 from .decision_log import get_gameweek_decision
@@ -390,14 +395,12 @@ def execute_transfers(
                     cur_bench = list(prev_dec.get("bench_player_ids", []))
                     cur_cap = prev_dec.get("captain_id")
                     cur_vc = prev_dec.get("vice_captain_id")
-                    chip_played = None
                     notes = ""
                 else:
                     cur_starters = []
                     cur_bench = []
                     cur_cap = None
                     cur_vc = None
-                    chip_played = None
                     notes = ""
 
             for tx in tx_objs:
@@ -412,12 +415,14 @@ def execute_transfers(
                 if cur_vc == tx.outgoing_id:
                     cur_vc = tx.incoming_id
 
+            is_free_chip = is_free_transfers_chip(chip_played)
+
             if set(cur_starters + cur_bench) != set(new_ids) or len(cur_starters) != 11 or len(cur_bench) != 4:
                 tmp_state = CurrentSquadState(
                     player_ids=tuple(new_ids),
                     purchase_prices_tenths=new_prices,
                     bank_tenths=new_bank,
-                    free_transfers=max(0, starting_ft - len(merged_tx)),
+                    free_transfers=1 if is_free_chip else max(0, starting_ft - len(merged_tx)),
                     chips_remaining=state.chips_remaining,
                     season=state.season,
                     gameweek=state.gameweek,
@@ -436,7 +441,7 @@ def execute_transfers(
                 other_starters = [p for p in cur_starters if p != cur_cap]
                 cur_vc = other_starters[0] if other_starters else cur_cap
 
-            if chip_played and str(chip_played).lower().strip() in ("wildcard", "wc", "freehit", "free_hit", "fh"):
+            if is_free_chip:
                 tx_hits = 0
             else:
                 tx_hits = max(0, len(merged_tx) - starting_ft)
@@ -458,13 +463,42 @@ def execute_transfers(
                 overwrite=True,
             )
 
-        new_ft = max(0, starting_ft - len(merged_tx))
+        new_ft = 1 if is_free_transfers_chip(chip_played) else max(0, starting_ft - len(merged_tx))
+        new_chips = list(state.chips_remaining)
+        if chip_played:
+            cp_norm = str(chip_played).lower().strip()
+            to_remove = None
+            for c in new_chips:
+                c_norm = str(c).lower().strip()
+                if c_norm == cp_norm:
+                    to_remove = c
+                    break
+                if cp_norm in ("wildcard", "wc"):
+                    gw_num = target_gw or state.gameweek or 1
+                    if gw_num <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
+                        to_remove = c
+                        break
+                    elif gw_num >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
+                        to_remove = c
+                        break
+                elif cp_norm in ("freehit", "free_hit", "fh") and c_norm in ("freehit", "free_hit"):
+                    to_remove = c
+                    break
+                elif cp_norm in ("benchboost", "bench_boost", "bb") and c_norm in ("benchboost", "bench_boost"):
+                    to_remove = c
+                    break
+                elif cp_norm in ("triplecaptain", "triple_captain", "tc") and c_norm in ("triplecaptain", "triple_captain"):
+                    to_remove = c
+                    break
+            if to_remove and to_remove in new_chips:
+                new_chips.remove(to_remove)
+
         updated_state = CurrentSquadState(
             player_ids=tuple(new_ids),
             purchase_prices_tenths=new_prices,
             bank_tenths=new_bank,
             free_transfers=new_ft,
-            chips_remaining=state.chips_remaining,
+            chips_remaining=tuple(new_chips),
             season=state.season,
             gameweek=max(state.gameweek or 1, target_gw or 1),
         )

@@ -312,6 +312,26 @@ function renderPitch(lineup) {
   const gwInput = document.getElementById("lineup-gw-select");
   if (gwInput) gwInput.value = lineup.gameweek;
 
+  const pitchChipSelect = document.getElementById("pitch-chip-select");
+  if (pitchChipSelect) {
+    if (lineup.chip_played) {
+      const chipNorm = String(lineup.chip_played).toLowerCase().replace(/[\s_-]/g, "");
+      if (chipNorm.startsWith("wildcard") || chipNorm === "wc") {
+        pitchChipSelect.value = "wildcard";
+      } else if (chipNorm.startsWith("freehit") || chipNorm === "fh") {
+        pitchChipSelect.value = "freehit";
+      } else if (chipNorm.startsWith("benchboost") || chipNorm === "bb") {
+        pitchChipSelect.value = "benchboost";
+      } else if (chipNorm.startsWith("triplecaptain") || chipNorm === "tc") {
+        pitchChipSelect.value = "triplecaptain";
+      } else {
+        pitchChipSelect.value = lineup.chip_played;
+      }
+    } else {
+      pitchChipSelect.value = "";
+    }
+  }
+
   const isLogged = !!lineup.is_logged;
   const hasActualScore = lineup.actual_points !== null && lineup.actual_points !== undefined;
 
@@ -1081,7 +1101,8 @@ async function loadDecisions() {
       }
       const hitsInput = document.getElementById("dec-hits");
       if (hitsInput && (!hitsInput.value || hitsInput.value === "")) {
-        hitsInput.placeholder = `Auto-calculated (${curDec.transfer_hits || 0})`;
+        const isFree = curDec.chip_played && ["wildcard", "wc", "freehit", "free_hit", "fh"].some(c => curDec.chip_played.toLowerCase().includes(c));
+        hitsInput.placeholder = isFree ? "0 (Free with Chip)" : `Auto-calculated (${curDec.transfer_hits || 0})`;
       }
     }
   } catch (err) {
@@ -1223,6 +1244,7 @@ async function handleExecuteTrade() {
   const outName = outPlayer ? outPlayer.name : `Player ${outId}`;
 
   const gw = parseInt(document.getElementById("dec-gw").value) || state.activeGameweek;
+  const chipVal = document.getElementById("dec-chip") ? document.getElementById("dec-chip").value : null;
 
   try {
     const res = await api("/api/transfers/execute", {
@@ -1230,6 +1252,7 @@ async function handleExecuteTrade() {
       body: JSON.stringify({
         team_id: state.activeTeamId,
         gameweek: gw,
+        chip: chipVal || null,
         transfers: [{ outgoing_id: outId, incoming_id: inPlayer.id }],
       }),
     });
@@ -1907,10 +1930,29 @@ function initEventListeners() {
             const hitsInput = document.getElementById("dec-hits");
             if (hitsInput) {
               hitsInput.value = "";
-              hitsInput.placeholder = `Auto-calculated (${dec.transfer_hits || 0})`;
+              const isFree = dec.chip_played && ["wildcard", "wc", "freehit", "free_hit", "fh"].some(c => dec.chip_played.toLowerCase().includes(c));
+              hitsInput.placeholder = isFree ? "0 (Free with Chip)" : `Auto-calculated (${dec.transfer_hits || 0})`;
             }
           }
         } catch (err) {}
+      }
+    });
+  }
+
+  const decChipSelect = document.getElementById("dec-chip");
+  if (decChipSelect) {
+    decChipSelect.addEventListener("change", () => {
+      const hitsInput = document.getElementById("dec-hits");
+      if (hitsInput) {
+        const val = (decChipSelect.value || "").toLowerCase();
+        const isFree = ["wildcard", "wc", "freehit", "free_hit", "fh"].some(c => val.includes(c));
+        if (isFree) {
+          hitsInput.value = "0";
+          hitsInput.placeholder = "0 (Free with Chip)";
+        } else if (hitsInput.value === "0") {
+          hitsInput.value = "";
+          hitsInput.placeholder = "Auto-calculated";
+        }
       }
     });
   }
