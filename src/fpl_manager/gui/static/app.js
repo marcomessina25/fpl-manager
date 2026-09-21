@@ -122,6 +122,14 @@ async function loadTeams() {
     state.teams = data.teams || [];
     state.activeTeamId = data.active_team_id || "default";
 
+    if (data.version) {
+      state.version = data.version;
+      const badge = document.getElementById("app-version-badge");
+      if (badge) {
+        badge.textContent = `v${data.version}`;
+      }
+    }
+
     const select = document.getElementById("team-select");
     const copySelect = document.getElementById("new-team-copy");
     select.innerHTML = "";

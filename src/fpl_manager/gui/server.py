@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from .. import __version__
 from ..briefing import generate_manager_briefing
 from ..chip_strategy import recommend_chip_strategy
 from ..decision_log import (
@@ -105,7 +106,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         try:
             # API Endpoints
             if path == "/api/health":
-                self._send_json({"status": "ok", "version": "0.6.5"})
+                self._send_json({"status": "ok", "version": __version__})
             elif path in ("/api/gameweek", "/api/current-gameweek"):
                 from contextlib import closing
                 store = SnapshotStore(self.database_path)
@@ -126,7 +127,12 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 teams_data = list_teams(self.config_dir, database_path=self.database_path)
                 active_id = get_active_team_id(self.config_dir)
                 curr_gw = get_current_gameweek(SnapshotStore(self.database_path))
-                self._send_json({"teams": teams_data, "active_team_id": active_id, "current_gameweek": curr_gw})
+                self._send_json({
+                    "teams": teams_data,
+                    "active_team_id": active_id,
+                    "current_gameweek": curr_gw,
+                    "version": __version__,
+                })
             elif path.startswith("/api/teams/") and len(path.split("/")) == 4:
                 tid = path.split("/")[3]
                 team_info = get_team(tid, self.config_dir)
@@ -558,7 +564,18 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             self._send_error_json("Static GUI files not found.", status=404)
             return
 
-        content = target.read_bytes()
+        if target.name == "index.html":
+            text = target.read_text(encoding="utf-8")
+            import re
+            text = re.sub(
+                r'<span class="badge-version"[^>]*>.*?</span>',
+                f'<span class="badge-version" id="app-version-badge">v{__version__}</span>',
+                text,
+            )
+            content = text.encode("utf-8")
+        else:
+            content = target.read_bytes()
+
         mime_type, _ = mimetypes.guess_type(str(target))
         if mime_type is None:
             mime_type = "application/octet-stream"
@@ -641,7 +658,7 @@ def start_gui_server(
     )
     url = f"http://{host}:{actual_port}"
     print(f"==================================================")
-    print(f"  FPL Manager Interactive Dashboard (V0.6.5)")
+    print(f"  FPL Manager Interactive Dashboard (V{__version__})")
     print(f"  Local Server: {url}")
     print(f"  Press Ctrl+C to stop the server")
     print(f"==================================================")
