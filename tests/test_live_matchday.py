@@ -358,3 +358,79 @@ def test_live_matchday_triple_captain_and_bench_boost(live_matchday_env: tuple[P
     # All 15 players count: 14 players * 5 + 1 captain (2x * 5 = 10) = 70 + 10 = 80
     assert summary_bb["gross_points"] == 80
     assert all(b["counted_in_total"] is True for b in summary_bb["bench"])
+
+
+def test_live_matchday_wildcard_and_freehit_zeroes_hits(live_matchday_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = live_matchday_env
+    store = SnapshotStore(db_path)
+
+    live_elements = []
+    for pid in range(1, 16):
+        live_elements.append({
+            "id": pid,
+            "stats": {
+                "total_points": 5,
+                "minutes": 90,
+                "goals_scored": 0,
+                "assists": 0,
+                "clean_sheets": 0,
+                "goals_conceded": 0,
+                "bonus": 0,
+                "bps": 10,
+            }
+        })
+    store.save_gameweek_scores(2, {"elements": live_elements}, utc_timestamp())
+
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15]
+    bench = [2, 6, 7, 12]
+
+    # Test Wildcard: transfer_hits=8 should result in 0 hits and 0 hit_cost
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="wildcard",
+        transfer_hits=8,
+        overwrite=True,
+    )
+
+    summary_wc = get_live_gameweek_matchday_summary(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        save_reports=False,
+    )
+    assert summary_wc["chip_played"] == "wildcard"
+    assert summary_wc["transfer_hits"] == 0
+    assert summary_wc["hit_cost"] == 0
+    assert summary_wc["net_points"] == summary_wc["gross_points"]
+
+    # Test Free Hit: transfer_hits=10 should also result in 0 hits and 0 hit_cost
+    log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="free_hit",
+        transfer_hits=10,
+        overwrite=True,
+    )
+
+    summary_fh = get_live_gameweek_matchday_summary(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        save_reports=False,
+    )
+    assert summary_fh["chip_played"] == "free_hit"
+    assert summary_fh["transfer_hits"] == 0
+    assert summary_fh["hit_cost"] == 0
+    assert summary_fh["net_points"] == summary_fh["gross_points"]
+

@@ -15,6 +15,7 @@ from .decision_log import get_gameweek_decision
 from .fixtures import get_current_gameweek
 from .models import Position
 from .ownership import estimate_captaincy_shares, get_player_ownership_map
+from .rules import is_free_transfers_chip
 from .scores import get_detailed_player_gameweek_stats
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
@@ -294,7 +295,11 @@ def compute_matchday_lineup_performance(
             "subbed_out": pid in subbed_out_ids,
         })
 
-    hit_cost = transfer_hits * 4
+    if is_free_transfers_chip(chip_played):
+        transfer_hits = 0
+        hit_cost = 0
+    else:
+        hit_cost = transfer_hits * 4
     net_points = gross_points - hit_cost
 
     cap_entry = next((p for p in starters_serialized if p["id"] == active_cap_id), None)
@@ -356,7 +361,7 @@ def get_live_gameweek_matchday_summary(
         captain_id = decision.get("captain_id")
         vice_captain_id = decision.get("vice_captain_id")
         chip_played = decision.get("chip_played")
-        transfer_hits = decision.get("transfer_hits", 0)
+        transfer_hits = 0 if is_free_transfers_chip(chip_played) else decision.get("transfer_hits", 0)
     else:
         from .lineup import select_starting_lineup
         lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
@@ -416,6 +421,7 @@ def get_live_gameweek_matchday_summary(
         "hit_cost": perf["hit_cost"],
         "gross_points": perf["gross_points"],
         "net_points": perf["net_points"],
+        "transfers": decision.get("transfers", []) if decision else [],
         "captain": perf["captain"],
         "starters": perf["starters"],
         "bench": perf["bench"],
@@ -444,13 +450,24 @@ def _build_live_matchday_markdown(summary: dict[str, Any]) -> str:
     cap = summary["captain"]
     chip = summary["chip_played"]
     subs = summary["autosubs"]
+    tx_list = summary.get("transfers", [])
 
     chip_txt = f" · Chip: `{chip.upper()}`" if chip else ""
     hit_txt = f" (Gross: {gross} pts - {hits} hit pts)" if hits > 0 else ""
 
+    if tx_list:
+        if len(tx_list) <= 3:
+            tx_strs = [f"{t.get('outgoing_name', t.get('outgoing_id'))} ➔ **{t.get('incoming_name', t.get('incoming_id'))}**" for t in tx_list]
+            tx_desc = ", ".join(tx_strs)
+        else:
+            tx_desc = f"{len(tx_list)} transfers ({chip.upper() if chip else 'squad overhaul'})"
+        moves_txt = f" | **Moves**: {tx_desc}"
+    else:
+        moves_txt = " | **Moves**: None"
+
     lines = [
         f"# Live Matchday Tracker — Gameweek {gw}",
-        f"**Live Score**: **{net} pts**{hit_txt}{chip_txt} | **Captain**: {cap['name']} ({cap['multiplier']}x, {cap['points']} pts)",
+        f"**Live Score**: **{net} pts**{hit_txt}{chip_txt} | **Captain**: {cap['name']} ({cap['multiplier']}x, {cap['points']} pts){moves_txt}",
         "",
         "### Starting XI Live Points",
         "| Pos | Player | Team | Min | G | A | CS | Bonus | Pts | Match Status |",
@@ -495,5 +512,16 @@ def _build_live_matchday_markdown(summary: dict[str, Any]) -> str:
         ])
         for a in acc:
             lines.append(f"- ⭐ **{a['name']}** ({a['team']}): **{a['points']} pts** (EO: {a['eo_pct']}%) ➔ **+{a['rank_delta_pts']} pts** rank advantage")
+
+    if tx_list:
+        chip_label = f" ({chip.upper()})" if chip else ""
+        lines.extend([
+            "",
+            f"### 🔄 Transfers & Squad Moves{chip_label}",
+        ])
+        for t in tx_list:
+            out_p = t.get('outgoing_name', t.get('outgoing_id'))
+            in_p = t.get('incoming_name', t.get('incoming_id'))
+            lines.append(f"- 🔄 **OUT**: {out_p} ➔ **IN**: **{in_p}**")
 
     return "\n".join(lines)

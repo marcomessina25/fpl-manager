@@ -91,6 +91,8 @@ def test_find_available_port() -> None:
 
 
 def test_serve_static_files(gui_test_server: str) -> None:
+    from fpl_manager import __version__
+
     # Root index.html
     with urllib.request.urlopen(f"{gui_test_server}/") as resp:
         assert resp.status == 200
@@ -98,6 +100,8 @@ def test_serve_static_files(gui_test_server: str) -> None:
         content = resp.read().decode("utf-8")
         assert "FPL Manager Pro" in content
         assert "adv-gw" in content
+        assert f"v{__version__}" in content
+        assert "app-version-badge" in content
 
     # app.css
     with urllib.request.urlopen(f"{gui_test_server}/app.css") as resp:
@@ -117,19 +121,22 @@ def test_serve_static_files(gui_test_server: str) -> None:
 
 
 def test_api_health(gui_test_server: str) -> None:
+    from fpl_manager import __version__
     with urllib.request.urlopen(f"{gui_test_server}/api/health") as resp:
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
         assert data["status"] == "ok"
-        assert "version" in data
+        assert data["version"] == __version__
 
 
 def test_api_teams_crud(gui_test_server: str) -> None:
+    from fpl_manager import __version__
     # 1. GET /api/teams
     with urllib.request.urlopen(f"{gui_test_server}/api/teams") as resp:
         data = json.loads(resp.read().decode("utf-8"))
         assert data["active_team_id"] == "default"
         assert len(data["teams"]) >= 1
+        assert data["version"] == __version__
 
     # 2. POST /api/teams/create
     create_req = urllib.request.Request(

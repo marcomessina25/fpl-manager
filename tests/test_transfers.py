@@ -540,3 +540,80 @@ def test_execute_transfers_chained_reversal_cancels_in_same_gameweek(tmp_path: P
     assert sq.free_transfers == 1
     assert sq.purchase_prices_tenths[1] == 50
 
+
+def test_execute_transfers_with_wildcard_zeroes_hits_and_updates_chips(tmp_path: Path) -> None:
+    from fpl_manager.decision_log import get_gameweek_decision
+    from fpl_manager.squad_state import load_current_squad
+    from fpl_manager.transfers import execute_transfers
+
+    db_path = tmp_path / "fpl.sqlite3"
+    squad_file = tmp_path / "current_squad.json"
+
+    store = SnapshotStore(db_path)
+    bootstrap = {
+        "teams": [
+            {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+            {"id": 2, "name": "Liverpool", "short_name": "LIV"},
+            {"id": 3, "name": "Man City", "short_name": "MCI"},
+            {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+            {"id": 5, "name": "Spurs", "short_name": "TOT"},
+            {"id": 6, "name": "Newcastle", "short_name": "NEW"},
+        ],
+        "elements": [
+            {"id": 1, "web_name": "Raya", "team": 1, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 50},
+            {"id": 2, "web_name": "Pickford", "team": 2, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 50},
+            {"id": 18, "web_name": "NewGkp", "team": 3, "element_type": 1, "now_cost": 50, "status": "a", "total_points": 50},
+        ]
+        + [
+            {
+                "id": k,
+                "web_name": f"P{k}",
+                "team": (k % 6) + 1,
+                "element_type": 2 if k < 8 else (3 if k < 13 else 4),
+                "now_cost": 50,
+                "status": "a",
+                "total_points": 50,
+            }
+            for k in range(3, 18)
+        ],
+    }
+    store.save_snapshot(bootstrap, [], utc_timestamp())
+
+    squad_data = {
+        "season": "2026/27",
+        "player_ids": list(range(1, 16)),
+        "purchase_prices_tenths": {str(k): 50 for k in range(1, 16)},
+        "bank_tenths": 20,
+        "free_transfers": 1,
+        "chips_remaining": ["wildcard_1", "free_hit", "bench_boost", "triple_captain"],
+        "gameweek": 5,
+    }
+    squad_file.write_text(json.dumps(squad_data), encoding="utf-8")
+
+    # Make 2 transfers (exceeding 1 FT) with wildcard played
+    res = execute_transfers(
+        squad_file,
+        [(14, 16), (15, 17)],
+        database_path=db_path,
+        gameweek=5,
+        chip_played="wildcard",
+    )
+    assert res["success"] is True
+    assert res["transfer_hits"] == 0
+    assert res["free_transfers"] == 1
+
+    # Check decision record in database
+    dec = get_gameweek_decision(5, database_path=db_path)
+    assert dec is not None
+    assert dec["chip_played"] == "wildcard"
+    assert dec["transfer_hits"] == 0
+    assert len(dec["transfers"]) == 2
+
+    # Verify squad file state
+    sq = load_current_squad(squad_file)
+    assert sq.free_transfers == 1
+    # wildcard_1 should have been deducted from chips_remaining
+    assert "wildcard_1" not in sq.chips_remaining
+    assert "free_hit" in sq.chips_remaining
+
+

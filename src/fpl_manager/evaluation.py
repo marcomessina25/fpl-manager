@@ -13,6 +13,7 @@ from typing import Any
 from .decision_log import get_gameweek_decision, list_decisions
 from .expected_points import project_gameweek
 from .models import Position
+from .rules import is_free_transfers_chip
 from .storage import SnapshotStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -247,7 +248,7 @@ def compute_counterfactual_lineups(
     """Calculate closed-loop counterfactual analysis across Human, Model, Hybrid, and Hindsight Optimal."""
     human_starters = list(decision.get("starting_player_ids", []))
     human_cap = decision.get("captain_id")
-    human_hits = decision.get("transfer_hits", 0)
+    human_hits = 0 if is_free_transfers_chip(decision.get("chip_played")) else decision.get("transfer_hits", 0)
 
     human_pts = sum(actual_scores.get(pid, 0.0) for pid in human_starters) + (actual_scores.get(human_cap, 0.0) if human_cap else 0.0) - (human_hits * 4)
 
@@ -353,7 +354,7 @@ def compare_human_vs_model(
 
     human_starters_pts = sum(actual_scores.get(pid, 0.0) for pid in human_starters)
     human_cap_pts = actual_scores.get(human_cap, 0.0) if human_cap else 0.0
-    human_hits = decision.get("transfer_hits", 0)
+    human_hits = 0 if is_free_transfers_chip(decision.get("chip_played")) else decision.get("transfer_hits", 0)
     human_total = human_starters_pts + human_cap_pts - (human_hits * 4)
 
     if not recommended_lineup:
@@ -535,10 +536,11 @@ def evaluate_gameweek_decision(
             raise
         evaluation_status = "fallback"
         evaluation_warning = f"Matchday calculation failed ({exc}); using unadjusted lineup sum fallback."
+        dec_hits = 0 if is_free_transfers_chip(decision.get("chip_played")) else decision.get("transfer_hits", 0)
         actual_lineup = (
             sum(actual_scores.get(pid, 0.0) for pid in starters)
             + actual_scores.get(cap_id, 0.0)
-            - (decision.get("transfer_hits", 0) * 4)
+            - (dec_hits * 4)
         )
 
     xp_delta = round(actual_lineup - decision["predicted_lineup_xp"], 2)
@@ -636,7 +638,10 @@ def evaluate_season_decisions(
 
     total_pred = round(sum(predicted_list), 1)
     total_act = round(sum(actual_list), 1)
-    total_hits = sum(d.get("transfer_hits", 0) for d in finalized)
+    total_hits = sum(
+        0 if is_free_transfers_chip(d.get("chip_played")) else d.get("transfer_hits", 0)
+        for d in finalized
+    )
 
     gw_details = []
     total_human_cf = 0.0
@@ -679,11 +684,12 @@ def evaluate_season_decisions(
         if opt_score is not None:
             total_hindsight_cf += opt_score
 
+        effective_gw_hits = 0 if is_free_transfers_chip(d.get("chip_played")) else d.get("transfer_hits", 0)
         gw_details.append({
             "gameweek": gw,
             "captain_name": d.get("captain_name"),
             "chip_played": d.get("chip_played"),
-            "transfer_hits": d.get("transfer_hits", 0),
+            "transfer_hits": effective_gw_hits,
             "predicted_xp": pred_xp,
             "actual_points": act_pts,
             "delta": delta,

@@ -14,7 +14,7 @@ from typing import Any
 from .expected_points import ExpectedPointsProjection, project_gameweek
 from .fixtures import get_current_gameweek
 from .models import Player, Position
-from .rules import validate_starting_lineup
+from .rules import is_free_transfers_chip, validate_starting_lineup
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
 
@@ -272,7 +272,7 @@ def build_logged_lineup(
     vice_captain_id = decision.get("vice_captain_id")
     chip_played = decision.get("chip_played")
     transfers = decision.get("transfers", [])
-    transfer_hits = decision.get("transfer_hits", 0)
+    transfer_hits = 0 if is_free_transfers_chip(chip_played) else decision.get("transfer_hits", 0)
     notes = decision.get("notes", "")
 
     all_ids = starting_ids + bench_ids

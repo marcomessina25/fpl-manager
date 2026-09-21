@@ -23,6 +23,26 @@ MIN_STARTING_QUOTAS = {
     Position.FORWARD: 1,
 }
 
+FREE_TRANSFER_CHIPS: frozenset[str] = frozenset({
+    "wildcard",
+    "wildcard_1",
+    "wildcard_2",
+    "wildcard1",
+    "wildcard2",
+    "wc",
+    "freehit",
+    "free_hit",
+    "fh",
+})
+
+
+def is_free_transfers_chip(chip: str | None) -> bool:
+    """Return True if the specified chip waives all transfer point penalties (Wildcard or Free Hit)."""
+    if not chip:
+        return False
+    norm = str(chip).lower().strip().replace(" ", "_").replace("-", "_")
+    return norm in FREE_TRANSFER_CHIPS
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
