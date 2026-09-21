@@ -365,9 +365,11 @@ function renderPitch(lineup) {
       const movesStr = (lineup.transfers && lineup.transfers.length)
         ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")
         : "No transfers";
-      const hitsStr = (lineup.transfer_hits && lineup.transfer_hits > 0)
-        ? ` (Hits: -${lineup.transfer_hits * 4}pt)`
-        : "";
+      const chipNorm = (lineup.chip_played || "").toLowerCase();
+      const isFreeChip = ["wildcard", "freehit", "free_hit", "wc", "fh"].includes(chipNorm);
+      const hitsStr = isFreeChip
+        ? " (Hits: 0pt - Free Chip)"
+        : (lineup.transfer_hits && lineup.transfer_hits > 0 ? ` (Hits: -${lineup.transfer_hits * 4}pt)` : "");
       const chipStr = lineup.chip_played ? ` · Chip: ${lineup.chip_played.toUpperCase()}` : "";
 
       let autosubStr = "";
@@ -410,8 +412,13 @@ function renderPitch(lineup) {
       deltaEl.textContent = `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} pts`;
       deltaEl.className = delta >= 0 ? "stat-diff-positive" : "stat-diff-negative";
 
+      const chipNorm = (lineup.chip_played || "").toLowerCase();
+      const isFreeChip = ["wildcard", "freehit", "free_hit", "wc", "fh"].includes(chipNorm);
+      const hitsCost = isFreeChip ? " (0pt - Free Chip)" : (lineup.transfer_hits > 0 ? ` (-${lineup.transfer_hits * 4}pt)` : " (0pt)");
       const movesDesc = (lineup.transfers && lineup.transfers.length)
-        ? lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ") + ` (-${lineup.transfer_hits * 4}pt)`
+        ? (lineup.transfers.length > 3
+            ? `${lineup.transfers.length} moves (${lineup.chip_played ? lineup.chip_played.toUpperCase() : "Overhaul"})${hitsCost}`
+            : lineup.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ") + hitsCost)
         : `No transfers (0pt)`;
       document.getElementById("stat-matchday-moves").textContent = movesDesc;
       document.getElementById("stat-matchday-chip").textContent = lineup.chip_played ? lineup.chip_played.toUpperCase() : "None";
@@ -1066,6 +1073,9 @@ async function loadDecisions() {
       el.className = "decision-entry";
       const chipBadge = dec.chip_played ? `<span class="badge badge-info">${dec.chip_played.toUpperCase()}</span>` : "";
       const scoreBadge = dec.actual_points !== null ? ` | Score: <strong>${dec.actual_points} pts</strong>` : "";
+      const decChipNorm = (dec.chip_played || "").toLowerCase();
+      const decIsFreeChip = ["wildcard", "freehit", "free_hit", "wc", "fh"].includes(decChipNorm);
+      const hitsDesc = decIsFreeChip ? "(Hits: 0pt - Free Chip)" : `(Hits: -${dec.transfer_hits * 4}pt)`;
       const moves = dec.transfers && dec.transfers.length ? `Moves: ${dec.transfers.map(t => `${t.outgoing_name} ➔ ${t.incoming_name}`).join(", ")}` : "No transfers";
 
       el.innerHTML = `
@@ -1076,7 +1086,7 @@ async function loadDecisions() {
         <div class="decision-entry-sub">
           Captain: <strong>${dec.captain_name}</strong> | Vice: <strong>${dec.vice_captain_name}</strong>
         </div>
-        <div class="decision-entry-sub">${moves} (Hits: -${dec.transfer_hits * 4}pt)</div>
+        <div class="decision-entry-sub">${moves} ${hitsDesc}</div>
         ${dec.notes ? `<div class="decision-entry-sub" style="font-style: italic; margin-top: 0.2rem;">"${dec.notes}"</div>` : ""}
       `;
       container.appendChild(el);

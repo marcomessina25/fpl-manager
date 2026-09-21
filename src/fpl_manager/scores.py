@@ -218,7 +218,7 @@ def finalize_completed_gameweek_scores(
         dec_rows = conn.execute(
             f"""
             SELECT id, team_id, season, gameweek, actual_points, starting_ids_json, bench_ids_json,
-                   captain_id, vice_captain_id, chip_played, transfer_hits
+                   captain_id, vice_captain_id, chip_played, transfer_hits, transfers_json
             FROM decisions
             WHERE gameweek IN ({placeholders})
             """,
@@ -229,11 +229,11 @@ def finalize_completed_gameweek_scores(
         return 0
 
     from .live_matchday import compute_matchday_lineup_performance
-    from .decision_log import record_actual_gameweek_score
+    from .decision_log import get_gameweek_decision, record_actual_gameweek_score, reconcile_squad_transfers
 
     updated_count = 0
     for row in dec_rows:
-        dec_id, tid, season, gw, act_pts, start_json, bench_json, cap_id, vc_id, chip, hits = row
+        dec_id, tid, season, gw, act_pts, start_json, bench_json, cap_id, vc_id, chip, hits, tx_json = row
         starters = json.loads(start_json) if start_json else []
         bench = json.loads(bench_json) if bench_json else []
         effective_hits = hits or 0
@@ -242,6 +242,23 @@ def finalize_completed_gameweek_scores(
             if hits and hits > 0:
                 with closing(store._connect()) as repair_conn, repair_conn:
                     repair_conn.execute("UPDATE decisions SET transfer_hits = 0 WHERE id = ?", (dec_id,))
+
+        if gw > 1:
+            try:
+                curr_tx = json.loads(tx_json) if tx_json else []
+            except Exception:
+                curr_tx = []
+            if not curr_tx:
+                prev_dec = get_gameweek_decision(gw - 1, season=season, team_id=tid, database_path=database_path)
+                if prev_dec:
+                    prev_squad = list(prev_dec.get("squad_player_ids") or (prev_dec.get("starting_player_ids", []) + prev_dec.get("bench_player_ids", [])))
+                    curr_squad = starters + bench
+                    if set(prev_squad) != set(curr_squad):
+                        reconciled = reconcile_squad_transfers(prev_squad, curr_squad, store)
+                        if reconciled:
+                            with closing(store._connect()) as repair_conn, repair_conn:
+                                repair_conn.execute("UPDATE decisions SET transfers_json = ? WHERE id = ?", (json.dumps(reconciled), dec_id))
+
         try:
             perf = compute_matchday_lineup_performance(
                 gameweek=gw,
