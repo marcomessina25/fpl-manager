@@ -1,4 +1,4 @@
-"""Sequential manager simulation and backtest execution engine for V0.7.2."""
+"""Sequential manager simulation and backtest execution engine for FPL Manager (V1.0.1)."""
 
 from dataclasses import dataclass, field
 import json

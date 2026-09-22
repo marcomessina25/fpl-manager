@@ -15,9 +15,9 @@ It is **not** an autonomous team manager. A human remains responsible for final 
 - Quantitative projections estimate expected value and uncertainty; they do not invent facts.
 - LLMs are strategic analysts over structured, generated data. They are not the optimizer or source of truth.
 - Decisions, alternatives, and outcomes should be recorded so the system can be evaluated and improved.
-- The system runs locally except for public data downloads and any future, optional LLM API calls.
+- The system runs locally except for public data downloads and optional, deterministically validated LLM API calls.
 
-## Planned architecture
+## System architecture (V1.0.1)
 
 ```text
 Official FPL API                 Human observations / news

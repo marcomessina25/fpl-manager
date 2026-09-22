@@ -1,4 +1,4 @@
-"""Data quality validation and future-leakage verification for V0.7.0."""
+"""Point-in-time data quality validation and 7-category future-leakage verification for FPL Manager (V1.0.1)."""
 
 import json
 from pathlib import Path

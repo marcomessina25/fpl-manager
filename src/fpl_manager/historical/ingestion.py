@@ -1,4 +1,4 @@
-"""Historical data ingestion engine for FPL Manager V0.7.
+"""Historical data ingestion engine for FPL Manager (V1.0.1).
 
 Downloads, normalizes, and validates historical season data from public archives
 (such as the standard vaastav Fantasy-Premier-League repository) or local directories.

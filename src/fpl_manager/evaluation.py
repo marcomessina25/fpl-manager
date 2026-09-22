@@ -1,7 +1,9 @@
-"""Backtesting and model accuracy evaluation engine for FPL Manager V0.4.
+"""Closed-loop decision evaluation and prediction accuracy engine for FPL Manager (V1.0.1).
 
 Provides point-in-time historical backtesting, prediction calibration analysis,
-captaincy/bench regret analysis, and human vs model divergence tracking.
+mutually exclusive additive regret decomposition (`additive_regret_decomposition`),
+overlapping counterfactual diagnostics (`decision_loss_diagnostics`), decision-weighted
+error (`calculate_decision_weighted_error`), and observed vs hindsight outcome separation.
 """
 
 from contextlib import closing

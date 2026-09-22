@@ -1,7 +1,8 @@
-"""Decision Engine implementations and version-controlled abstraction (V0.8 vs V0.9).
+"""Decision Engine implementations and version-controlled abstraction (V0.8, V0.9, V1.0 / V1.0.1).
 
-Provides explicit separation between the frozen V0.8 heuristic decision engine
-and the V0.9 participation-aware decision engine.
+Provides explicit separation between the frozen V0.8 heuristic decision engine,
+the V0.9 participation-aware decision engine, and the V1.0 / V1.0.1 canonical decision engine
+(`DecisionEngineV10`, where `neutral` defaults to `lineup_penalty_weight = 0.0`).
 """
 
 from abc import ABC, abstractmethod
@@ -795,7 +796,7 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
         return DecisionEngineV09()
-    elif clean in ("v1.0", "v10", "v1.0.0"):
+    elif clean in ("v1.0", "v10", "v1.0.0", "v1.0.1", "v101", "v0.9.1", "v091"):
         return DecisionEngineV10()
     elif "_w" in clean:
         parts = clean.split("_w")

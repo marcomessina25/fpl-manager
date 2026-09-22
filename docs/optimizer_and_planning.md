@@ -1,6 +1,6 @@
 # Mathematical Optimizer & Multi-Gameweek Planning
 
-> **Status:** Canonical Production Release in V1.0 (`v1.0.0`). Updated on 2026-09-22.
+> **Status:** Canonical Production Release in V1.0.1 (`v1.0.1`). Updated on 2026-09-22.
 > **Source Modules:** [`src/fpl_manager/optimizer.py`](../src/fpl_manager/optimizer.py), [`src/fpl_manager/planner.py`](../src/fpl_manager/planner.py), [`src/fpl_manager/lineup.py`](../src/fpl_manager/lineup.py)
 
 This document details the mathematical optimization engines in **FPL Manager V1.0**:

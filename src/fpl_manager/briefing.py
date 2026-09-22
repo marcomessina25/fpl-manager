@@ -1,9 +1,8 @@
-"""Structured Analytical Briefing & Dossier Generator for FPL Manager V0.6.
+"""Structured Analytical Briefing & Dossier Generator for FPL Manager (V1.0.1).
 
-Synthesizes deterministic facts, model projections, strategic ownership risk,
-optimal transfer suggestions, chip roadmap, and press conference / injury news
-into a structured analytical package and Markdown briefing for human review
-and LLM strategic context injection.
+Aggregates current squad state, fixture difficulty, expected points projections,
+ownership risk profiles, and transfer recommendations into a deterministic analytical
+briefing dossier for human review and LLM advisory synthesis.
 """
 
 from contextlib import closing

@@ -1,8 +1,7 @@
-"""Effective Ownership (EO) and Strategic Risk Index engine for FPL Manager V0.4.
+"""Effective Ownership (EO) and Strategic Risk Index engine for FPL Manager (V1.0.1).
 
-Analyzes player effective ownership, models captaincy distribution, and categorizes
-assets into Shield (template preservation) vs Sword (differential attack).
-Calculates manager net rank exposure and non-owned rank threats.
+Models template shields, differential swords, captaincy leverage, and squad net rank exposure
+relative to overall and top-tier Effective Ownership benchmarks.
 """
 
 from contextlib import closing

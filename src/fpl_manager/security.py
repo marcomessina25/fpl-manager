@@ -1,4 +1,4 @@
-"""Security utilities and trust boundary enforcement for FPL Manager (V0.9.10 Production Hardening).
+"""Security utilities and trust boundary enforcement for FPL Manager (V1.0.1).
 
 Implements Section 28 of docs/v09/v09.md:
 - Secret redaction for API keys, bearer tokens, and credentials in logs and outputs.

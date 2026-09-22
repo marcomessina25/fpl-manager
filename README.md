@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.0.0-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.0.1-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -24,8 +24,8 @@ Both human contributors and AI agents must read the relevant living documents be
 Create the Conda environment and install the project in editable mode:
 
 ```powershell
-conda create -n fbl python=3.12
-conda activate fbl
+conda create -n fpl python=3.12
+conda activate fpl
 pip install -e ".[dev]"
 ```
 
@@ -269,9 +269,10 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.0.0 — Canonical Production Release)
+## Current scope (V1.0.1 — Canonical Production Release)
 
-### What's New in V1.0.0
+### What's New in V1.0.0 & V1.0.1
+- **Release V1.0.1 — Documentation & Codebase Comment Alignment**: Full audit and alignment of all living documentation (`README.md`, `docs/roadmap.md`, `docs/architecture.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`), module docstrings across all 51 Python modules, CLI risk/predictor/decision-engine choices (`v1.0.1` / `v1.0` / `v0.9.1`), and `suggest_transfers` risk-profile validation (`validate_risk_profile`).
 - **Canonical Model Registry & Historical Prediction Reconstruction (`src/fpl_manager/model_registry.py`)**: Every projection embeds canonical `ModelMetadata` (`model_version="v1.0.0"`, `quantitative_core_version="v0.9.1-frozen"`), strict provenance validation (`ModelMetadata.from_dict(..., strict=True)`), deterministic feature provenance, explicit regime tags (`single`, `dgw`, `bgw`), and `reconstruct_historical_prediction()` with snapshot-anchored historical timestamps (`resolve_historical_snapshot_timestamp()`).
 - **Strict 7-Category Point-in-Time Leakage Enforcement (`src/fpl_manager/historical/validation.py`)**: `validate_no_future_leakage()` checks and rejects lookahead across all 7 leakage categories (`player_gw_history`, `player_prices`, `availability_status`, `fixture_schedule`, `finished_fixtures_in_current_or_future_gw`, `season_totals_over_rolling_total`, `post_deadline_snapshot_timestamp`), and `PIT_LEAKAGE_VERIFICATION_SCOPE` explicitly distinguishes **intrinsic snapshot invariants** (Categories 6 & 7, checked directly on any standalone snapshot) from **reference-comparative checks** (Categories 1–5, verified against an uncontaminated reference snapshot).
 - **Neutral Strategy Alignment (`lineup_penalty_weight = 0.0`) & Lineup Quantity Separation (`src/fpl_manager/lineup.py`)**: `DecisionEngineV10` and `select_starting_lineup(risk_profile="neutral")` default to `lineup_penalty_weight = 0.0` (pure expected points maximization without variance penalty), while explicit custom `lineup_penalty_weight` values remain supported for experimentation and non-neutral profiles (`safe` `w = 0.15`, `conservative` `w = 0.35`, `differential` `w = -0.10`, `upside` `w = -0.15`). `select_starting_lineup` strictly separates `model_quantities` (`starters_xp`, `captain_bonus`, `total_lineup_xp`) from `decision_quantities` (`starters_obj`, `captain_obj`, `total_lineup_obj`).

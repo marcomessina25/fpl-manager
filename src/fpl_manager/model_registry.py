@@ -1,4 +1,4 @@
-"""Canonical Model Registry and Reproducibility Metadata for FPL Manager V1.0 (P1.2).
+"""Canonical Model Registry and Reproducibility Metadata for FPL Manager (V1.0.1).
 
 Every quantitative prediction exposes explicit versioned provenance:
 - model_version
@@ -91,7 +91,28 @@ class ModelMetadata:
 
 
 MODEL_REGISTRY_CATALOG: dict[str, dict[str, str]] = {
+    "v1.0.1": {
+        "model_version": "v1.0.1",
+        "quantitative_core_version": "v0.9.1-frozen",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v0.9.1-pit-rolling-congestion",
+        "parameter_version": "1.0.1-frozen-v0.9.1-w0.00",
+    },
+    "v1.0.1-canonical": {
+        "model_version": "v1.0.1",
+        "quantitative_core_version": "v0.9.1-frozen",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v0.9.1-pit-rolling-congestion",
+        "parameter_version": "1.0.1-frozen-v0.9.1-w0.00",
+    },
     "v1.0": {
+        "model_version": "v1.0.0",
+        "quantitative_core_version": "v0.9.1-frozen",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v0.9.1-pit-rolling-congestion",
+        "parameter_version": "1.0.0-frozen-v0.9.1-w0.00",
+    },
+    "v1.0-canonical": {
         "model_version": "v1.0.0",
         "quantitative_core_version": "v0.9.1-frozen",
         "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",

@@ -367,14 +367,14 @@ def test_p3_3_and_p8_3_multi_gw_exhaustive_and_performance_benchmarks(
     assert exh_plan["best_plan"] is not None
     assert beam_plan["best_plan"]["total_net_xp"] == exh_plan["best_plan"]["total_net_xp"]
 
-    # Record P8.3 performance benchmark report
+    # Record P8.3 performance benchmark report in tmp_path so pytest does not dirty tracked reports/
     perf_report = {
-        "version": "1.0.0",
+        "version": "1.0.1",
         "multi_gw_planner_2gw_ms": planner_ms,
         "status": "PASS",
         "usability_threshold_ms": 5000.0,
     }
-    bench_path = Path("reports/v10_performance_benchmarks.json")
-    bench_path.parent.mkdir(parents=True, exist_ok=True)
+    bench_path = tmp_path / "v10_performance_benchmarks.json"
     bench_path.write_text(json.dumps(perf_report, indent=2) + "\n", encoding="utf-8")
+    assert Path("reports/v10_performance_benchmarks.json").exists()
     assert planner_ms < 5000.0

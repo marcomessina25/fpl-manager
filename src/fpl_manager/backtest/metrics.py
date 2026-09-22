@@ -1,4 +1,4 @@
-"""Quantitative prediction evaluation metrics for xP, xM, and availability (V0.7.1)."""
+"""Quantitative prediction evaluation metrics for xP, xM, and availability for FPL Manager (V1.0.1)."""
 
 from dataclasses import dataclass
 import math

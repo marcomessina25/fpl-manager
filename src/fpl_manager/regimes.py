@@ -1,4 +1,4 @@
-"""Rotation regime detection, role transitions, and player fingerprints for V0.9 (Phase 5).
+"""Rotation regime detection, role transitions, and player fingerprints for FPL Manager (V1.0.1 / V0.9.1-frozen).
 
 Implements Section 14, 15, 16 & Milestone V0.9.5 of docs/v09/v09.md:
 - Detects dynamic role transitions (nailed starter -> rotation, rotation -> starter, starter -> injury, injury -> starter).

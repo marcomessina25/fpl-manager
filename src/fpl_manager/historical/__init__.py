@@ -1,4 +1,4 @@
-"""Historical data foundation package for FPL Manager V0.7."""
+"""Historical point-in-time data foundation package for FPL Manager (V1.0.1)."""
 
 from .models import (
     GameweekOutcome,

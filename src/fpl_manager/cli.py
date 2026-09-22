@@ -1,4 +1,4 @@
-"""Command-line entry points for the V0.1 local data engine."""
+"""Command-line entry points for the FPL Manager local-first decision-support platform (V1.0.1)."""
 
 import argparse
 import json
@@ -705,6 +705,12 @@ import sys
 
 def resolve_predictor_version(name: str) -> str:
     clean = name.lower()
+    if clean in ("v1.0.1", "v101", "v1.0.1-canonical"):
+        return "v1.0.1"
+    if clean in ("v1.0", "v10", "v1.0.0", "v1.0-canonical"):
+        return "v1.0"
+    if clean in ("v0.9.1", "v091"):
+        return "v0.9.1"
     if clean in ("v0.9", "v09"):
         return "v0.9"
     if clean in ("v0.8", "v08"):
@@ -766,13 +772,15 @@ def main(argv: list[str] | None = None) -> None:
     fixtures_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     fixtures_parser.add_argument("--team", type=str, default=None, help="Team ID to analyze (defaults to active team)")
 
+    risk_choices = ["neutral", "safe", "conservative", "floor", "ceiling", "upside", "differential", "defend_lead", "chase"]
+
     suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1- to 5-transfer move recommendations")
     suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     suggest_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     suggest_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
-    suggest_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral (expected xP), floor (safe floor), ceiling (upside), defend_lead (protect rank/template), or chase (high-upside differentials)")
+    suggest_parser.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile: neutral (expected xP), safe, conservative/floor, ceiling/upside, differential/chase, or defend_lead")
 
     options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
     options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
@@ -780,7 +788,7 @@ def main(argv: list[str] | None = None) -> None:
     options_parser.add_argument("--team", type=str, default=None, help="Team ID to suggest transfers for (defaults to active team)")
     options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
-    options_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
+    options_parser.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile")
 
     for wc_cmd, wc_help in (
         ("wildcard", "Generate optimal 15-player squad (Wildcard) under budget and team limits"),
@@ -791,7 +799,7 @@ def main(argv: list[str] | None = None) -> None:
         wc_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
         wc_p.add_argument("--team", type=str, default=None, help="Team ID for wildcard/free-hit (defaults to active team)")
         wc_p.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks to evaluate (default: 5)")
-        wc_p.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
+        wc_p.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile")
         wc_p.add_argument("--output", type=Path, default=WILDCARD_REPORT_PATH, help="Output path for JSON report")
 
     plan_parser = subcommands.add_parser("plan", help="Generate multi-gameweek transfer planning roadmap (3-5 gameweeks)")
@@ -799,7 +807,7 @@ def main(argv: list[str] | None = None) -> None:
     plan_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
     plan_parser.add_argument("--team", type=str, default=None, help="Team ID to plan transfers for (defaults to active team)")
     plan_parser.add_argument("--start-gw", type=int, default=None, help="Starting gameweek (default: next upcoming GW)")
-    plan_parser.add_argument("--risk", choices=["neutral", "floor", "ceiling", "defend_lead", "chase"], default="neutral", help="Optimization risk profile: neutral, floor, ceiling, defend_lead, or chase")
+    plan_parser.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile")
     plan_parser.add_argument("--no-hits", action="store_true", help="Disallow transfer hits (only execute zero-hit moves and rolled transfers)")
     plan_parser.add_argument("--output", type=Path, default=PLAN_REPORT_PATH, help="Output path for JSON plan artifact")
 
@@ -918,18 +926,20 @@ def main(argv: list[str] | None = None) -> None:
         ap.add_argument("--model", type=str, default=None, help="Model name override")
 
     PREDICTOR_CHOICES = [
-        "v0.9", "v0.8", "v0.7", "v09", "v08", "v07",
+        "v1.0.1", "v1.0", "v1.0.0", "v1.0-canonical", "v1.0.1-canonical", "v101", "v10",
+        "v0.9.1", "v0.9", "v0.8", "v0.7", "v091", "v09", "v08", "v07",
         "v0.9_part_v0.8_comp", "v0.8_part_v0.9_comp",
         "v0.9_no_regimes", "v0.9_no_calib", "v0.9_raw",
         "v09_part_v08_comp", "v08_part_v09_comp",
         "v09_no_regimes", "v09_no_calib", "v09_raw",
     ]
+    DECISION_ENGINE_CHOICES = ["v1.0.1", "v1.0", "v101", "v10", "v0.9.1", "v0.9", "v0.8", "v091", "v09", "v08"]
 
     bt_pred_parser = subcommands.add_parser("backtest-predictions", help="Run historical prediction backtest against point-in-time datasets")
     bt_pred_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
     bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
-    bt_pred_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
+    bt_pred_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
     bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
     bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
@@ -939,11 +949,11 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
-    bt_dec_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v0.9, v0.8, v0.7, or ablation variants)")
-    bt_dec_parser.add_argument("--decision-engine", choices=["v0.9", "v0.8", "v09", "v08"], default="v0.9", help="Decision engine version ('v0.9' participation-aware or 'v0.8' frozen heuristic)")
+    bt_dec_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
+    bt_dec_parser.add_argument("--decision-engine", choices=DECISION_ENGINE_CHOICES, default="v0.9", help="Decision engine version ('v1.0.1'/'v1.0' neutral w=0.0, 'v0.9' participation-aware, or 'v0.8' frozen heuristic)")
     bt_dec_parser.add_argument("--compare-predictors", action="store_true", help="Run comparative A/B backtest against frozen baseline predictor")
     bt_dec_parser.add_argument("--baseline-predictor", choices=PREDICTOR_CHOICES, default="v0.8", help="Baseline predictor to compare against (default: v0.8)")
-    bt_dec_parser.add_argument("--baseline-decision-engine", choices=["v0.9", "v0.8", "v09", "v08"], default="v0.8", help="Baseline decision engine to compare against (default: v0.8)")
+    bt_dec_parser.add_argument("--baseline-decision-engine", choices=DECISION_ENGINE_CHOICES, default="v0.8", help="Baseline decision engine to compare against (default: v0.8)")
     bt_dec_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown decision report to reports/backtests/")
 
     for part_cmd in ("backtest-participation", "diagnose-participation"):

@@ -1,8 +1,7 @@
-"""Live Matchday Points & Rank Tracker for FPL Manager V0.6.
+"""Live Matchday Points & Rank Tracker for FPL Manager (V1.0.1).
 
-Calculates real-time live matchday points, handles dynamic autosubstitutions
-with formation legality enforcement, captaincy auto-promotion, chip impacts
-(Triple Captain, Bench Boost), and rank velocity / effective ownership simulations.
+Computes real-time gameweek points, automatic bench substitutions, vice-captain
+promotions, and Effective Ownership (EO) safety scores against the template.
 """
 
 from contextlib import closing

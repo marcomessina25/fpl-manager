@@ -140,11 +140,11 @@ def _make_sample_snapshot(gameweek: int = 2, finished_gws: int = 1) -> Historica
 
 
 def test_p0_version_and_frozen_v09_baseline() -> None:
-    """Verify V1.0 version bump, lineup_penalty_weight = 0.0, and frozen V0.9 baseline report."""
-    assert __version__ == "1.0.0"
+    """Verify V1.0.1 version bump, lineup_penalty_weight = 0.0, and frozen V0.9 baseline report."""
+    assert __version__ == "1.0.1"
 
     eng_v09 = DecisionEngineV09()
-    eng_v10 = resolve_decision_engine("v1.0")
+    eng_v10 = resolve_decision_engine("v1.0.1")
     assert isinstance(eng_v10, DecisionEngineV10)
     assert eng_v09.lineup_penalty_weight == 0.0
     assert eng_v10.lineup_penalty_weight == 0.0
