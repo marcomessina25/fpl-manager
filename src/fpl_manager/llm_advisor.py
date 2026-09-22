@@ -1,9 +1,10 @@
-"""LLM Advisory Layer with Deterministic Guardrails for FPL Manager V0.6.
+"""LLM Advisory Layer with Deterministic Guardrails for FPL Manager (V1.0.1).
 
 Integrates multi-provider LLM analysis (Gemini, OpenAI, OpenRouter, Heuristic)
 with specialized personas (Devil's Advocate, Tactical Analyst, Strategic Planner).
 Deterministic validation ensures that all LLM advice is strictly verified against
-FPL budget, squad quota, and formation constraints before presentation.
+FPL budget, squad quota, and formation constraints before presentation, with automatic
+audit logging to the `llm_evaluations` SQLite table and guaranteed offline heuristic fallback.
 """
 
 from contextlib import closing

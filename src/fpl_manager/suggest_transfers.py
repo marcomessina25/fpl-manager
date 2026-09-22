@@ -1,4 +1,9 @@
-import heapq
+"""Transfer suggestion and Wildcard/Free-Hit squad recommendation service (V1.0.1).
+
+Coordinates multi-gameweek expected points projections, fixture difficulty ratings,
+and squad selling-price rules with the combinatorial optimizers in `fpl_manager.optimizer`.
+"""
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,12 +11,11 @@ from typing import Any
 
 from .expected_points import (
     MultiGameweekProfile,
-    project_multi_gameweek,
     project_multi_gameweek_profiles,
 )
 from .fixtures import analyze_team_fixtures, get_current_gameweek
 from .models import Position
-from .optimizer import solve_transfers, solve_wildcard
+from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
 from .transfers import selling_price
@@ -120,14 +124,13 @@ def suggest_transfers(
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
 ) -> dict[str, Any]:
-    """Generate legal 1- to 4+ transfer move recommendations for the current squad using branch-and-bound optimization."""
+    """Generate legal 1- to 5-transfer move recommendations for the current squad using branch-and-bound optimization."""
     if num_transfers < 1 or num_transfers > 5:
         raise ValueError(
             f"Invalid num_transfers={num_transfers}. Optimizer supports between 1 and 5 transfers."
         )
 
-    if risk_profile not in ("neutral", "floor", "ceiling"):
-        raise ValueError(f"Invalid risk_profile '{risk_profile}'. Must be 'neutral', 'floor', or 'ceiling'.")
+    risk_profile = validate_risk_profile(risk_profile)
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
@@ -188,9 +191,8 @@ def suggest_wildcard(
     risk_profile: str = "neutral",
     report_path: Path = WILDCARD_REPORT_PATH,
 ) -> dict[str, Any]:
-    """Generate optimal 15-player squad (Wildcard / Free-Hit) under budget and team limits."""
-    if risk_profile not in ("neutral", "floor", "ceiling"):
-        raise ValueError(f"Invalid risk_profile '{risk_profile}'. Must be 'neutral', 'floor', or 'ceiling'.")
+    """Generate heuristic local-search 15-player squad (Wildcard / Free-Hit) under budget and club limits."""
+    risk_profile = validate_risk_profile(risk_profile)
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)

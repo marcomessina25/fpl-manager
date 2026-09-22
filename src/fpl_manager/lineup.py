@@ -1,9 +1,10 @@
-"""Starting-XI and captaincy selection optimizer for FPL Manager V0.2.
+"""Starting-XI and captaincy selection optimizer for FPL Manager (V1.0.1).
 
-Selects the legal 11-player starting lineup that maximizes projected expected points (xP),
-orders the bench optimally, and selects primary and vice-captain choices.
-Every proposed lineup is independently verified against the deterministic formation
-rules in `fpl_manager.rules`.
+Selects the legal 11-player starting lineup that maximizes risk-adjusted utility across all 8
+legal formations (`neutral` defaults to `lineup_penalty_weight = 0.0`), strictly separates
+model quantities (`starters_xp`, `captain_bonus`, `total_lineup_xp`) from decision quantities
+(`starters_obj`, `captain_obj`, `total_lineup_obj`), validates captaincy ceiling/availability/minutes,
+orders the bench optimally, and verifies every lineup against `fpl_manager.rules`.
 """
 
 import json

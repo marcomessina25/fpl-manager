@@ -1,8 +1,8 @@
-"""Decision logging and audit trail system for FPL Manager V0.4.
+"""Decision logging and audit trail system for FPL Manager (V1.0.1).
 
 Maintains an immutable historical record of all pre-deadline manager decisions:
 - Selected Starting XI, captain, vice-captain, and ordered bench.
-- Transfers executed and transfer hits taken.
+- Transfers executed and transfer hits taken (with automatic chip hit-waiver rules).
 - Chips played (Wildcard, Free Hit, Bench Boost, Triple Captain).
 - Model baseline recommendations at that exact moment (to track human vs model divergences).
 - Post-matchday actual points scored to evaluate decision quality over time.

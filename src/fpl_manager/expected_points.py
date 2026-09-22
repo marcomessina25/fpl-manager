@@ -1,10 +1,11 @@
-"""Transparent, deterministic expected-points (xP) and minutes (xM) model for FPL Manager V0.3.
+"""Transparent, deterministic expected-points (xP) and minutes (xM) model for FPL Manager (V1.0.1).
 
-V0.3 Model Pillars:
-1. Expected Minutes (xM) & Squad Role:
+Canonical Model Pillars (V1.0.1 / V0.9.1-frozen quantitative core):
+1. Expected Minutes (xM), Learned Participation & Squad Role:
    - Evaluates availability probability from official FPL status and chance_of_playing_next_round.
-   - Evaluates starting probability (P(start)) and sub appearance probability based on observed
-     starts/minutes with Bayesian shrinkage toward price/position priors.
+   - Evaluates starting probability (P(start)), sub appearance probability (P(sub|not start)),
+     and overall play probability (P(play)) with PAVA isotonic calibration, role transition regimes,
+     and fixture turnaround congestion.
 2. Component-Based Projections (xP):
    - Appearance points: 2 pts for >=60 mins, 1 pt for 1-59 mins.
    - Attacking threat: official xG and xA per 90 (Opta) blended with position priors, scaled by
@@ -13,10 +14,10 @@ V0.3 Model Pillars:
      plus expected goals conceded penalties (-1 per 2 goals conceded for DEF/GKP).
    - Bonus point expectation: scaled from expected attacking involvements and clean sheets.
    - Disciplinary deduction: expected cards deduction (-0.15 pts per 90).
-3. Uncertainty & Variance:
-   - Estimated Floor and Ceiling: heuristic estimates of lower-bound baseline and haul potential.
-     Note: these are mathematical heuristic projections rather than empirically calibrated quantiles.
-   - Standard deviation (sigma) distinguishing steady floor assets from high-upside differentials.
+3. Uncertainty, Regimes & Reproducibility Metadata:
+   - Explicit gameweek regime classification ('single', 'dgw', 'bgw').
+   - Estimated Floor (10th pct), Ceiling (90th pct), and standard deviation (sigma).
+   - Canonical ModelMetadata attached to every projection for strict point-in-time reproducibility.
 
 See `docs/expected_points.md` for full mathematical documentation.
 """

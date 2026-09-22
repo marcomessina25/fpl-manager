@@ -1,4 +1,4 @@
-"""Structured domain error hierarchy for FPL Manager (V0.9.10 Production Hardening).
+"""Structured domain error hierarchy for FPL Manager (V1.0.1).
 
 Defines explicit, typed domain exceptions with machine-readable error codes and context
 so that API endpoints, CLI routines, and LLM integrations handle failures gracefully.

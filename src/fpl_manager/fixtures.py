@@ -1,4 +1,4 @@
-"""Fixture analysis and Fixture Difficulty Rating (FDR) utilities for FPL Manager V0.2."""
+"""Fixture analysis and Fixture Difficulty Rating (FDR) utilities for FPL Manager (V1.0.1)."""
 
 import json
 from pathlib import Path

@@ -1,4 +1,4 @@
-"""Residual-error research dataset and error classification taxonomy for V0.9 Phase 1.
+"""Residual-error research dataset and 9-class error taxonomy for FPL Manager (V1.0.1).
 
 Implements Section 5 of V0.9 Plan (docs/v09/v09.md):
 - Decomposes every player-gameweek into pre-deadline projection features vs. actual outcome.

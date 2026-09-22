@@ -1,4 +1,4 @@
-"""Probability calibration diagnostics, reliability curves, and calibrators for V0.9 (Phase 4).
+"""Probability calibration diagnostics, reliability curves, and calibrators for FPL Manager (V1.0.1 / V0.9.1-frozen).
 
 Implements Section 12 & Milestone V0.9.4 of docs/v09/v09.md:
 - Brier Score and Log Loss calculation.

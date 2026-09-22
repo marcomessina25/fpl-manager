@@ -1,4 +1,4 @@
-"""Provider abstraction layer for FPL Manager (V0.9.10 Production Hardening).
+"""Provider abstraction layer for FPL Manager (V1.0.1).
 
 Implements Section 26 of docs/v09/v09.md:
 - Isolates provider, model, credentials, request, response, errors, timeouts, and rate limits.

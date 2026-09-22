@@ -1,4 +1,4 @@
-"""Reporting utilities for historical backtests and research evaluations (V0.7.1)."""
+"""Reporting utilities for historical backtests and research evaluations for FPL Manager (V1.0.1)."""
 
 from pathlib import Path
 from typing import Any

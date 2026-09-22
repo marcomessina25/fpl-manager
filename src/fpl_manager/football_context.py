@@ -1,4 +1,4 @@
-"""Structured football context and qualitative evidence layer for V0.8.7.
+"""Structured football context and qualitative evidence layer for FPL Manager (V1.0.1).
 
 Implements Phase 15 & 22 of the V0.8 Roadmap (docs/v08/v08.md):
 - Structured external observations with explicit provenance and confidence.

@@ -1,10 +1,12 @@
-"""Mathematical optimization engine for FPL Manager V0.3.
+"""Mathematical optimization engine for FPL Manager (V1.0.1).
 
-Provides high-performance combinatorial solvers for:
-1. Multi-transfer recommendations (1, 2, 3, 4+ transfers) using recursive branch-and-bound
-   with symmetry breaking, upper-bound heap pruning, budget bounds, and team limits.
-2. Wildcard and Free-Hit 15-player squad optimization using greedy feasible initialization,
-   1-opt upgrading, and 2-opt cross-position local search with exact FPL constraint validation.
+Provides pure-Python combinatorial solvers for:
+1. Multi-transfer recommendations (1–5 transfers) using recursive branch-and-bound (`solve_transfers`)
+   with monotonically sorted effective candidate values, admissible upper-bound heap pruning, budget bounds,
+   and club limits — verified against the independent brute-force Cartesian oracle (`solve_transfers_exact_reference`).
+2. Wildcard and Free-Hit 15-player squad construction (`solve_wildcard`) using heuristic local search
+   (feasible initialization, 1-opt greedy upgrading, and 2-opt cross-position swaps) with explicit
+   `optimization_metadata` disclosure (`is_exact_global_optimum = False`).
 """
 
 from dataclasses import dataclass

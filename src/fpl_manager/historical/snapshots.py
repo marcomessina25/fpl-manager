@@ -1,4 +1,4 @@
-"""Point-in-time snapshot generator ensuring zero future leakage for V0.7.0."""
+"""Point-in-time snapshot generator ensuring zero future leakage for FPL Manager (V1.0.1)."""
 
 from datetime import datetime, timezone
 import json

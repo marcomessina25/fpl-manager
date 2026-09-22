@@ -1,4 +1,4 @@
-"""Learned hierarchical participation and conditional minutes engine for V0.9 (Phases 2 & 3).
+"""Learned hierarchical participation and conditional minutes engine for FPL Manager (V1.0.1 / V0.9.1-frozen).
 
 Implements:
 - Phase 2: Structured probability model decomposing participation into:

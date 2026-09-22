@@ -1,4 +1,4 @@
-"""Historical domain models ensuring point-in-time integrity for V0.7."""
+"""Historical domain models ensuring point-in-time integrity for FPL Manager (V1.0.1)."""
 
 from dataclasses import dataclass
 from typing import Any

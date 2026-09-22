@@ -1,4 +1,4 @@
-"""Dedicated probabilistic participation and expected-minutes prediction engine for V0.8.2.
+"""Dedicated probabilistic participation and expected-minutes prediction engine for FPL Manager (V1.0.1 / V0.8.2 baseline).
 
 Implements Phases 3 to 8 of the V0.8 Roadmap (docs/v08/v08.md):
 - 7.1 P(start) probabilistic classifier with Bayesian recency weighting.

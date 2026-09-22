@@ -1,4 +1,4 @@
-"""Current squad report generator for FPL Manager V0.2."""
+"""Current squad report generator for FPL Manager (V1.0.1)."""
 
 import json
 from pathlib import Path

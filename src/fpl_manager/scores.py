@@ -1,7 +1,7 @@
-"""Automated matchday scores ingestion and retrieval for FPL Manager V0.4.
+"""Automated matchday scores ingestion and retrieval for FPL Manager (V1.0.1).
 
-Retrieves official gameweek player points and statistics from official FPL live endpoints,
-caches them into local SQLite database, and supplies them to the evaluation engine.
+Fetches official live and post-matchday player scores from the FPL API (`event/{gw}/live/`)
+and persists them in SQLite for closed-loop decision evaluation.
 """
 
 from contextlib import closing

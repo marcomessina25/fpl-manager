@@ -1,4 +1,4 @@
-"""Deterministic decision strategies for historical backtesting (V0.7.2 & V0.7.3)."""
+"""Deterministic decision strategies for historical backtesting for FPL Manager (V1.0.1)."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

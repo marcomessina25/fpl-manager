@@ -1,8 +1,8 @@
-"""Chip Strategy and Blank / Double Gameweek Planner for FPL Manager V0.4.
+"""Chip Strategy and Blank / Double Gameweek Planner for FPL Manager (V1.0.1).
 
 Analyzes the remaining Premier League fixture calendar for Blank Gameweeks (BGW)
-and Double Gameweeks (DGW), evaluates squad readiness, models expected chip valuations,
-and generates an optimal multi-gameweek chip execution roadmap.
+and Double Gameweeks (DGW), evaluates squad readiness across half-season chip windows
+(GW1–19 and GW20–38), models expected chip valuations, and generates a chip deployment roadmap.
 """
 
 from contextlib import closing

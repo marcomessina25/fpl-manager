@@ -1,4 +1,4 @@
-"""Participation error diagnostics and error decomposition engine for V0.8.1.
+"""Participation error diagnostics and error decomposition engine for FPL Manager (V1.0.1).
 
 Implements Phases 1 & 2 of the V0.8 Roadmap (docs/v08/v08.md):
 - 5.1 Player-GW diagnostic table with pre-deadline features and ground truth outcomes.

@@ -1,8 +1,9 @@
-"""Multi-gameweek transfer planning engine for FPL Manager V0.3.
+"""Multi-gameweek transfer planning engine for FPL Manager (V1.0.1).
 
-Evaluates multi-gameweek decision trees over a rolling horizon (e.g. 3 to 5 gameweeks)
-using beam search to find optimal transfer trajectories (rolling transfers, single FTs,
-multi-FT combinations, or targeted point hits) maximizing cumulative net projected points.
+Evaluates multi-gameweek decision trees over a rolling horizon (1 to 6 gameweeks)
+using forward beam search (`generate_multi_gameweek_plan`, `is_exact_global_optimum = False`)
+and provides an independent Bellman dynamic programming reference oracle (`plan_multi_gw_exact_reference`)
+for verifying multi-step optimality on bounded problem instances.
 """
 
 from dataclasses import dataclass

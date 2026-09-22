@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 >
-> **Current planning baseline:** V0.9 implementation is on branch `v09` ([`docs/v09/v09.md`](v09/v09.md)). All 11 development phases are implemented with 261 hermetic passing tests. A mandatory release gate investigation ([`docs/v09/v09_regression_investigation.md`](v09/v09_regression_investigation.md)) isolated the 2025-26 regression: the decision engine is unchanged and verified, while learned participation with baseline components (`v0.9_part_v0.8_comp`) outperforms V0.8 by +25 net points (1987 vs 1962). The release gate status is **NOT PR READY** pending integration of the recommended component xP correction and substitute-minute thresholding.
+> **Current planning baseline:** **Release V1.0.1 (`v1.0.1`)** is complete and released (`296` passing hermetic and full-system E2E tests). V1.0 (`docs/v10/v10.md`, `docs/v10/items_left_for_v10.md`) delivered the canonical model registry (`v1.0-canonical` / `v0.9.1-frozen`), 7-category point-in-time leakage enforcement (`PIT_LEAKAGE_VERIFICATION_SCOPE`), independent exact verification oracles (`solve_transfers_exact_reference`, `plan_multi_gw_exact_reference`), neutral strategy alignment (`lineup_penalty_weight = 0.0`), persistent LLM evaluation auditing (`llm_evaluations`), and mutually exclusive additive regret decomposition (`additive_regret_decomposition`). V1.0.1 (`v101`) completes the repository-wide documentation, module docstring, and CLI alignment audit. The next feature milestone is **V1.1** (multi-provider LLM expansion & OpenRouter dynamic model discovery).
 >
-> See `docs/architecture.md`, `docs/expected_points.md`, `docs/v08/v08.md`, and `docs/v09/v09.md` for architecture and projection-model design.
+> See `docs/architecture.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`, and `docs/v10/v10.md` for architecture, mathematical optimizers, and projection-model design.
 
 ---
 
@@ -58,30 +58,11 @@ Evaluation / backtesting
 Model improvement
 ```
 
-### Immediate release path
+### Release progression
 
 ```text
-v0.6 current v6 branch
-        │
-        ├── remove OpenRouter from release candidate
-        ├── run stabilization / regression tests
-        ↓
-v0.6 PR
-        │
-        ↓
-v0.65
-        ├── bug audit
-        ├── state-transition hardening
-        ├── integration tests
-        ├── xP correctness audit
-        └── validated OpenRouter restoration (Llama 3.3, DeepSeek V3, GPT-4o Mini, DeepSeek R1*)
-        │
-        ↓
-v0.7
-        ├── historical backtesting
-        ├── calibration
-        ├── minutes model
-        └── first serious predictive-model iteration
+v0.6 -> v0.65 -> v0.7 (completed)
+        ├── historical backtesting, calibration, and initial minutes model
         │
         ↓
 v0.8 (completed on 2026-09-12)
@@ -93,26 +74,28 @@ v0.8 (completed on 2026-09-12)
         └── LLM candidate strategy critique dossier
         │
         ↓
-v0.9 (completed on 2026-09-14)
+v0.9 & v0.9.1 (completed on 2026-09-14 / 2026-09-21)
         ├── residual error taxonomy (9 error classes)
         ├── hierarchical learned participation architecture (P(start), P(sub|not start))
         ├── dynamic role transition regimes & player turnaround fingerprints
         ├── probability calibration (Platt scaling & Isotonic regression with PAVA)
-        ├── broader xP component calibration (Opta conversion, CS shrinkage, GKP saves, bonus)
-        ├── decision A/B backtest engine (multi-season replay, transfer ROI, regret tracking)
-        ├── closed-loop evaluation & hindsight optimal counterfactuals
-        ├── provider abstraction (isolated envelope with offline heuristic fallback)
-        ├── structured errors (FPLError hierarchy) & security review
-        └── production hardening (CI workflow, type checks, 260 hermetic tests)
+        ├── chip lifecycle hardening (Wildcard/Free Hit 0-hit enforcement)
+        ├── multi-year risk penalty calibration (w = 0.0 neutral alignment)
+        └── production hardening (CI workflow, FPLError hierarchy, security review)
         │
         ↓
-v1.0
-        └── stable FPL decision-support platform
+v1.0.0 & v1.0.1 (completed on 2026-09-22 — CURRENT RELEASE)
+        ├── canonical model registry (v1.0.1 / v0.9.1-frozen) & deterministic PIT reconstruction
+        ├── 7-category PIT leakage enforcement (intrinsic invariants + reference-comparative checks)
+        ├── independent exact transfer oracle (solve_transfers_exact_reference) & DP planner oracle (plan_multi_gw_exact_reference)
+        ├── strict lineup model_quantities vs decision_quantities separation
+        ├── persistent llm_evaluations SQLite table & mutually exclusive additive regret decomposition
+        └── full documentation, docstring, and CLI alignment (296 passing tests)
         │
         ↓
-v1.1
+v1.1 (next planned milestone)
         ├── multi-provider expansion (Groq, Cerebras, direct APIs)
-        └── extended OpenRouter model validation & routing
+        └── extended OpenRouter model validation & dynamic routing
 ```
 
 ---
@@ -956,11 +939,11 @@ It means:
 - [x] Known limitations documented.
 
 #### Optimisation
-- [x] Transfer optimizer verified (`solve_transfers` proven equivalent to `solve_transfers_exhaustive` for 1–5 transfers).
+- [x] Transfer optimizer verified (`solve_transfers` verified against the independent Cartesian brute-force oracle `solve_transfers_exact_reference` for 1–5 transfers and adversarial FDR-inversion bounds).
 - [x] Wildcard optimizer correctly described as heuristic local search (`solve_wildcard` `optimization_metadata`).
-- [x] Multi-GW planner tested against exact reference enumeration (`plan_multi_gw_exhaustive`).
+- [x] Multi-GW beam planner (`generate_multi_gameweek_plan`, `is_exact_global_optimum = False`) verified on bounded synthetic horizons against the independent Bellman DP reference oracle (`plan_multi_gw_exact_reference`).
 - [x] Risk profiles tested (`conservative`, `safe`, `neutral`, `differential`, `upside`).
-- [x] Neutral risk profile strictly maximizes expected points (`lineup_penalty_weight = 0.0` in `DecisionEngineV10` and `select_starting_lineup`).
+- [x] Neutral risk profile defaults to `lineup_penalty_weight = 0.0` in `DecisionEngineV10` and `select_starting_lineup` (while supporting custom penalty weights for experimentation), and `lineup.py` strictly separates `model_quantities` from `decision_quantities`.
 
 #### LLM
 - [x] Provider abstraction (`gemini`, `openai`, `openrouter`, `heuristic`).
@@ -979,10 +962,20 @@ It means:
 - [x] Team isolation across active teams.
 
 #### Evaluation
-- [x] Every decision can be evaluated with 5-way attribution (`transfer_gain`, `captaincy_gain`, `lineup_gain`, `chip_gain`, `hit_cost`).
+- [x] Every decision can be evaluated with mutually exclusive additive regret decomposition (`additive_regret_decomposition`: `total_decision_regret = lineup_regret + captaincy_regret + transfer_regret + chip_regret + hit_cost`) and labeled counterfactual diagnostics (`decision_loss_diagnostics`).
 - [x] Decision-weighted error metric (`calculate_decision_weighted_error`) implemented (`2.0` captain, `1.5` transfer target, `1.0` starter, `0.35` bench).
 - [x] Explicit distinction between `observed_outcome` and `hindsight_counterfactual`.
-- [x] All 293 automated tests passing (`tests/test_v10_release.py` and `tests/test_v10_end_to_end.py`).
+- [x] All 296 automated tests passing (`tests/test_v10_release.py` and `tests/test_v10_end_to_end.py`).
+
+---
+
+## V1.0.1 — Documentation, Docstring & CLI Alignment
+
+**Status: completed on 2026-09-22.**
+
+- Audited and aligned all living Markdown documentation (`README.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`) to `v1.0.1`, preserving all historical milestone specification files (`v065` through `v10`) intact.
+- Updated legacy module docstrings (`V0.1`–`V0.9`) across all 51 Python modules in `src/fpl_manager/` to accurately reflect `V1.0.1` behavior and provenance.
+- Unified risk-profile validation in `suggest_transfers.py` (`validate_risk_profile`) and expanded CLI `--risk`, `--predictor`, and `--decision-engine` choices in `cli.py` to support `v1.0.1`, `v1.0`, and `v0.9.1`.
 
 ---
 
@@ -1299,34 +1292,15 @@ as distinct states.
 
 # Immediate work queue
 
-## Now
+## Next (Post-V1.0.1 -> V1.1)
 
-### 1. Prepare V0.6 PR
+### 1. Create `v11` branch from `master` after `V1.0.1` merge
+- Base `v11` on the merged `V1.0.1` release commit.
 
-- remove OpenRouter;
-- keep deterministic/heuristic fallback;
-- keep remaining validated providers;
-- update provider documentation;
-- update tests;
-- run complete test suite;
-- review GUI advisor configuration;
-- verify no OpenRouter references remain in the release path.
-
-### 2. Create V0.65 branch
-
-Base it on the V0.6 PR result.
-
-### 3. Execute `docs/v065/v065_potential_bugs.md`
-
-Treat it as an audit checklist, not as proof that every listed issue exists.
-
-### 4. Fix confirmed bugs
-
-Do not change behavior speculatively without tests.
-
-### 5. Freeze architecture
-
-Avoid major new GUI features until V0.65 is stable.
+### 2. Execute V1.1 Multi-Provider Expansion & OpenRouter Dynamic Discovery
+- Implement OpenRouter `/api/v1/models` dynamic model discovery and tier classification (free-tier vs credit-required endpoints).
+- Integrate and validate Groq Free Tier, Cerebras, DeepSeek Direct API, and Mistral Direct API under the `ProviderAdapter` envelope (`src/fpl_manager/providers.py`).
+- Verify all new providers through the full deterministic validation and `llm_evaluations` audit pipeline.
 
 ---
 
