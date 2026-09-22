@@ -160,12 +160,29 @@ def build_ablation_manifest() -> dict[str, Any]:
             captain_policy="Participation safeguard P(start) >= 0.60",
             hidden_defaults=common_defaults,
         ),
+        "v1.0": ComponentSpecification(
+            variant_id="v1.0",
+            description="V1.0 Production Baseline: Frozen V0.9.1 calibrated predictor with DecisionEngineV10 (lineup_penalty_weight = 0.0)",
+            input_data="HistoricalGameweekSnapshot (data/historical/<season>/gw<gw>.json)",
+            predictor_implementation="fpl_manager.expected_points.project_player_gameweek(predictor_version='v1.0')",
+            participation_implementation="fpl_manager.learned_participation.predict_player_participation_v09",
+            calibration_implementation="fpl_manager.calibration (Isotonic regression / Platt scaling)",
+            xp_components_implementation="fpl_manager.expected_points (v0.9 components)",
+            regimes_enabled=True,
+            calibration_enabled=True,
+            default_decision_engine="DecisionEngineV10 (lineup_penalty_weight = 0.0)",
+            optimizer_function="fpl_manager.optimizer.solve_transfers (participation-aware)",
+            objective_function="score = xp_in - xp_out - hit_cost (neutral lineup_penalty_weight = 0.0)",
+            transfer_policy="Rotation-aware transfer search filtering out candidates with P(start) < 0.30",
+            captain_policy="Participation safeguard requiring P(start) >= 0.60 for captain candidate selection",
+            hidden_defaults={**common_defaults, "lineup_penalty_weight": 0.0},
+        ),
     }
 
     manifest = {
         "schema_version": "1.0.0",
         "description": "FPL Manager Scientific Ablation Component Manifest (P1 Audit)",
-        "generated_at": "2026-09-15T12:00:00Z",
+        "generated_at": "2026-09-22T17:00:00Z",
         "variants": {k: asdict(v) for k, v in variants.items()},
         "decision_engines": {
             "v0.8": {
@@ -179,7 +196,14 @@ def build_ablation_manifest() -> dict[str, Any]:
                 "class": "fpl_manager.backtest.decision_engine.DecisionEngineV09",
                 "name": "V0.9 Participation-Aware Decision Engine",
                 "squad_initialization": "Saturation-swap enabled greedy selection with 3-player club cap resolution",
-                "lineup_selection": "Starters ranked by risk-adjusted xP; captain requires P(start) >= 0.60 safeguard",
+                "lineup_selection": "Starters ranked by calibrated xP (lineup_penalty_weight = 0.0); captain requires P(start) >= 0.60 safeguard",
+                "transfer_objective": "score = (adj_xp_in - xp_out) - hit_cost with rotation-risk discount",
+            },
+            "v1.0": {
+                "class": "fpl_manager.backtest.decision_engine.DecisionEngineV10",
+                "name": "V1.0 Production Decision Engine (Neutral Calibrated xP, w=0.00)",
+                "squad_initialization": "Saturation-swap enabled greedy selection with 3-player club cap resolution",
+                "lineup_selection": "Starters ranked by calibrated expected_points (lineup_penalty_weight = 0.0); captain requires P(start) >= 0.60 safeguard",
                 "transfer_objective": "score = (adj_xp_in - xp_out) - hit_cost with rotation-risk discount",
             },
         },

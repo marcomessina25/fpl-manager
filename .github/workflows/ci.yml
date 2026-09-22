@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ master, v09 ]
+    branches: [ master, v09, version_10, v10 ]
   pull_request:
-    branches: [ master, v09 ]
+    branches: [ master, v09, version_10, v10 ]
 
 jobs:
   test:
@@ -28,7 +28,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run hermetic test suite
+      - name: Syntax and static import check
+        run: |
+          python -m compileall -q src tests
+
+      - name: Run unit, integration, and historical regression test suite
         run: |
           python -m pytest -v
 

@@ -45,18 +45,61 @@ def validate_snapshot_integrity(snapshot: HistoricalGameweekSnapshot) -> list[st
     return issues
 
 
+PIT_LEAKAGE_VERIFICATION_SCOPE: dict[str, Any] = {
+    "intrinsic_snapshot_invariants": {
+        "description": (
+            "Invariants checked directly from the snapshot alone without external reference inputs."
+        ),
+        "categories": [
+            "6_future_fixtures_or_results (finished=True or revealed match scores in target GW)",
+            "7_later_versions_of_statistics (cumulative starts/minutes/starts_last_3 exceeding finished_gameweeks physical bounds; non-zero cumulative stats at GW1)",
+        ],
+    },
+    "reference_comparative_checks": {
+        "description": (
+            "Differential checks that verify a snapshot against an explicitly supplied pre/post-deadline reference state (prior_snapshot, outcomes, or post_deadline_state)."
+        ),
+        "categories": [
+            "1_final_gw_statistics (requires prior_snapshot and outcomes to detect absorbed target-GW points)",
+            "2_future_injury_information (requires post_deadline_state['pre_deadline_status'] / ['future_status'])",
+            "3_future_price_changes (requires post_deadline_state['pre_deadline_price_tenths'] / ['future_price_tenths'])",
+            "4_future_ownership (requires post_deadline_state['pre_deadline_ownership'] / ['future_ownership'])",
+            "5_post_deadline_team_news (requires post_deadline_state['news_timestamp'] / ['deadline_timestamp'])",
+        ],
+    },
+}
+
+
 def validate_no_future_leakage(
     snapshot: HistoricalGameweekSnapshot,
     outcomes: dict[int, GameweekOutcome],
+    prior_snapshot: HistoricalGameweekSnapshot | None = None,
+    post_deadline_state: dict[int, dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Verify that a snapshot contains NO knowledge of current or future gameweek outcomes.
-    
-    Invariants tested:
-    1. For Gameweek 1: cumulative points, minutes, and starts must be exactly 0 for all players.
-    2. For Gameweek N: if a player scored points in GW N, those points must NOT appear in snapshot.total_points.
-    3. Minutes played in GW N must NOT appear in snapshot.minutes.
+    """Verify that a snapshot contains no knowledge of current or future gameweek outcomes (P1.1, P1.4).
+
+    Scope & Verification Semantics (P1.4 — see `PIT_LEAKAGE_VERIFICATION_SCOPE`):
+    - Intrinsic Snapshot Invariants (verified directly from `snapshot` alone):
+      * Category 6: Target-GW fixtures marked `finished=True` or containing revealed `team_h_score`/`team_a_score`.
+      * Category 7: Cumulative `starts`, `minutes`, or `starts_last_3` exceeding `snapshot.finished_gameweeks` bounds (or non-zero at GW1).
+    - Reference-Comparative Checks (verified when `prior_snapshot`, `outcomes`, or `post_deadline_state` is supplied):
+      * Category 1: Final GW points absorbed into `total_points` (requires `prior_snapshot` + `outcomes`).
+      * Categories 2-5: Post-deadline injury status, price changes, ownership, or news timestamps (requires `post_deadline_state`).
     """
     leakage_violations: list[str] = []
+    max_possible_starts = max(0, int(snapshot.finished_gameweeks))
+    max_possible_minutes = max_possible_starts * 120  # upper bound including potential double GWs
+
+    # Protection 6: Future fixtures / results
+    for fix in snapshot.fixtures:
+        if getattr(fix, "finished", False):
+            leakage_violations.append(
+                f"Leakage in GW{snapshot.gameweek} fixtures: Fixture {fix.fixture_id} is already marked finished."
+            )
+        if getattr(fix, "team_h_score", None) is not None or getattr(fix, "team_a_score", None) is not None:
+            leakage_violations.append(
+                f"Leakage in GW{snapshot.gameweek} fixtures: Fixture {fix.fixture_id} contains revealed match scores."
+            )
 
     if snapshot.gameweek == 1:
         for p in snapshot.players:
@@ -73,17 +116,58 @@ def validate_no_future_leakage(
                     f"Leakage in GW1: Player {p.player_id} has non-zero prior starts ({p.starts})."
                 )
     else:
-        # Check against revealed outcomes for GW N
+        prior_by_id = (
+            {pp.player_id: pp for pp in prior_snapshot.players}
+            if prior_snapshot is not None
+            else {}
+        )
         for p in snapshot.players:
-            outcome = outcomes.get(p.player_id)
-            if outcome is None:
-                continue
+            # Protection 7: Later versions of statistics exceeding completed gameweeks
+            if p.starts > max_possible_starts * 2:
+                leakage_violations.append(
+                    f"Later-stat leakage in GW{snapshot.gameweek}: Player {p.player_id} starts ({p.starts}) exceed completed GWs ({max_possible_starts})."
+                )
+            if p.minutes > max_possible_minutes:
+                leakage_violations.append(
+                    f"Later-stat leakage in GW{snapshot.gameweek}: Player {p.player_id} minutes ({p.minutes}) exceed max possible ({max_possible_minutes})."
+                )
+            if p.starts_last_3 > min(6, max_possible_starts * 2):
+                leakage_violations.append(
+                    f"Later-stat leakage in GW{snapshot.gameweek}: Player {p.player_id} starts_last_3 ({p.starts_last_3}) exceeds completed history."
+                )
 
-            # If the player played minutes in GW N, test if snapshot matches prior history
-            # and specifically doesn't include the outcome's points if they were non-zero
-            if outcome.total_points > 0 and snapshot.finished_gameweeks == 1:
-                # In GW2, prior points must equal GW1 points, NOT GW1 + GW2 points!
-                pass  # verified by cumulative summing correctness
+            # Protection 1: Final GW statistics leaked into pre-deadline snapshot
+            outcome = outcomes.get(p.player_id)
+            if outcome is not None and p.player_id in prior_by_id:
+                prev_p = prior_by_id[p.player_id]
+                # If snapshot total_points already includes both prev GW and current GW outcome points:
+                if outcome.total_points > 0 and p.total_points > prev_p.total_points + outcome.total_points - 1 and snapshot.finished_gameweeks == prior_snapshot.finished_gameweeks:
+                    leakage_violations.append(
+                        f"Final-GW stat leakage in GW{snapshot.gameweek}: Player {p.player_id} includes current GW points ({p.total_points})."
+                    )
+
+            # Protections 2, 3, 4, 5: Future injury, price, ownership, and post-deadline news
+            if post_deadline_state and p.player_id in post_deadline_state:
+                post = post_deadline_state[p.player_id]
+                if "pre_deadline_status" in post and p.status != post["pre_deadline_status"] and p.status == post.get("future_status"):
+                    leakage_violations.append(
+                        f"Future injury leakage in GW{snapshot.gameweek}: Player {p.player_id} has future status '{p.status}' instead of pre-deadline '{post['pre_deadline_status']}'."
+                    )
+                if "pre_deadline_price_tenths" in post and p.price_tenths != post["pre_deadline_price_tenths"] and p.price_tenths == post.get("future_price_tenths"):
+                    leakage_violations.append(
+                        f"Future price leakage in GW{snapshot.gameweek}: Player {p.player_id} has future price {p.price_tenths} instead of {post['pre_deadline_price_tenths']}."
+                    )
+                if "pre_deadline_ownership" in post:
+                    cur_own = getattr(p, "selected_by_percent", None)
+                    if cur_own is not None and abs(cur_own - post["pre_deadline_ownership"]) > 1e-6 and abs(cur_own - post.get("future_ownership", -1.0)) < 1e-6:
+                        leakage_violations.append(
+                            f"Future ownership leakage in GW{snapshot.gameweek}: Player {p.player_id} has future ownership {cur_own}."
+                        )
+                if "news_timestamp" in post and "deadline_timestamp" in post:
+                    if str(post["news_timestamp"]) > str(post["deadline_timestamp"]):
+                        leakage_violations.append(
+                            f"Post-deadline news leakage in GW{snapshot.gameweek}: Player {p.player_id} news timestamp {post['news_timestamp']} > deadline {post['deadline_timestamp']}."
+                        )
 
     return leakage_violations
 

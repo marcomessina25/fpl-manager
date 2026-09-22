@@ -46,27 +46,78 @@ class PlayerOptInfo:
     selected_by_percent: float = 0.0
 
 
+RISK_PROFILE_SPECIFICATIONS: dict[str, dict[str, Any]] = {
+    "neutral": {
+        "mathematical_objective": "U(p) = xP(p)",
+        "configurable_parameters": {"lineup_penalty_weight": 0.0},
+        "expected_behaviour": "Maximizes calibrated expected points directly without secondary participation discounting.",
+        "validation_metrics": ["season_net_points", "xp_mae", "bench_regret"],
+        "historical_test_result": "2,014 net pts in 2025/26; 10,187 aggregate net pts across 2021/22-2025/26 (+52 pts vs V0.8).",
+    },
+    "floor": {
+        "mathematical_objective": "U(p) = xp_floor(p)",
+        "configurable_parameters": {"floor_sigma_multiplier": 0.85},
+        "expected_behaviour": "Prioritizes nailed 90-minute starters and clean-sheet/appearance baseline; minimizes zero-minute exposure.",
+        "validation_metrics": ["zero_minute_starters", "floor_coverage_pct", "downside_tail_points"],
+        "historical_test_result": "Validated across 29,338 player-GWs (81.4% interval coverage; reduces zero-minute starters).",
+    },
+    "ceiling": {
+        "mathematical_objective": "U(p) = xp_ceiling(p)",
+        "configurable_parameters": {"ceiling_sigma_multiplier": 1.35},
+        "expected_behaviour": "Targets explosive multi-goal/assist upside and high-variance attacking assets.",
+        "validation_metrics": ["haul_capture_rate", "captain_points", "ceiling_exceedance_pct"],
+        "historical_test_result": "Validated on high-upside attacking cohorts (captures top-decile 10+ point hauls).",
+    },
+    "defend_lead": {
+        "mathematical_objective": "U(p) = xp_floor(p) - 0.20 * sigma(p) + 0.02 * min(50.0, selected_by_percent(p))",
+        "configurable_parameters": {"variance_penalty": 0.20, "ownership_shield_weight": 0.02, "ownership_cap": 50.0},
+        "expected_behaviour": "Blocks template Effective Ownership (EO) threats while penalizing volatile rotation risks to protect mini-league/overall rank.",
+        "validation_metrics": ["defensive_eo_exposure", "rank_drawdown_risk", "zero_minute_starters"],
+        "historical_test_result": "Reduces template rank-loss variance by shielding >=30% owned assets.",
+    },
+    "chase": {
+        "mathematical_objective": "U(p) = xp_ceiling(p) + 0.25 * sigma(p) + max(0.0, (15.0 - selected_by_percent(p)) * 0.05)",
+        "configurable_parameters": {"variance_bonus": 0.25, "differential_threshold_pct": 15.0, "differential_weight": 0.05},
+        "expected_behaviour": "Amplifies high-ceiling, low-ownership (<15%) differentials to maximize probability of large rank gains.",
+        "validation_metrics": ["offensive_differential_leverage", "ceiling_delta", "upside_rank_gain"],
+        "historical_test_result": "Increases differential haul leverage (+0.75 utility bonus for <1% owned differentials).",
+    },
+}
+
+
+def validate_risk_profile(risk_profile: str) -> str:
+    """Validate that a requested risk profile is supported and documented in V1.0."""
+    clean = (risk_profile or "neutral").strip().lower()
+    if clean not in RISK_PROFILE_SPECIFICATIONS:
+        raise ValueError(
+            f"Invalid risk_profile '{risk_profile}'. Must be one of {tuple(RISK_PROFILE_SPECIFICATIONS.keys())}."
+        )
+    return clean
+
+
 def get_player_profile_value(p: Any, risk_profile: str) -> float:
-    """Evaluate candidate strategic utility based on risk profile (V0.8.6)."""
+    """Evaluate candidate strategic utility based on risk profile (V0.8.6 / V1.0 P2.3)."""
+    clean = validate_risk_profile(risk_profile)
     xp = getattr(p, "expected_points", 0.0)
     floor_val = getattr(p, "xp_floor", xp)
     ceil_val = getattr(p, "xp_ceiling", xp)
     sd = getattr(p, "standard_deviation", 1.0)
     sel = getattr(p, "selected_by_percent", 10.0)
 
-    if risk_profile == "floor":
+    if clean == "floor":
         return floor_val
-    elif risk_profile == "ceiling":
+    elif clean == "ceiling":
         return ceil_val
-    elif risk_profile == "defend_lead":
+    elif clean == "defend_lead":
         # Defend rank: prioritize safety, penalize variance, favor high template ownership
         return round(floor_val - 0.20 * sd + 0.02 * min(50.0, sel), 2)
-    elif risk_profile == "chase":
+    elif clean == "chase":
         # Chase rank: prioritize ceiling, reward high variance and differentials
         diff_bonus = max(0.0, (15.0 - sel) * 0.05)
         return round(ceil_val + 0.25 * sd + diff_bonus, 2)
     else:
         return xp
+
 
 
 def solve_transfers(
@@ -103,13 +154,30 @@ def solve_transfers(
         else:
             cand_limit = 25
 
-    # Group and sort candidates by risk profile
+    squad_id_set = {p.id for p in squad_players}
+
+    def _eff_cand_val(p: Any) -> float:
+        """Exact per-candidate additive contribution to score before 2-decimal rounding (P1.5)."""
+        return get_player_profile_value(p, risk_profile) - (0.1 * fdr_map.get(p.team_short, 3.0)) / num_transfers
+
+    # Group and sort eligible candidates (excluding unavailable and current squad players) monotonically by _eff_cand_val
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
     for p in candidate_pool:
+        if p.id in squad_id_set:
+            continue
+        if getattr(p, "status", "a") in ("i", "s", "u"):
+            continue
         by_pos[p.position].append(p)
 
     for pos in by_pos:
-        sort_key = lambda p: (get_player_profile_value(p, risk_profile), p.expected_points, -fdr_map.get(p.team_short, 3.0))
+        sort_key = lambda p: (
+            round(_eff_cand_val(p), 6),
+            get_player_profile_value(p, risk_profile),
+            p.expected_points,
+            -fdr_map.get(p.team_short, 3.0),
+            p.total_points,
+            -p.id,
+        )
         by_pos[pos].sort(key=sort_key, reverse=True)
         by_pos[pos] = by_pos[pos][:cand_limit]
 
@@ -121,24 +189,19 @@ def solve_transfers(
     hit_penalty_pts = num_hits * 4
 
     min_price: dict[Position, int] = {}
-    max_metric: dict[Position, float] = {}
+    max_eff_metric: dict[Position, float] = {}
     for pos in Position:
         cands = by_pos[pos]
         min_price[pos] = min((p.price_tenths for p in cands), default=0)
-        if not cands:
-            max_metric[pos] = 0.0
-        else:
-            top_p = cands[0]
-            top_fdr_term = 0.1 * (3.0 - fdr_map.get(top_p.team_short, 3.0))
-            max_metric[pos] = get_player_profile_value(top_p, risk_profile) + top_fdr_term
+        max_eff_metric[pos] = _eff_cand_val(cands[0]) if cands else -1e9
 
-    heap: list[tuple[float, float, int, int, dict[str, Any]]] = []
+    heap: list[tuple[float, float, int, tuple[int, ...], int, dict[str, Any]]] = []
     entry_counter = [0]
     total_evaluated = [0]
 
-    def add_result(score: float, fdr_delta: float, points_delta: int, payload: dict[str, Any]) -> None:
+    def add_result(score: float, fdr_delta: float, points_delta: int, canonical_ids: tuple[int, ...], payload: dict[str, Any]) -> None:
         total_evaluated[0] += 1
-        item = (score, fdr_delta, points_delta, entry_counter[0], payload)
+        item = (score, fdr_delta, points_delta, canonical_ids, entry_counter[0], payload)
         entry_counter[0] += 1
         if len(heap) < max_results:
             heapq.heappush(heap, item)
@@ -152,10 +215,12 @@ def solve_transfers(
         max_budget = bank_tenths + out_sell_sum
 
         # Sort out_combo by position canonically to match picked candidates by position
-        sorted_out_combo = sorted(out_combo, key=lambda p: p.position.value)
+        sorted_out_combo = sorted(out_combo, key=lambda p: (p.position.value, p.id))
         req_positions = [p.position for p in sorted_out_combo]
 
-        # Quick feasibility check: can budget afford cheapest candidates?
+        # Quick feasibility check: every required position must have at least one candidate and fit min budget
+        if any(not by_pos[pos] for pos in req_positions):
+            continue
         if sum(min_price[pos] for pos in req_positions) > max_budget:
             continue
 
@@ -171,6 +236,8 @@ def solve_transfers(
         out_fdr_avg = out_fdr_sum / num_transfers
 
         out_baseline = sum(get_player_profile_value(p, risk_profile) for p in out_combo)
+        # Constant additive term contributed by outgoing players to final score
+        out_score_constant = (0.1 * out_fdr_avg) - out_baseline - hit_penalty_pts
 
         def dfs(
             slot: int,
@@ -181,6 +248,7 @@ def solve_transfers(
             curr_ceil: float,
             curr_pts: int,
             curr_fdr_sum: float,
+            curr_eff_sum: float,
             picked: list[Any],
         ) -> None:
             if slot == num_transfers:
@@ -203,8 +271,12 @@ def solve_transfers(
 
                 score = round(rank_metric + 0.1 * fdr_delta, 2)
                 bank_after = max_budget - curr_price
+                canonical_ids = (
+                    tuple(-p.id for p in sorted(sorted_out_combo, key=lambda x: x.id))
+                    + tuple(-p.id for p in sorted(picked, key=lambda x: x.id))
+                )
 
-                add_result(score, fdr_delta, points_delta, {
+                add_result(score, fdr_delta, points_delta, canonical_ids, {
                     "type": f"{num_transfers}-transfer",
                     "outgoing": [
                         {
@@ -252,7 +324,7 @@ def solve_transfers(
             pos = req_positions[slot]
             cands = by_pos[pos]
             rem_min = sum(min_price[req_positions[s]] for s in range(slot + 1, num_transfers))
-            rem_max = sum(max_metric[req_positions[s]] for s in range(slot + 1, num_transfers))
+            rem_max_eff = sum(max_eff_metric[req_positions[s]] for s in range(slot + 1, num_transfers))
 
             for idx in range(start_idx, len(cands)):
                 cand = cands[idx]
@@ -261,13 +333,15 @@ def solve_transfers(
                 if temp_team_counts.get(cand.team_id, 0) >= 3:
                     continue
 
-                # Upper-bound pruning: stop expanding if this branch cannot beat current heap worst
+                # P1.5 Admissible Upper-Bound Pruning:
+                # Since cands is sorted monotonically descending by _eff_cand_val(p),
+                # curr_eff_sum + _eff_cand_val(cand) + rem_max_eff + out_score_constant + 0.03
+                # is a strict mathematical upper bound on `score` for `idx` and all `idx' > idx`
+                # (where +0.03 strictly dominates two 2-decimal rounding steps of <= 0.015).
                 if len(heap) == max_results:
-                    cand_term = get_player_profile_value(cand, risk_profile)
-                    curr_term = sum(get_player_profile_value(p, risk_profile) for p in picked)
-                    est_in_metric = curr_term + cand_term + rem_max
-                    est_score = (est_in_metric - out_baseline) - hit_penalty_pts + 0.5
-                    if est_score <= heap[0][0]:
+                    cand_eff = _eff_cand_val(cand)
+                    est_score = curr_eff_sum + cand_eff + rem_max_eff + out_score_constant + 0.03
+                    if est_score < heap[0][0]:
                         break
 
                 temp_team_counts[cand.team_id] = temp_team_counts.get(cand.team_id, 0) + 1
@@ -285,17 +359,220 @@ def solve_transfers(
                     curr_ceil + cand.xp_ceiling,
                     curr_pts + cand.total_points,
                     curr_fdr_sum + fdr_map.get(cand.team_short, 3.0),
+                    curr_eff_sum + _eff_cand_val(cand),
                     picked,
                 )
 
                 picked.pop()
                 temp_team_counts[cand.team_id] -= 1
 
-        dfs(0, 0, 0, 0.0, 0.0, 0.0, 0, 0.0, [])
+        dfs(0, 0, 0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, [])
 
     sorted_heap = sorted(heap, reverse=True)
-    top_results = [item[4] for item in sorted_heap]
+    top_results = [item[5] for item in sorted_heap]
     return top_results, total_evaluated[0]
+
+
+MAX_REFERENCE_EVALUATIONS = 100_000
+
+
+def solve_transfers_exact_reference(
+    num_transfers: int,
+    squad_players: list[Any],
+    candidate_pool: list[Any],
+    bank_tenths: int,
+    free_transfers: int,
+    selling_prices: dict[int, int],
+    fdr_map: dict[str, float],
+    risk_profile: str = "neutral",
+    candidate_out_pool: list[Any] | None = None,
+    max_evaluations: int = MAX_REFERENCE_EVALUATIONS,
+) -> dict[str, Any] | None:
+    """Independent brute-force verification oracle for 1-5 transfer optimization (P0.1).
+
+    Requirements enforced:
+    1. Operates ONLY on a synthetic, explicitly bounded candidate pool.
+    2. Computes expected Cartesian combinations before running and fails with ValueError
+       if combinations exceed `MAX_REFERENCE_EVALUATIONS` (100,000).
+    3. Enumerates all combinations of `k` outgoing and `k` incoming players directly via
+       `itertools.combinations`, completely independent of `solve_transfers` branch-and-bound.
+    4. Independently validates squad legality (`validate_squad`), position preservation,
+       club limits (<=3), availability, and budget constraints.
+    5. Independently evaluates the transfer objective and returns the exact global optimum.
+    """
+    import math
+
+    if num_transfers < 1 or num_transfers > 5:
+        raise ValueError(f"num_transfers must be in 1..5; got {num_transfers}.")
+    risk_profile = validate_risk_profile(risk_profile)
+
+    squad_by_id = {p.id: p for p in squad_players}
+    out_pool = list(candidate_out_pool) if candidate_out_pool is not None else list(squad_players)
+    if any(p.id not in squad_by_id for p in out_pool):
+        raise ValueError("All players in candidate_out_pool must belong to squad_players.")
+
+    # Filter out current squad members from incoming candidate pool (cannot buy player already owned)
+    in_pool = [p for p in candidate_pool if p.id not in squad_by_id]
+
+    if len(out_pool) < num_transfers or len(in_pool) < num_transfers:
+        return None
+
+    expected_combinations = math.comb(len(out_pool), num_transfers) * math.comb(len(in_pool), num_transfers)
+    if expected_combinations > max_evaluations:
+        raise ValueError(
+            f"Reference solver safety budget exceeded: {expected_combinations:,} combinations "
+            f"> MAX_REFERENCE_EVALUATIONS ({max_evaluations:,}). "
+            "Use a synthetic bounded candidate pool rather than the full FPL player universe."
+        )
+
+    num_hits = max(0, num_transfers - free_transfers)
+    hit_penalty_pts = num_hits * 4
+
+    best_tuple: tuple[float, float, int, tuple[int, ...]] | None = None
+    best_payload: dict[str, Any] | None = None
+    evaluated_combinations = 0
+    legal_combinations = 0
+
+    for out_combo in itertools.combinations(out_pool, num_transfers):
+        out_id_set = {p.id for p in out_combo}
+        remaining_squad = [p for p in squad_players if p.id not in out_id_set]
+        max_budget = bank_tenths + sum(selling_prices[p.id] for p in out_combo)
+
+        out_xp = sum(p.expected_points for p in out_combo)
+        out_floor = sum(p.xp_floor for p in out_combo)
+        out_ceil = sum(p.xp_ceiling for p in out_combo)
+        out_pts = sum(p.total_points for p in out_combo)
+        out_fdr_avg = sum(fdr_map.get(p.team_short, 3.0) for p in out_combo) / num_transfers
+        out_baseline = sum(get_player_profile_value(p, risk_profile) for p in out_combo)
+
+        for in_combo in itertools.combinations(in_pool, num_transfers):
+            evaluated_combinations += 1
+
+            # 1. Availability check: unavailable players ('i', 's', 'u') cannot be transferred in
+            if any(getattr(p, "status", "a") in ("i", "s", "u") for p in in_combo):
+                continue
+
+            # 2. Budget check
+            in_cost = sum(p.price_tenths for p in in_combo)
+            if in_cost > max_budget:
+                continue
+
+            # 3. Position equality check & full 15-player squad validation
+            new_squad = remaining_squad + list(in_combo)
+            rules_squad = [
+                Player(
+                    id=p.id,
+                    name=p.name,
+                    position=p.position,
+                    team_id=p.team_id,
+                    price_tenths=p.price_tenths,
+                )
+                for p in new_squad
+            ]
+            # Verify 15-player composition and club limit (<= 3 per club) using validate_squad
+            # Pass a generous budget to validate_squad because actual purchase affordability is checked via max_budget above
+            squad_val = validate_squad(rules_squad, budget_tenths=100_000)
+            if not squad_val.is_valid:
+                continue
+
+            legal_combinations += 1
+
+            # 4. Independent objective calculation
+            in_xp = sum(p.expected_points for p in in_combo)
+            in_floor = sum(p.xp_floor for p in in_combo)
+            in_ceil = sum(p.xp_ceiling for p in in_combo)
+            in_pts = sum(p.total_points for p in in_combo)
+            in_fdr_avg = sum(fdr_map.get(p.team_short, 3.0) for p in in_combo) / num_transfers
+
+            fdr_delta = round(out_fdr_avg - in_fdr_avg, 2)
+            points_delta = in_pts - out_pts
+            xp_delta = round(in_xp - out_xp, 2)
+            floor_delta = round(in_floor - out_floor, 2)
+            ceil_delta = round(in_ceil - out_ceil, 2)
+
+            if risk_profile == "floor":
+                rank_metric = floor_delta - hit_penalty_pts
+            elif risk_profile == "ceiling":
+                rank_metric = ceil_delta - hit_penalty_pts
+            elif risk_profile in ("defend_lead", "chase"):
+                in_metric = sum(get_player_profile_value(p, risk_profile) for p in in_combo)
+                rank_metric = round((in_metric - out_baseline) - hit_penalty_pts, 2)
+            else:
+                rank_metric = xp_delta - hit_penalty_pts
+
+            score = round(rank_metric + 0.1 * fdr_delta, 2)
+            bank_after = max_budget - in_cost
+
+            sorted_out = sorted(out_combo, key=lambda p: (p.position.value, p.id))
+            sorted_in = sorted(in_combo, key=lambda p: (p.position.value, p.id))
+            canonical_ids = (
+                tuple(-p.id for p in sorted(sorted_out, key=lambda x: x.id))
+                + tuple(-p.id for p in sorted(sorted_in, key=lambda x: x.id))
+            )
+            cand_key = (score, fdr_delta, points_delta, canonical_ids)
+
+            if best_tuple is None or cand_key > best_tuple:
+                best_tuple = cand_key
+                best_payload = {
+                    "type": f"{num_transfers}-transfer",
+                    "outgoing": [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "position": p.position.name,
+                            "team": p.team_short,
+                            "selling_price_fmt": f"£{selling_prices[p.id] / 10:.1f}m",
+                            "xp": p.expected_points,
+                            "floor": p.xp_floor,
+                            "ceiling": p.xp_ceiling,
+                            "expected_minutes": p.expected_minutes,
+                        }
+                        for p in sorted_out
+                    ],
+                    "incoming": [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "position": p.position.name,
+                            "team": p.team_short,
+                            "price_fmt": f"£{p.price_tenths / 10:.1f}m",
+                            "price_tenths": p.price_tenths,
+                            "ticker": "",
+                            "xp": p.expected_points,
+                            "floor": p.xp_floor,
+                            "ceiling": p.xp_ceiling,
+                            "expected_minutes": p.expected_minutes,
+                        }
+                        for p in sorted_in
+                    ],
+                    "bank_after_fmt": f"£{bank_after / 10:.1f}m",
+                    "bank_after_tenths": bank_after,
+                    "xp_delta": xp_delta,
+                    "floor_delta": floor_delta,
+                    "ceiling_delta": ceil_delta,
+                    "fdr_improvement": fdr_delta,
+                    "points_delta": points_delta,
+                    "transfer_hits": num_hits,
+                    "hit_cost": hit_penalty_pts,
+                    "score": score,
+                    "oracle_metadata": {
+                        "oracle": "solve_transfers_exact_reference",
+                        "expected_combinations": expected_combinations,
+                        "evaluated_combinations": evaluated_combinations,
+                        "legal_combinations": legal_combinations,
+                        "max_evaluations_budget": max_evaluations,
+                    },
+                }
+
+    if best_payload is not None:
+        best_payload["oracle_metadata"]["evaluated_combinations"] = evaluated_combinations
+        best_payload["oracle_metadata"]["legal_combinations"] = legal_combinations
+    return best_payload
+
+
+solve_transfers_bruteforce_reference = solve_transfers_exact_reference
+solve_transfers_exhaustive = solve_transfers_exact_reference
+
 
 
 def solve_wildcard(
@@ -561,6 +838,9 @@ def solve_wildcard(
     squad_ceiling = round(sum(p.xp_ceiling for p in squad), 2)
 
     return {
+        "solver_type": "heuristic_local_search_1opt_2opt",
+        "is_exact_global_solver": False,
+        "solver_description": "Three-stage heuristic (greedy feasible init + 1-opt marginal upgrades + 2-opt cross-position swaps) with exact deterministic rule validation.",
         "formation": best_formation,
         "risk_profile": risk_profile,
         "budget_limit_tenths": budget_tenths,

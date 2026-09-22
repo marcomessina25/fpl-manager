@@ -558,6 +558,28 @@ def evaluate_gameweek_decision(
             except Exception:
                 pass
 
+    error_attribution = decompose_decision_error_components(
+        predicted_lineup_xp=float(decision.get("predicted_lineup_xp") or 0.0),
+        actual_lineup_score=round(actual_lineup, 2),
+        captain_regret=float(captain_eval.get("captain_regret", 0.0)),
+        bench_regret=float(bench_eval.get("bench_regret", 0.0)),
+        hindsight_optimal_points=float((counterfactuals or {}).get("hindsight_optimal", {}).get("total_points", actual_lineup)),
+        transfers=decision.get("transfers", []),
+        transfer_hits=0 if is_free_transfers_chip(decision.get("chip_played")) else int(decision.get("transfer_hits", 0)),
+        chip_played=decision.get("chip_played"),
+        actual_scores=actual_scores,
+    )
+    if isinstance(counterfactuals, dict):
+        counterfactuals["observed_outcome"] = {
+            "label": "observed_outcome",
+            "actual_lineup_points": round(actual_lineup, 2),
+            "human_actual_total": counterfactuals.get("human_actual_total", round(actual_lineup, 2)),
+        }
+        counterfactuals["hindsight_counterfactual"] = {
+            "label": "hindsight_counterfactual (not achievable ex-ante)",
+            "hindsight_best_legal_decision": counterfactuals.get("hindsight_optimal", {}),
+        }
+
     return {
         "gameweek": gameweek,
         "season": season,
@@ -568,6 +590,7 @@ def evaluate_gameweek_decision(
         "predicted_lineup_xp": decision["predicted_lineup_xp"],
         "actual_lineup_score": round(actual_lineup, 2),
         "prediction_error_delta": xp_delta,
+        "error_attribution": error_attribution,
         "prediction_accuracy": prediction_eval,
         "captaincy": captain_eval,
         "bench": bench_eval,
@@ -575,6 +598,151 @@ def evaluate_gameweek_decision(
         "decision_confidence": decision_conf,
         "counterfactuals": counterfactuals,
     }
+
+
+def decompose_decision_error_components(
+    *,
+    predicted_lineup_xp: float,
+    actual_lineup_score: float,
+    captain_regret: float,
+    bench_regret: float,
+    hindsight_optimal_points: float,
+    transfers: list[dict[str, Any]] | None = None,
+    transfer_hits: int = 0,
+    chip_played: str | None = None,
+    actual_scores: dict[int, float] | None = None,
+) -> dict[str, Any]:
+    """Decompose decision performance into an explicitly additive regret decomposition and labeled diagnostics (P1.1).
+
+    1. Mutually Exclusive Additive Regret Decomposition:
+         total_decision_regret
+             = lineup_regret
+             + captaincy_regret
+             + transfer_regret
+             + chip_regret
+             + hit_cost
+       where:
+         - `captaincy_regret`: Points lost by choosing actual captain vs optimal starter captain.
+         - `lineup_regret`: Pure XI/bench selection regret within the 15-player squad after removing captaincy_regret.
+         - `transfer_regret`: Gross points shortfall when incoming transfer(s) score less than outgoing player(s) (before hits).
+         - `chip_regret`: Shortfall against chip value threshold when a chip is deployed.
+         - `hit_cost`: Explicit transfer hit penalty (`4 * transfer_hits`).
+
+    2. Overlapping Decision-Loss Diagnostics (`decision_loss_diagnostics`):
+       Retains raw diagnostic metrics (`prediction_error`, `decision_error`, `captaincy_error`,
+       `transfer_error`, `chip_error`) explicitly marked with `is_overlapping_diagnostic = True`.
+    """
+    scores = actual_scores or {}
+    moves = transfers or []
+    gross_transfer_gain = 0.0
+    for m in moves:
+        in_id = m.get("player_in_id") or m.get("in_id")
+        out_id = m.get("player_out_id") or m.get("out_id")
+        if in_id is not None and out_id is not None:
+            gross_transfer_gain += float(scores.get(int(in_id), 0.0)) - float(scores.get(int(out_id), 0.0))
+
+    hit_cost = round(float(max(0, int(transfer_hits)) * 4), 2)
+    net_transfer_gain = round(gross_transfer_gain - hit_cost, 2)
+    transfer_error = round(max(0.0, -net_transfer_gain), 2)
+
+    chip_error = 0.0
+    chip_roi = 0.0
+    if chip_played:
+        chip_roi = round(actual_lineup_score - predicted_lineup_xp, 2)
+        chip_error = round(max(0.0, 12.0 - max(0.0, actual_lineup_score - 50.0)), 2)
+
+    prediction_error = round(abs(predicted_lineup_xp - actual_lineup_score), 2)
+    decision_error = round(max(0.0, hindsight_optimal_points - actual_lineup_score), 2)
+    captaincy_error = round(max(0.0, captain_regret), 2)
+
+    # Mutually-exclusive additive regret components:
+    captaincy_regret_add = captaincy_error
+    lineup_regret_add = round(max(0.0, decision_error - captaincy_regret_add), 2)
+    transfer_regret_add = round(max(0.0, -gross_transfer_gain), 2)
+    chip_regret_add = chip_error
+    total_decision_regret = round(
+        lineup_regret_add + captaincy_regret_add + transfer_regret_add + chip_regret_add + hit_cost,
+        2,
+    )
+
+    return {
+        "semantics": "additive_regret_decomposition_and_decision_loss_diagnostics",
+        "lineup_regret": lineup_regret_add,
+        "captaincy_regret": captaincy_regret_add,
+        "transfer_regret": transfer_regret_add,
+        "chip_regret": chip_regret_add,
+        "hit_cost": hit_cost,
+        "total_decision_regret": total_decision_regret,
+        "additive_regret_decomposition": {
+            "lineup_regret": lineup_regret_add,
+            "captaincy_regret": captaincy_regret_add,
+            "transfer_regret": transfer_regret_add,
+            "chip_regret": chip_regret_add,
+            "hit_cost": hit_cost,
+            "total_decision_regret": total_decision_regret,
+            "is_mutually_exclusive_additive": True,
+        },
+        "decision_loss_diagnostics": {
+            "prediction_error": prediction_error,
+            "decision_error": decision_error,
+            "captaincy_error": captaincy_error,
+            "transfer_error": transfer_error,
+            "chip_error": chip_error,
+            "is_overlapping_diagnostic": True,
+        },
+        "prediction_error": prediction_error,
+        "decision_error": decision_error,
+        "captaincy_error": captaincy_error,
+        "transfer_error": transfer_error,
+        "chip_error": chip_error,
+        "bench_regret": round(max(0.0, bench_regret), 2),
+        "transfer_gross_gain": round(gross_transfer_gain, 2),
+        "transfer_hit_cost": hit_cost,
+        "transfer_net_gain": net_transfer_gain,
+        "transfer_roi": net_transfer_gain,
+        "chip_played": chip_played,
+        "chip_roi": chip_roi,
+    }
+
+
+def calculate_decision_weighted_error(
+    *,
+    predicted_xp: float,
+    actual_points: float,
+    squad_selection_prob: float = 0.0,
+    captaincy_prob: float = 0.0,
+    price_tenths: int = 50,
+    optimizer_exposure: float = 0.0,
+    transfer_relevance: float = 0.0,
+) -> dict[str, float]:
+    """Compute V1.0 decision-weighted prediction error (P5.5).
+
+    Weighting formula:
+        w = 1.0
+            + 0.50 * clamp(squad_selection_prob, 0, 1)
+            + 1.00 * clamp(captaincy_prob, 0, 1)
+            + 0.25 * (max(0, predicted_xp) / 5.0)
+            + 0.15 * (max(35, price_tenths) / 100.0)
+            + 0.30 * clamp(optimizer_exposure, 0, 1)
+            + 0.30 * clamp(transfer_relevance, 0, 1)
+    """
+    s_prob = max(0.0, min(1.0, float(squad_selection_prob)))
+    c_prob = max(0.0, min(1.0, float(captaincy_prob)))
+    opt_exp = max(0.0, min(1.0, float(optimizer_exposure)))
+    tr_rel = max(0.0, min(1.0, float(transfer_relevance)))
+    xp_term = 0.25 * (max(0.0, float(predicted_xp)) / 5.0)
+    price_term = 0.15 * (max(35, int(price_tenths)) / 100.0)
+
+    weight = round(1.0 + 0.50 * s_prob + 1.00 * c_prob + xp_term + price_term + 0.30 * opt_exp + 0.30 * tr_rel, 4)
+    abs_error = round(abs(float(predicted_xp) - float(actual_points)), 4)
+    weighted_error = round(weight * abs_error, 4)
+
+    return {
+        "raw_abs_error": abs_error,
+        "decision_weight": weight,
+        "decision_weighted_error": weighted_error,
+    }
+
 
 
 def evaluate_season_decisions(

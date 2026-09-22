@@ -1,7 +1,7 @@
 # Expected Points (xP) and Minutes (xM) Model
 
-> **Status:** Active in V0.3. Updated on 2026-09-04.
-> **Source Module:** [`src/fpl_manager/expected_points.py`](../src/fpl_manager/expected_points.py)
+> **Status:** Canonical Production Release in V1.0 (`v1.0.0`). Updated on 2026-09-22.
+> **Source Modules:** [`src/fpl_manager/expected_points.py`](../src/fpl_manager/expected_points.py), [`src/fpl_manager/model_registry.py`](../src/fpl_manager/model_registry.py)
 
 ---
 
@@ -19,6 +19,7 @@ The expected-points ($xP$) model provides a transparent, verifiable, and determi
 - **No Black-Box Magic:** Every projection can be inspected, traced, and mathematically reproduced from official snapshot data.
 - **Independence from LLMs:** Projections do not rely on LLM prompts or unstructured news text.
 - **Rule Safety First:** Projections guide selection, but all squad compositions and starting lineups must pass the independent validator in [`src/fpl_manager/rules.py`](../src/fpl_manager/rules.py).
+- **Point-in-Time Reproducibility (V1.0):** Every projection embeds canonical model metadata (`v1.0-canonical`), deterministic feature provenance, explicit regime classification (`single` / `dgw` / `bgw`), and explicit appearance probabilities (`start_probability`, `sub_probability`, `play_probability`).
 
 ---
 
@@ -55,6 +56,7 @@ Expected minutes played per match fixture accounts for squad role, start likelih
 3. **Availability & Expected Minutes:**
    $$P(\text{start}) = P_{\text{start\_fit}} \times A_{\text{prob}}$$
    $$P(\text{sub}) = P_{\text{sub\_fit}} \times A_{\text{prob}}$$
+   $$P(\text{play}) = \min(1.0, P(\text{start}) + P(\text{sub}))$$
    $$xM = \min(90.0, P(\text{start}) \times M_{\text{start\_fit}} + P(\text{sub}) \times 20.0)$$
    $$P(\ge 60) = P(\text{start}) \times (0.95 \text{ if } M_{\text{start\_fit}} \ge 60 \text{ else } 0.35)$$
 
@@ -106,21 +108,29 @@ $$xP_{\text{final}} = 0.70 \times xP_{\text{comp}} + 0.30 \times xP_{\text{basel
 ## 3. Gameweek & Multi-Gameweek Aggregation
 
 For any gameweek $GW$:
-- **Blank Gameweek (0 fixtures):** $xP = 0.0, xM = 0.0, \text{Floor} = 0.0, \text{Ceiling} = 0.0$
-- **Single Gameweek (1 fixture):** $xP = xP(p, f_1)$
-- **Double Gameweek (2 fixtures):** $xP = xP(p, f_1) + xP(p, f_2)$
+- **Blank Gameweek (`regime = "bgw"`, 0 fixtures):** $xP = 0.0, xM = 0.0, \text{Floor} = 0.0, \text{Ceiling} = 0.0$
+- **Single Gameweek (`regime = "single"`, 1 fixture):** $xP = xP(p, f_1)$
+- **Double Gameweek (`regime = "dgw"`, $\ge 2$ fixtures):** $xP = \sum_i xP(p, f_i)$
 
 Across multi-gameweek horizons ($GW_1 \dots GW_H$ via `project_multi_gameweek_profiles`):
 $$\text{Total } xP = \sum_{GW} xP_{GW}, \quad \text{Total Floor} = \sum_{GW} \text{Floor}_{GW}, \quad \sigma_{\text{multi}} = \sqrt{\sum_{GW} \sigma_{GW}^2}$$
 
 ---
 
-## 4. Downstream Applications in V0.3
+## 4. V1.0 Canonical Model Registry & Historical Reconstruction
+
+Implemented in [`src/fpl_manager/model_registry.py`](../src/fpl_manager/model_registry.py):
+- **Canonical Model Version (`model_version="v1.0.0"`, `quantitative_core_version="v0.9.1-frozen"`):** Every projection carries a validated `ModelMetadata` descriptor (`ModelMetadata.from_dict(..., strict=True)`) specifying `model_version`, `training_data_cutoff`, `feature_set_version`, `parameter_version`, and `prediction_timestamp` (raising `ValueError` in strict mode if any provenance field is missing, or marking `"incomplete/unknown"` when `strict=False`).
+- **Historical Prediction Reconstruction (`reconstruct_historical_prediction`):** Reconstructs exact point-in-time projections for any `(season, gameweek, player_id)` strictly from pre-deadline snapshot state (`GWs 1..k-1`), anchoring historical `prediction_timestamp` via `resolve_historical_snapshot_timestamp()` rather than wall-clock time, and verifying zero lookahead via `validate_no_future_leakage` (`PIT_LEAKAGE_VERIFICATION_SCOPE` separates **intrinsic snapshot invariants** for Categories 6 & 7 from **reference-comparative checks** for Categories 1–5).
+- **Canonical Quantitative Evaluation:** Full multi-season and regime-separated calibration, MAE, RMSE, Spearman rank correlation, and naive baseline comparisons are published in [`reports/v10_canonical_model_report.md`](../reports/v10_canonical_model_report.md) and [`reports/v09_frozen_baseline.json`](../reports/v09_frozen_baseline.json).
+
+---
+
+## 5. Downstream Applications in V1.0
 
 1. **Starting XI Selection ([`src/fpl_manager/lineup.py`](../src/fpl_manager/lineup.py)):**
-   Optimizes legal formations and outputs floor and ceiling intervals for the starting team.
-2. **Captaincy Selection:**
-   Evaluates expected points and ceiling haul potential for armband designation.
-3. **Transfer Search & Strategic Optimization:**
-   Feeds expected minutes, uncertainty, and multi-week projections into the transfer and wildcard solver.
+   Optimizes legal formations under the V1.0 risk profile (`neutral` defaults to `lineup_penalty_weight = 0.0`, while custom `lineup_penalty_weight` values remain supported for experimentation), strictly separates `model_quantities` (`starters_xp`, `captain_bonus`, `total_lineup_xp`) from `decision_quantities` (`starters_obj`, `captain_obj`, `total_lineup_obj`), exposes captaincy ceiling/availability/minutes validation, and outputs floor and ceiling intervals.
+2. **Transfer Search & Strategic Optimization ([`src/fpl_manager/optimizer.py`](../src/fpl_manager/optimizer.py), [`src/fpl_manager/planner.py`](../src/fpl_manager/planner.py)):**
+   Feeds expected minutes, uncertainty, and multi-week projections into the 1–5 transfer solver (`solve_transfers`, verified against `solve_transfers_exact_reference`) and the multi-GW beam planner (`generate_multi_gameweek_plan`, verified on short horizons against the Bellman DP oracle `plan_multi_gw_exact_reference`).
+
 

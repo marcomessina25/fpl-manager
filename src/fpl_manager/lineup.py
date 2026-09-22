@@ -51,8 +51,13 @@ def select_starting_lineup(
     database_path: Path = DATABASE_PATH,
     gameweek: int | None = None,
     report_path: Path = LINEUP_REPORT_PATH,
+    risk_profile: str = "neutral",
+    lineup_penalty_weight: float = 0.0,
 ) -> dict[str, Any]:
     """Determine optimal legal starting 11, captain, vice-captain, and ordered bench."""
+    from .optimizer import get_player_profile_value, validate_risk_profile
+
+    risk_profile = validate_risk_profile(risk_profile)
     state: CurrentSquadState = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
 
@@ -69,7 +74,13 @@ def select_starting_lineup(
     if len(proj_map) != 15:
         raise RuntimeError(f"Expected 15 players in squad projections; received {len(proj_map)}.")
 
-    # Group players by position, sorted by projected xP descending
+    def obj_val(p: ExpectedPointsProjection) -> float:
+        base_obj = get_player_profile_value(p, risk_profile)
+        if risk_profile == "neutral" and abs(lineup_penalty_weight) > 1e-6:
+            return base_obj * (1.0 - lineup_penalty_weight * (1.0 - p.start_probability))
+        return base_obj
+
+    # Group players by position, sorted by objective value descending
     by_pos: dict[Position, list[ExpectedPointsProjection]] = {pos: [] for pos in Position}
     for p_id in state.player_ids:
         p = proj_map.get(p_id)
@@ -77,14 +88,14 @@ def select_starting_lineup(
             by_pos[p.position].append(p)
 
     for pos in by_pos:
-        by_pos[pos].sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+        by_pos[pos].sort(key=lambda p: (obj_val(p), p.expected_points, p.base_xp_per_match), reverse=True)
 
     best_score = -float("inf")
     best_formation_name = "3-4-3"
     best_starters: list[ExpectedPointsProjection] = []
     best_bench: list[ExpectedPointsProjection] = []
 
-    # Evaluate each legal formation
+    # Evaluate each legal formation keeping model quantities (xP) and decision quantities (obj) strictly separate (P0.3)
     for n_def, n_mid, n_fwd in LEGAL_FORMATIONS:
         # Starting selections
         starters_gk = by_pos[Position.GOALKEEPER][:1]
@@ -93,26 +104,31 @@ def select_starting_lineup(
         starters_fwd = by_pos[Position.FORWARD][:n_fwd]
 
         starters = starters_gk + starters_def + starters_mid + starters_fwd
-        starters_xp = sum(p.expected_points for p in starters)
 
-        # Captain bonus (captain scores 2x, so add captain's xP again)
-        sorted_for_cap = sorted(starters, key=lambda p: p.expected_points, reverse=True)
-        captain_xp = sorted_for_cap[0].expected_points
-        total_lineup_xp = round(starters_xp + captain_xp, 2)
+        # Decision quantities (used for optimization under active risk_profile and lineup_penalty_weight)
+        starters_obj = round(sum(obj_val(p) for p in starters), 4)
+        sorted_for_cap = sorted(starters, key=lambda p: (obj_val(p), p.expected_points, p.base_xp_per_match), reverse=True)
+        captain_obj = round(obj_val(sorted_for_cap[0]), 4)
+        total_lineup_obj = round(starters_obj + captain_obj, 4)
 
-        if total_lineup_xp > best_score:
-            best_score = total_lineup_xp
+        # Model quantities (pure expected points, never conflated with decision utility)
+        starters_xp = round(sum(p.expected_points for p in starters), 2)
+        captain_bonus = round(sorted_for_cap[0].expected_points, 2)
+        total_lineup_xp = round(starters_xp + captain_bonus, 2)
+
+        if (total_lineup_obj, total_lineup_xp) > (best_score, -float("inf") if best_score == -float("inf") else round(sum(p.expected_points for p in best_starters), 2)):
+            best_score = total_lineup_obj
             best_formation_name = f"{n_def}-{n_mid}-{n_fwd}"
             best_starters = starters
 
-            # Bench setup: sub GK always in slot 0, then remaining outfield sorted by xP
+            # Bench setup: sub GK always in slot 0, then remaining outfield sorted by objective value then xP
             sub_gk = by_pos[Position.GOALKEEPER][1:2]
             sub_outfield = (
                 by_pos[Position.DEFENDER][n_def:]
                 + by_pos[Position.MIDFIELDER][n_mid:]
                 + by_pos[Position.FORWARD][n_fwd:]
             )
-            sub_outfield.sort(key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+            sub_outfield.sort(key=lambda p: (obj_val(p), p.expected_points, p.base_xp_per_match), reverse=True)
             best_bench = sub_gk + sub_outfield
 
     # Independent rule verification against rules.py
@@ -132,15 +148,22 @@ def select_starting_lineup(
         raise RuntimeError(f"Selected starting lineup failed rule validation: {'; '.join(validation.errors)}")
 
     # Assign Captain and Vice-Captain
-    starters_ranked = sorted(best_starters, key=lambda p: (p.expected_points, p.base_xp_per_match), reverse=True)
+    starters_ranked = sorted(best_starters, key=lambda p: (obj_val(p), p.expected_points, p.base_xp_per_match), reverse=True)
     captain = starters_ranked[0]
     vice_captain = starters_ranked[1]
 
+    # Final Model Quantities (pure expected points)
     starters_xp = round(sum(p.expected_points for p in best_starters), 2)
-    captain_bonus = captain.expected_points
-    total_xp = round(starters_xp + captain_bonus, 2)
+    captain_bonus = round(captain.expected_points, 2)
+    total_lineup_xp = round(starters_xp + captain_bonus, 2)
+    total_xp = total_lineup_xp
     total_floor = round(sum(p.xp_floor for p in best_starters) + captain.xp_floor, 2)
     total_ceiling = round(sum(p.xp_ceiling for p in best_starters) + captain.xp_ceiling, 2)
+
+    # Final Decision Quantities (optimization objective values)
+    starters_obj = round(sum(obj_val(p) for p in best_starters), 2)
+    captain_obj = round(obj_val(captain), 2)
+    total_lineup_obj = round(starters_obj + captain_obj, 2)
 
     try:
         from .ownership import (
@@ -176,18 +199,49 @@ def select_starting_lineup(
         bench_role = "GK_SUB" if idx == 0 else f"SUB_{idx}"
         bench_serialized.append(_serialize_lineup_player(p, bench_role, ownership_map, cap_map, actual_scores))
 
+    cap_serialized = _serialize_lineup_player(captain, "CAPTAIN", ownership_map, cap_map, actual_scores)
+    vc_serialized = _serialize_lineup_player(vice_captain, "VICE_CAPTAIN", ownership_map, cap_map, actual_scores)
+
     report = {
         "gameweek": gameweek,
         "formation": best_formation_name,
+        "risk_profile": risk_profile,
+        "lineup_penalty_weight": lineup_penalty_weight,
+        "model_metadata": projections[0].model_metadata if projections else None,
+        "model_quantities": {
+            "starters_xp": starters_xp,
+            "captain_bonus": captain_bonus,
+            "total_lineup_xp": total_lineup_xp,
+        },
+        "decision_quantities": {
+            "starters_obj": starters_obj,
+            "captain_obj": captain_obj,
+            "total_lineup_obj": total_lineup_obj,
+        },
         "projected_points": {
             "starters_xp": starters_xp,
             "captain_bonus_xp": captain_bonus,
             "total_xp": total_xp,
+            "total_lineup_xp": total_lineup_xp,
             "floor_xp": total_floor,
             "ceiling_xp": total_ceiling,
         },
-        "captain": _serialize_lineup_player(captain, "CAPTAIN", ownership_map, cap_map, actual_scores),
-        "vice_captain": _serialize_lineup_player(vice_captain, "VICE_CAPTAIN", ownership_map, cap_map, actual_scores),
+        "captaincy_validation": {
+            "captain_id": captain.player_id,
+            "captain_name": captain.web_name,
+            "captain_xp": captain.expected_points,
+            "captain_start_probability": captain.start_probability,
+            "captain_play_probability": captain.play_probability,
+            "captain_zero_minute_risk": round(max(0.0, 1.0 - captain.play_probability), 3),
+            "captain_effective_ownership_pct": cap_serialized["effective_ownership_pct"],
+            "captain_net_exposure_pct": cap_serialized["net_exposure_pct"],
+            "vice_captain_id": vice_captain.player_id,
+            "vice_captain_name": vice_captain.web_name,
+            "vice_captain_start_probability": vice_captain.start_probability,
+            "vice_captain_fallback_ready": vice_captain.start_probability >= 0.60,
+        },
+        "captain": cap_serialized,
+        "vice_captain": vc_serialized,
         "starters": starters_serialized,
         "bench": bench_serialized,
         "all_squad": [_serialize_lineup_player(p, "SQUAD", ownership_map, cap_map, actual_scores) for p in projections],
@@ -243,6 +297,9 @@ def _serialize_lineup_player(
         "availability_pct": proj.availability_pct,
         "expected_minutes": proj.expected_minutes,
         "start_probability": proj.start_probability,
+        "sub_probability": proj.sub_probability,
+        "play_probability": proj.play_probability,
+        "regime": getattr(proj, "regime", "STARTER"),
         "expected_points": proj.expected_points,
         "xp_floor": proj.xp_floor,
         "xp_ceiling": proj.xp_ceiling,

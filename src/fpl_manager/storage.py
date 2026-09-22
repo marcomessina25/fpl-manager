@@ -152,6 +152,20 @@ class SnapshotStore:
                     fetched_at TEXT NOT NULL,
                     PRIMARY KEY (event_id, player_id)
                 );
+                CREATE TABLE IF NOT EXISTS llm_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    team_id TEXT NOT NULL DEFAULT 'default',
+                    gameweek INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL,
+                    recommendation_json TEXT NOT NULL,
+                    deterministic_validation_passed INTEGER NOT NULL,
+                    validation_errors_json TEXT NOT NULL DEFAULT '[]',
+                    human_decision_status TEXT NOT NULL DEFAULT 'pending',
+                    eventual_outcome_points INTEGER
+                );
                 """
             )
             # Fixtures migration check
@@ -638,8 +652,116 @@ class SnapshotStore:
             "fixtures": fixtures,
         }
 
+    def record_llm_evaluation(
+        self,
+        *,
+        gameweek: int,
+        provider: str,
+        model: str,
+        prompt_version: str,
+        recommendation: dict[str, Any],
+        deterministic_validation_passed: bool,
+        validation_errors: list[str] | None = None,
+        human_decision_status: str = "pending",
+        eventual_outcome_points: int | None = None,
+        team_id: str = "default",
+    ) -> int:
+        """Persist a structured LLM evaluation audit record (V1.0 P4.4)."""
+        self.initialize()
+        ts = utc_timestamp()
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO llm_evaluations (
+                    team_id, gameweek, timestamp, provider, model, prompt_version,
+                    recommendation_json, deterministic_validation_passed,
+                    validation_errors_json, human_decision_status, eventual_outcome_points
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    team_id,
+                    int(gameweek),
+                    ts,
+                    str(provider),
+                    str(model),
+                    str(prompt_version),
+                    json.dumps(recommendation, ensure_ascii=False),
+                    1 if deterministic_validation_passed else 0,
+                    json.dumps(validation_errors or [], ensure_ascii=False),
+                    str(human_decision_status),
+                    eventual_outcome_points,
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def update_llm_evaluation_status(
+        self,
+        evaluation_id: int,
+        human_decision_status: str,
+        eventual_outcome_points: int | None = None,
+    ) -> None:
+        """Update human acceptance/rejection and eventual outcome for an LLM evaluation record."""
+        self.initialize()
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                """
+                UPDATE llm_evaluations
+                SET human_decision_status = ?, eventual_outcome_points = COALESCE(?, eventual_outcome_points)
+                WHERE id = ?
+                """,
+                (str(human_decision_status), eventual_outcome_points, int(evaluation_id)),
+            )
+
+    def list_llm_evaluations(self, team_id: str = "default", gameweek: int | None = None) -> list[dict[str, Any]]:
+        """Retrieve recorded LLM evaluation entries."""
+        self.initialize()
+        with closing(self._connect()) as conn:
+            if gameweek is not None:
+                rows = conn.execute(
+                    """
+                    SELECT id, team_id, gameweek, timestamp, provider, model, prompt_version,
+                           recommendation_json, deterministic_validation_passed,
+                           validation_errors_json, human_decision_status, eventual_outcome_points
+                    FROM llm_evaluations
+                    WHERE team_id = ? AND gameweek = ?
+                    ORDER BY id DESC
+                    """,
+                    (team_id, int(gameweek)),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, team_id, gameweek, timestamp, provider, model, prompt_version,
+                           recommendation_json, deterministic_validation_passed,
+                           validation_errors_json, human_decision_status, eventual_outcome_points
+                    FROM llm_evaluations
+                    WHERE team_id = ?
+                    ORDER BY id DESC
+                    """,
+                    (team_id,),
+                ).fetchall()
+
+        results = []
+        for r in rows:
+            results.append({
+                "id": r[0],
+                "team_id": r[1],
+                "gameweek": r[2],
+                "timestamp": r[3],
+                "provider": r[4],
+                "model": r[5],
+                "prompt_version": r[6],
+                "recommendation": json.loads(r[7]) if r[7] else {},
+                "deterministic_validation_passed": bool(r[8]),
+                "validation_errors": json.loads(r[9]) if r[9] else [],
+                "human_decision_status": r[10],
+                "eventual_outcome_points": r[11],
+            })
+        return results
+
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.database_path)
+
 
 
 def write_raw_snapshot(raw_directory: Path, name: str, data: Any, fetched_at: str) -> Path:

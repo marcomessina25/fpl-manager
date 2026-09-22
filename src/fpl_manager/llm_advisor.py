@@ -684,10 +684,33 @@ def generate_llm_advisory(
         proposed_vice_captain=proposed_vice_captain,
     )
 
+    prompt_version = f"v1.0.0-{persona}-dossier-v1"
+    rec_summary = {
+        "proposed_captain": proposed_captain,
+        "proposed_vice_captain": proposed_vice_captain,
+        "proposed_transfers": proposed_transfers,
+    }
+    eval_id = 0
+    try:
+        eval_id = store.record_llm_evaluation(
+            gameweek=gw,
+            provider=provider_used,
+            model=model or provider_used,
+            prompt_version=prompt_version,
+            recommendation=rec_summary,
+            deterministic_validation_passed=bool(validation.get("is_legal", False)),
+            validation_errors=list(validation.get("errors", [])),
+            human_decision_status="pending",
+            eventual_outcome_points=None,
+        )
+    except Exception:
+        eval_id = 0
+
     result = {
         "gameweek": gw,
         "persona": persona,
         "provider_used": provider_used,
+        "prompt_version": prompt_version,
         "attempted_providers": attempted_providers,
         "fallback_reasons": fallback_reasons,
         "analysis_markdown": analysis_markdown,
@@ -697,6 +720,16 @@ def generate_llm_advisory(
         "proposed_vice_captain": proposed_vice_captain,
         "proposed_transfers": proposed_transfers,
         "validation": validation,
+        "llm_evaluation_record": {
+            "evaluation_id": eval_id,
+            "provider": provider_used,
+            "model": model or provider_used,
+            "prompt_version": prompt_version,
+            "recommendation": rec_summary,
+            "deterministic_validation_result": bool(validation.get("is_legal", False)),
+            "human_acceptance_status": "pending",
+            "eventual_outcome_points": None,
+        },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
