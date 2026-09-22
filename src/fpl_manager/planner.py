@@ -10,10 +10,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .expected_points import project_gameweek, project_multi_gameweek_profiles
+from .expected_points import ExpectedPointsProjection, project_gameweek, project_multi_gameweek_profiles
 from .fixtures import analyze_team_fixtures, get_current_gameweek
 from .models import Position
-from .optimizer import solve_transfers
+from .optimizer import PlayerOptInfo, solve_transfers, validate_risk_profile
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
 from .suggest_transfers import load_all_players_meta
@@ -359,6 +359,12 @@ def generate_multi_gameweek_plan(
         "allow_hits": allow_hits,
         "free_transfers_initial": state.free_transfers,
         "bank_initial_fmt": f"£{state.bank_tenths / 10:.1f}m",
+        "optimization_metadata": {
+            "algorithm": "beam_search_multi_gw",
+            "is_exact_global_optimum": False,
+            "optimality_guarantee": "heuristic_beam_search",
+            "beam_width": beam_width,
+        },
         "best_plan": plans[0] if plans else None,
         "alternative_plans": plans[1:] if len(plans) > 1 else [],
     }
@@ -370,27 +376,556 @@ def generate_multi_gameweek_plan(
     return report
 
 
-def plan_multi_gw_exhaustive(
+MAX_MULTI_GW_REFERENCE_STATES = 25_000
+
+
+def _enumerate_synthetic_actions(
+    squad_ids: tuple[int, ...],
+    bank_tenths: int,
+    free_transfers: int,
+    player_pool: dict[int, dict[str, Any]],
+    allow_hits: bool,
+    max_transfers_per_gw: int,
+    max_club_quota: int,
+) -> list[dict[str, Any]]:
+    """Enumerate all legal 0..K transfer actions for a bounded synthetic squad."""
+    import itertools
+
+    actions: list[dict[str, Any]] = [
+        {
+            "action": "ROLL",
+            "transfers": (),
+            "new_squad_ids": squad_ids,
+            "new_bank_tenths": bank_tenths,
+            "new_ft": min(5, free_transfers + 1),
+            "hits": 0,
+            "hit_cost": 0.0,
+        }
+    ]
+    squad_set = set(squad_ids)
+    in_candidates = [
+        pid
+        for pid, p in sorted(player_pool.items())
+        if pid not in squad_set and p.get("status", "a") not in ("i", "s", "u")
+    ]
+
+    for k in range(1, max_transfers_per_gw + 1):
+        hits = max(0, k - free_transfers)
+        if hits > 0 and not allow_hits:
+            continue
+        hit_cost = float(hits * 4)
+        for out_combo in itertools.combinations(squad_ids, k):
+            out_set = set(out_combo)
+            rem_ids = [pid for pid in squad_ids if pid not in out_set]
+            sell_sum = sum(int(player_pool[pid].get("selling_price_tenths", player_pool[pid]["price_tenths"])) for pid in out_combo)
+            avail_budget = bank_tenths + sell_sum
+            out_positions = sorted(player_pool[pid]["position"] for pid in out_combo)
+
+            for in_combo in itertools.combinations(in_candidates, k):
+                in_positions = sorted(player_pool[pid]["position"] for pid in in_combo)
+                if in_positions != out_positions:
+                    continue
+                buy_sum = sum(int(player_pool[pid]["price_tenths"]) for pid in in_combo)
+                if buy_sum > avail_budget:
+                    continue
+                new_ids = tuple(sorted(rem_ids + list(in_combo)))
+                # Check club quota
+                club_counts: dict[int, int] = {}
+                legal_clubs = True
+                for pid in new_ids:
+                    tid = int(player_pool[pid].get("team_id", pid))
+                    club_counts[tid] = club_counts.get(tid, 0) + 1
+                    if club_counts[tid] > max_club_quota:
+                        legal_clubs = False
+                        break
+                if not legal_clubs:
+                    continue
+
+                action_label = f"{k}_TRANSFER" + ("S" if k > 1 else "") + ("_HIT" if hits > 0 else "")
+                tx_pairs = tuple(zip(out_combo, in_combo))
+                actions.append(
+                    {
+                        "action": action_label,
+                        "transfers": tx_pairs,
+                        "new_squad_ids": new_ids,
+                        "new_bank_tenths": avail_budget - buy_sum,
+                        "new_ft": min(5, max(0, free_transfers - k) + 1),
+                        "hits": hits,
+                        "hit_cost": hit_cost,
+                    }
+                )
+    return actions
+
+
+def _evaluate_synthetic_squad_gw(
+    squad_ids: tuple[int, ...],
+    gw: int,
+    gw_xp_table: dict[int, dict[int, float]],
+    starter_count: int | None = None,
+    include_captain_bonus: bool = True,
+) -> tuple[float, int]:
+    """Compute deterministic immediate reward (starters + captain bonus) for a synthetic squad."""
+    xp_map = gw_xp_table.get(gw, {})
+    scored = sorted(
+        ((float(xp_map.get(pid, 0.0)), -pid, pid) for pid in squad_ids),
+        reverse=True,
+    )
+    n_start = starter_count if starter_count is not None else len(squad_ids)
+    starters = scored[:n_start]
+    base_xp = sum(item[0] for item in starters)
+    cap_id = starters[0][2] if starters else squad_ids[0]
+    cap_bonus = starters[0][0] if (starters and include_captain_bonus) else 0.0
+    return round(base_xp + cap_bonus, 4), cap_id
+
+
+def plan_synthetic_multi_gw_beam(
+    synthetic_problem: dict[str, Any],
+    beam_width: int = 25,
+    greedy_one_step_only: bool = False,
+) -> dict[str, Any]:
+    """Run the beam-search multi-GW planner on a bounded synthetic problem (P0.2)."""
+    initial_squad = tuple(sorted(int(x) for x in synthetic_problem["initial_squad_ids"]))
+    bank_init = int(synthetic_problem.get("bank_tenths", 0))
+    ft_init = int(synthetic_problem.get("free_transfers", 1))
+    player_pool = {int(k): dict(v) for k, v in synthetic_problem["player_pool"].items()}
+    gw_xp_table = {int(gw): {int(p): float(val) for p, val in m.items()} for gw, m in synthetic_problem["gw_xp_table"].items()}
+    target_gws = [int(g) for g in synthetic_problem["target_gameweeks"]]
+    allow_hits = bool(synthetic_problem.get("allow_hits", True))
+    max_tx = int(synthetic_problem.get("max_transfers_per_gw", 2))
+    max_club = int(synthetic_problem.get("max_club_quota", 3))
+    starter_count = synthetic_problem.get("starter_count")
+    include_cap = bool(synthetic_problem.get("include_captain_bonus", True))
+
+    effective_beam_width = 1 if greedy_one_step_only else beam_width
+    # State tuple in beam: (cum_net_xp, canonical_history_tie_key, squad_ids, bank, ft, steps)
+    beam: list[tuple[float, tuple[Any, ...], tuple[int, ...], int, int, list[dict[str, Any]]]] = [
+        (0.0, (), initial_squad, bank_init, ft_init, [])
+    ]
+
+    for gw in target_gws:
+        next_candidates = []
+        for cum_xp, tie_key, sq_ids, bank, ft, steps in beam:
+            legal_actions = _enumerate_synthetic_actions(
+                squad_ids=sq_ids,
+                bank_tenths=bank,
+                free_transfers=ft,
+                player_pool=player_pool,
+                allow_hits=allow_hits,
+                max_transfers_per_gw=max_tx,
+                max_club_quota=max_club,
+            )
+            for act in legal_actions:
+                gross_xp, cap_id = _evaluate_synthetic_squad_gw(
+                    act["new_squad_ids"], gw, gw_xp_table, starter_count=starter_count, include_captain_bonus=include_cap
+                )
+                net_xp = round(gross_xp - act["hit_cost"], 4)
+                new_cum = round(cum_xp + net_xp, 4)
+                step_record = {
+                    "gameweek": gw,
+                    "action": act["action"],
+                    "transfers": [{"out_id": o, "in_id": i} for o, i in act["transfers"]],
+                    "squad_ids": list(act["new_squad_ids"]),
+                    "captain_id": cap_id,
+                    "gross_xp": gross_xp,
+                    "hit_cost": act["hit_cost"],
+                    "net_xp": net_xp,
+                    "bank_after_tenths": act["new_bank_tenths"],
+                    "free_transfers_after": act["new_ft"],
+                }
+                step_tie = (
+                    -len(act["transfers"]),
+                    tuple((-o, -i) for o, i in act["transfers"]),
+                    tuple(-pid for pid in act["new_squad_ids"]),
+                )
+                next_candidates.append(
+                    (
+                        new_cum,
+                        tie_key + (step_tie,),
+                        act["new_squad_ids"],
+                        act["new_bank_tenths"],
+                        act["new_ft"],
+                        steps + [step_record],
+                    )
+                )
+
+        next_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        seen: set[tuple[tuple[int, ...], int, int]] = set()
+        pruned_beam = []
+        for cand in next_candidates:
+            state_sig = (cand[2], cand[3], cand[4]) if not greedy_one_step_only else (cand[2],)
+            if state_sig not in seen:
+                seen.add(state_sig)
+                pruned_beam.append(cand)
+                if len(pruned_beam) >= effective_beam_width:
+                    break
+        beam = pruned_beam
+
+    best = beam[0] if beam else None
+    return {
+        "best_plan": {
+            "total_net_xp": round(best[0], 2),
+            "steps": best[5],
+        }
+        if best
+        else None,
+        "optimization_metadata": {
+            "algorithm": "greedy_myopic" if greedy_one_step_only else "beam_search_multi_gw",
+            "is_exact_global_optimum": False,
+            "beam_width": effective_beam_width,
+        },
+    }
+
+
+def plan_multi_gw_exact_reference(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
     horizon: int = 3,
     start_gw: int | None = None,
     risk_profile: str = "neutral",
     allow_hits: bool = True,
+    synthetic_problem: dict[str, Any] | None = None,
+    max_states: int = MAX_MULTI_GW_REFERENCE_STATES,
 ) -> dict[str, Any]:
-    """Exhaustive (unbounded beam width) multi-GW planner for small synthetic problems (P3.3).
+    """Independent Dynamic Programming verification oracle for multi-GW planning (P0.2).
 
-    Enables direct comparison of beam-search planner output against exhaustive state
-    enumeration across rolling transfers, free-transfer banking, and point hits.
+    Solves the exact Bellman optimality equation via backward recursion / memoized state-space DP:
+        V(state, GW) = max over legal next actions a:
+            immediate_reward(state, a, GW) + V(next_state, GW + 1)
+
+    Completely independent of the forward beam-search loop in `generate_multi_gameweek_plan`.
     """
-    return generate_multi_gameweek_plan(
-        squad_path=squad_path,
-        database_path=database_path,
-        horizon=horizon,
-        start_gw=start_gw,
-        risk_profile=risk_profile,
-        allow_hits=allow_hits,
-        beam_width=10_000,
-        report_path=None,
+    if synthetic_problem is not None:
+        initial_squad = tuple(sorted(int(x) for x in synthetic_problem["initial_squad_ids"]))
+        bank_init = int(synthetic_problem.get("bank_tenths", 0))
+        ft_init = int(synthetic_problem.get("free_transfers", 1))
+        player_pool = {int(k): dict(v) for k, v in synthetic_problem["player_pool"].items()}
+        gw_xp_table = {int(gw): {int(p): float(val) for p, val in m.items()} for gw, m in synthetic_problem["gw_xp_table"].items()}
+        target_gws = [int(g) for g in synthetic_problem["target_gameweeks"]]
+        allow_hits_syn = bool(synthetic_problem.get("allow_hits", allow_hits))
+        max_tx = int(synthetic_problem.get("max_transfers_per_gw", 2))
+        max_club = int(synthetic_problem.get("max_club_quota", 3))
+        starter_count = synthetic_problem.get("starter_count")
+        include_cap = bool(synthetic_problem.get("include_captain_bonus", True))
+
+        memo: dict[tuple[int, tuple[int, ...], int, int], tuple[float, tuple[Any, ...], list[dict[str, Any]]]] = {}
+        states_evaluated = [0]
+
+        def solve_dp(
+            gw_idx: int,
+            sq_ids: tuple[int, ...],
+            bank: int,
+            ft: int,
+        ) -> tuple[float, tuple[Any, ...], list[dict[str, Any]]]:
+            if gw_idx >= len(target_gws):
+                return 0.0, (), []
+            state_key = (gw_idx, sq_ids, bank, ft)
+            if state_key in memo:
+                return memo[state_key]
+
+            states_evaluated[0] += 1
+            if states_evaluated[0] > max_states:
+                raise ValueError(
+                    f"DP reference planner exceeded safety state budget ({states_evaluated[0]} > {max_states})."
+                )
+
+            gw = target_gws[gw_idx]
+            legal_actions = _enumerate_synthetic_actions(
+                squad_ids=sq_ids,
+                bank_tenths=bank,
+                free_transfers=ft,
+                player_pool=player_pool,
+                allow_hits=allow_hits_syn,
+                max_transfers_per_gw=max_tx,
+                max_club_quota=max_club,
+            )
+
+            best_val = -float("inf")
+            best_tie: tuple[Any, ...] = ()
+            best_steps: list[dict[str, Any]] = []
+
+            for act in legal_actions:
+                gross_xp, cap_id = _evaluate_synthetic_squad_gw(
+                    act["new_squad_ids"], gw, gw_xp_table, starter_count=starter_count, include_captain_bonus=include_cap
+                )
+                immediate_reward = round(gross_xp - act["hit_cost"], 4)
+                future_val, future_tie, future_steps = solve_dp(
+                    gw_idx + 1,
+                    act["new_squad_ids"],
+                    act["new_bank_tenths"],
+                    act["new_ft"],
+                )
+                total_val = round(immediate_reward + future_val, 4)
+                step_tie = (
+                    -len(act["transfers"]),
+                    tuple((-o, -i) for o, i in act["transfers"]),
+                    tuple(-pid for pid in act["new_squad_ids"]),
+                )
+                cand_tie = (step_tie,) + future_tie
+                if (total_val, cand_tie) > (best_val, best_tie):
+                    best_val = total_val
+                    best_tie = cand_tie
+                    step_record = {
+                        "gameweek": gw,
+                        "action": act["action"],
+                        "transfers": [{"out_id": o, "in_id": i} for o, i in act["transfers"]],
+                        "squad_ids": list(act["new_squad_ids"]),
+                        "captain_id": cap_id,
+                        "gross_xp": gross_xp,
+                        "hit_cost": act["hit_cost"],
+                        "net_xp": immediate_reward,
+                        "bank_after_tenths": act["new_bank_tenths"],
+                        "free_transfers_after": act["new_ft"],
+                    }
+                    best_steps = [step_record] + future_steps
+
+            memo[state_key] = (best_val, best_tie, best_steps)
+            return memo[state_key]
+
+        opt_val, _, opt_steps = solve_dp(0, initial_squad, bank_init, ft_init)
+        return {
+            "planning_horizon": len(target_gws),
+            "target_gameweeks": target_gws,
+            "best_plan": {
+                "total_net_xp": round(opt_val, 2),
+                "cumulative_net_xp": round(opt_val, 2),
+                "total_hits": sum(int(s["hit_cost"] // 4) for s in opt_steps),
+                "gameweek_steps": opt_steps,
+                "steps": opt_steps,
+            },
+            "oracle_metadata": {
+                "oracle": "plan_multi_gw_exact_reference",
+                "algorithm": "bellman_dynamic_programming",
+                "is_exact_global_optimum": True,
+                "states_evaluated": states_evaluated[0],
+            },
+        }
+
+    # Database-backed bounded DP reference oracle
+    risk_profile = validate_risk_profile(risk_profile)
+    store = SnapshotStore(database_path)
+    store.initialize()
+    state = load_current_squad(squad_path)
+    all_players = store.latest_players()
+    all_player_map = {p.id: p for p in all_players}
+
+    if start_gw is None:
+        start_gw = state.gameweek or get_current_gameweek(store)
+
+    target_gws = list(range(start_gw, start_gw + horizon))
+    gw_projections: dict[int, dict[int, ExpectedPointsProjection]] = {}
+    gw_fdr_maps: dict[int, dict[str, float]] = {}
+    gw_cand_pools: dict[int, list[PlayerOptInfo]] = {}
+
+    for gw in target_gws:
+        projs = project_gameweek(gameweek=gw, database_path=database_path)
+        p_map = {p.player_id: p for p in projs}
+        gw_projections[gw] = p_map
+        fdr_m: dict[str, float] = {}
+        for p in projs:
+            if p.team_short not in fdr_m:
+                fdr_m[p.team_short] = (
+                    sum(f.fdr for f in p.fixtures) / len(p.fixtures) if p.fixtures else 5.0
+                )
+        gw_fdr_maps[gw] = fdr_m
+        pool = []
+        for p in all_players:
+            pr = p_map.get(p.id)
+            if pr and p.status in ("a", "d"):
+                pool.append(
+                    PlayerOptInfo(
+                        id=p.id,
+                        name=p.name,
+                        position=p.position,
+                        team_id=p.team_id,
+                        team_short=pr.team_short,
+                        price_tenths=p.price_tenths,
+                        status=p.status,
+                        total_points=p.total_points,
+                        expected_points=pr.expected_points,
+                        expected_minutes=pr.expected_minutes,
+                        xp_floor=pr.xp_floor,
+                        xp_ceiling=pr.xp_ceiling,
+                        standard_deviation=pr.standard_deviation,
+                    )
+                )
+        gw_cand_pools[gw] = pool
+
+    memo_db: dict[tuple[int, tuple[int, ...], int, int], tuple[float, list[dict[str, Any]]]] = {}
+    states_count = [0]
+
+    def solve_db_dp(
+        gw_idx: int,
+        s_pids: frozenset[int],
+        bank: int,
+        ft: int,
+        p_prices: dict[int, int],
+    ) -> tuple[float, list[dict[str, Any]]]:
+        if gw_idx >= len(target_gws):
+            return 0.0, []
+        key = (gw_idx, tuple(sorted(s_pids)), bank, ft)
+        if key in memo_db:
+            return memo_db[key]
+
+        states_count[0] += 1
+        if states_count[0] > max_states:
+            raise ValueError(f"DP state budget exceeded ({states_count[0]} > {max_states}).")
+
+        gw = target_gws[gw_idx]
+        cand_pool = [c for c in gw_cand_pools[gw] if c.id not in s_pids]
+        fdr_map = gw_fdr_maps[gw]
+        squad_players = []
+        s_prices: dict[int, int] = {}
+        for pid in sorted(s_pids):
+            p = all_player_map[pid]
+            pr = gw_projections[gw].get(pid)
+            purchase_p = p_prices.get(pid, p.price_tenths)
+            s_prices[pid] = selling_price(purchase_p, p.price_tenths)
+            squad_players.append(
+                PlayerOptInfo(
+                    id=p.id,
+                    name=p.name,
+                    position=p.position,
+                    team_id=p.team_id,
+                    team_short=pr.team_short if pr else "",
+                    price_tenths=p.price_tenths,
+                    status=p.status,
+                    total_points=p.total_points,
+                    expected_points=pr.expected_points if pr else 0.0,
+                    expected_minutes=pr.expected_minutes if pr else 0.0,
+                    xp_floor=pr.xp_floor if pr else 0.0,
+                    xp_ceiling=pr.xp_ceiling if pr else 0.0,
+                    standard_deviation=pr.standard_deviation if pr else 0.0,
+                )
+            )
+
+        best_total = -float("inf")
+        best_history: list[dict[str, Any]] = []
+
+        # 1. ROLL
+        l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
+            s_pids, gw_projections[gw], risk_profile=risk_profile
+        )
+        ft_roll = min(5, ft + 1)
+        fut_val, fut_steps = solve_db_dp(gw_idx + 1, s_pids, bank, ft_roll, p_prices)
+        roll_tot = round(l_xp + fut_val, 2)
+        if roll_tot > best_total:
+            best_total = roll_tot
+            best_history = [
+                {
+                    "gameweek": gw,
+                    "action": "ROLL",
+                    "transfers": [],
+                    "formation": form,
+                    "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
+                    "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
+                    "lineup_xp": l_xp,
+                    "lineup_floor": l_floor,
+                    "lineup_ceiling": l_ceil,
+                    "transfer_hits": 0,
+                    "net_xp": l_xp,
+                    "bank_after_tenths": bank,
+                    "bank_after_fmt": f"£{bank / 10:.1f}m",
+                    "free_transfers_after": ft_roll,
+                }
+            ] + fut_steps
+
+        # 2. 1-TRANSFER and 2-TRANSFERS
+        for num_k, max_r in ((1, 3), (2, 2)):
+            if num_k == 1 and not (ft >= 1 or allow_hits):
+                continue
+            if num_k == 2 and not (ft >= 2 or (allow_hits and ft >= 1)):
+                continue
+            tx_list, _ = solve_transfers(
+                num_transfers=num_k,
+                squad_players=squad_players,
+                candidate_pool=cand_pool,
+                bank_tenths=bank,
+                free_transfers=ft,
+                selling_prices=s_prices,
+                fdr_map=fdr_map,
+                ticker_map={},
+                risk_profile=risk_profile,
+                max_results=max_r,
+            )
+            for tx in tx_list:
+                hits = tx["transfer_hits"]
+                if not allow_hits and hits > 0:
+                    continue
+                out_ids = {p["id"] for p in tx["outgoing"]}
+                in_ids = {p["id"] for p in tx["incoming"]}
+                new_pids = frozenset((s_pids - out_ids) | in_ids)
+                new_prices = dict(p_prices)
+                for in_p in tx["incoming"]:
+                    new_prices[in_p["id"]] = in_p["price_tenths"]
+                new_bank = tx["bank_after_tenths"]
+                ft_after = min(5, max(0, ft - num_k) + 1)
+                tx_l_xp, tx_l_fl, tx_l_cl, tx_form, tx_cap, tx_vc, _ = _evaluate_lineup_for_gameweek(
+                    set(new_pids), gw_projections[gw], risk_profile=risk_profile
+                )
+                net_xp = round(tx_l_xp - (hits * 4), 2)
+                f_val, f_steps = solve_db_dp(gw_idx + 1, new_pids, new_bank, ft_after, new_prices)
+                cand_tot = round(net_xp + f_val, 2)
+                if cand_tot > best_total:
+                    best_total = cand_tot
+                    act_lbl = f"{num_k}_TRANSFER" + ("S" if num_k > 1 else "") + ("_HIT" if hits > 0 else "")
+                    best_history = [
+                        {
+                            "gameweek": gw,
+                            "action": act_lbl,
+                            "transfers": [
+                                {
+                                    "out": {"id": tx["outgoing"][i]["id"], "name": tx["outgoing"][i]["name"], "team": tx["outgoing"][i]["team"]},
+                                    "in": {"id": tx["incoming"][i]["id"], "name": tx["incoming"][i]["name"], "team": tx["incoming"][i]["team"]},
+                                }
+                                for i in range(num_k)
+                            ],
+                            "formation": tx_form,
+                            "captain": {"id": tx_cap.player_id, "name": tx_cap.web_name, "team": tx_cap.team_short, "xp": tx_cap.expected_points},
+                            "vice_captain": {"id": tx_vc.player_id, "name": tx_vc.web_name, "team": tx_vc.team_short, "xp": tx_vc.expected_points},
+                            "lineup_xp": tx_l_xp,
+                            "lineup_floor": tx_l_fl,
+                            "lineup_ceiling": tx_l_cl,
+                            "transfer_hits": hits,
+                            "net_xp": net_xp,
+                            "bank_after_tenths": new_bank,
+                            "bank_after_fmt": f"£{new_bank / 10:.1f}m",
+                            "free_transfers_after": ft_after,
+                        }
+                    ] + f_steps
+
+        memo_db[key] = (best_total, best_history)
+        return memo_db[key]
+
+    opt_score, opt_hist = solve_db_dp(
+        0,
+        frozenset(state.player_ids),
+        state.bank_tenths,
+        state.free_transfers,
+        dict(state.purchase_prices_tenths),
     )
+    return {
+        "planning_horizon": horizon,
+        "target_gameweeks": target_gws,
+        "risk_profile": risk_profile,
+        "allow_hits": allow_hits,
+        "best_plan": {
+            "rank": 1,
+            "total_net_xp": opt_score,
+            "cumulative_net_xp": opt_score,
+            "total_hits": sum(s["transfer_hits"] for s in opt_hist),
+            "gameweek_steps": opt_hist,
+            "steps": opt_hist,
+        },
+        "oracle_metadata": {
+            "oracle": "plan_multi_gw_exact_reference",
+            "algorithm": "bellman_dynamic_programming",
+            "is_exact_global_optimum": True,
+            "states_evaluated": states_count[0],
+        },
+    }
+
+
+plan_multi_gw_dp_reference = plan_multi_gw_exact_reference
+plan_multi_gw_exhaustive = plan_multi_gw_exact_reference
+
 

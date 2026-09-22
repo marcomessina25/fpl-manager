@@ -612,7 +612,26 @@ def decompose_decision_error_components(
     chip_played: str | None = None,
     actual_scores: dict[int, float] | None = None,
 ) -> dict[str, Any]:
-    """Explicitly separate prediction, decision, captaincy, transfer, and chip errors (V1.0 P5.2)."""
+    """Decompose decision performance into an explicitly additive regret decomposition and labeled diagnostics (P1.1).
+
+    1. Mutually Exclusive Additive Regret Decomposition:
+         total_decision_regret
+             = lineup_regret
+             + captaincy_regret
+             + transfer_regret
+             + chip_regret
+             + hit_cost
+       where:
+         - `captaincy_regret`: Points lost by choosing actual captain vs optimal starter captain.
+         - `lineup_regret`: Pure XI/bench selection regret within the 15-player squad after removing captaincy_regret.
+         - `transfer_regret`: Gross points shortfall when incoming transfer(s) score less than outgoing player(s) (before hits).
+         - `chip_regret`: Shortfall against chip value threshold when a chip is deployed.
+         - `hit_cost`: Explicit transfer hit penalty (`4 * transfer_hits`).
+
+    2. Overlapping Decision-Loss Diagnostics (`decision_loss_diagnostics`):
+       Retains raw diagnostic metrics (`prediction_error`, `decision_error`, `captaincy_error`,
+       `transfer_error`, `chip_error`) explicitly marked with `is_overlapping_diagnostic = True`.
+    """
     scores = actual_scores or {}
     moves = transfers or []
     gross_transfer_gain = 0.0
@@ -622,14 +641,13 @@ def decompose_decision_error_components(
         if in_id is not None and out_id is not None:
             gross_transfer_gain += float(scores.get(int(in_id), 0.0)) - float(scores.get(int(out_id), 0.0))
 
-    hit_cost = float(max(0, int(transfer_hits)) * 4)
+    hit_cost = round(float(max(0, int(transfer_hits)) * 4), 2)
     net_transfer_gain = round(gross_transfer_gain - hit_cost, 2)
     transfer_error = round(max(0.0, -net_transfer_gain), 2)
 
     chip_error = 0.0
     chip_roi = 0.0
     if chip_played:
-        # Expected minimum value threshold for a chip deployment (~12 pts over baseline)
         chip_roi = round(actual_lineup_score - predicted_lineup_xp, 2)
         chip_error = round(max(0.0, 12.0 - max(0.0, actual_lineup_score - 50.0)), 2)
 
@@ -637,7 +655,41 @@ def decompose_decision_error_components(
     decision_error = round(max(0.0, hindsight_optimal_points - actual_lineup_score), 2)
     captaincy_error = round(max(0.0, captain_regret), 2)
 
+    # Mutually-exclusive additive regret components:
+    captaincy_regret_add = captaincy_error
+    lineup_regret_add = round(max(0.0, decision_error - captaincy_regret_add), 2)
+    transfer_regret_add = round(max(0.0, -gross_transfer_gain), 2)
+    chip_regret_add = chip_error
+    total_decision_regret = round(
+        lineup_regret_add + captaincy_regret_add + transfer_regret_add + chip_regret_add + hit_cost,
+        2,
+    )
+
     return {
+        "semantics": "additive_regret_decomposition_and_decision_loss_diagnostics",
+        "lineup_regret": lineup_regret_add,
+        "captaincy_regret": captaincy_regret_add,
+        "transfer_regret": transfer_regret_add,
+        "chip_regret": chip_regret_add,
+        "hit_cost": hit_cost,
+        "total_decision_regret": total_decision_regret,
+        "additive_regret_decomposition": {
+            "lineup_regret": lineup_regret_add,
+            "captaincy_regret": captaincy_regret_add,
+            "transfer_regret": transfer_regret_add,
+            "chip_regret": chip_regret_add,
+            "hit_cost": hit_cost,
+            "total_decision_regret": total_decision_regret,
+            "is_mutually_exclusive_additive": True,
+        },
+        "decision_loss_diagnostics": {
+            "prediction_error": prediction_error,
+            "decision_error": decision_error,
+            "captaincy_error": captaincy_error,
+            "transfer_error": transfer_error,
+            "chip_error": chip_error,
+            "is_overlapping_diagnostic": True,
+        },
         "prediction_error": prediction_error,
         "decision_error": decision_error,
         "captaincy_error": captaincy_error,

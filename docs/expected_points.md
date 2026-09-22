@@ -120,17 +120,17 @@ $$\text{Total } xP = \sum_{GW} xP_{GW}, \quad \text{Total Floor} = \sum_{GW} \te
 ## 4. V1.0 Canonical Model Registry & Historical Reconstruction
 
 Implemented in [`src/fpl_manager/model_registry.py`](../src/fpl_manager/model_registry.py):
-- **Canonical Model Version (`v1.0-canonical`):** Every projection carries a `ModelMetadata` descriptor specifying `model_id`, `model_version`, `feature_schema_version`, `feature_columns`, `hyperparameters`, `training_cutoff_policy="strict_pre_deadline_point_in_time"`, and `point_in_time_safe=True`.
-- **Historical Prediction Reconstruction (`reconstruct_historical_prediction`):** Reconstructs exact point-in-time projections for any `(season, gameweek, player_id)` strictly from pre-deadline snapshot state (`GWs 1..k-1`), verifying zero lookahead via `validate_no_future_leakage` across all 7 leakage categories (`player_gw_history`, `player_prices`, `availability_status`, `fixture_schedule`, `finished_fixtures_in_current_or_future_gw`, `season_totals_over_rolling_total`, `post_deadline_snapshot_timestamp`).
-- **Canonical Quantitative Evaluation:** Full multi-season and regime-separated calibration, MAE, RMSE, Spearman rank correlation, and naive baseline comparisons are published in [`reports/v10_canonical_model_report.md`](../reports/v10_canonical_model_report.md).
+- **Canonical Model Version (`model_version="v1.0.0"`, `quantitative_core_version="v0.9.1-frozen"`):** Every projection carries a validated `ModelMetadata` descriptor (`ModelMetadata.from_dict(..., strict=True)`) specifying `model_version`, `training_data_cutoff`, `feature_set_version`, `parameter_version`, and `prediction_timestamp` (raising `ValueError` in strict mode if any provenance field is missing, or marking `"incomplete/unknown"` when `strict=False`).
+- **Historical Prediction Reconstruction (`reconstruct_historical_prediction`):** Reconstructs exact point-in-time projections for any `(season, gameweek, player_id)` strictly from pre-deadline snapshot state (`GWs 1..k-1`), anchoring historical `prediction_timestamp` via `resolve_historical_snapshot_timestamp()` rather than wall-clock time, and verifying zero lookahead via `validate_no_future_leakage` (`PIT_LEAKAGE_VERIFICATION_SCOPE` separates **intrinsic snapshot invariants** for Categories 6 & 7 from **reference-comparative checks** for Categories 1–5).
+- **Canonical Quantitative Evaluation:** Full multi-season and regime-separated calibration, MAE, RMSE, Spearman rank correlation, and naive baseline comparisons are published in [`reports/v10_canonical_model_report.md`](../reports/v10_canonical_model_report.md) and [`reports/v09_frozen_baseline.json`](../reports/v09_frozen_baseline.json).
 
 ---
 
 ## 5. Downstream Applications in V1.0
 
 1. **Starting XI Selection ([`src/fpl_manager/lineup.py`](../src/fpl_manager/lineup.py)):**
-   Optimizes legal formations under the V1.0 risk profile (`neutral` uses `lineup_penalty_weight = 0.0`), exposes captaincy ceiling/availability/minutes validation, and outputs floor and ceiling intervals.
+   Optimizes legal formations under the V1.0 risk profile (`neutral` defaults to `lineup_penalty_weight = 0.0`, while custom `lineup_penalty_weight` values remain supported for experimentation), strictly separates `model_quantities` (`starters_xp`, `captain_bonus`, `total_lineup_xp`) from `decision_quantities` (`starters_obj`, `captain_obj`, `total_lineup_obj`), exposes captaincy ceiling/availability/minutes validation, and outputs floor and ceiling intervals.
 2. **Transfer Search & Strategic Optimization ([`src/fpl_manager/optimizer.py`](../src/fpl_manager/optimizer.py), [`src/fpl_manager/planner.py`](../src/fpl_manager/planner.py)):**
-   Feeds expected minutes, uncertainty, and multi-week projections into the exact 1–5 transfer solver (`branch-and-bound == exhaustive`) and multi-GW horizon planner.
+   Feeds expected minutes, uncertainty, and multi-week projections into the 1–5 transfer solver (`solve_transfers`, verified against `solve_transfers_exact_reference`) and the multi-GW beam planner (`generate_multi_gameweek_plan`, verified on short horizons against the Bellman DP oracle `plan_multi_gw_exact_reference`).
 
 

@@ -45,22 +45,46 @@ def validate_snapshot_integrity(snapshot: HistoricalGameweekSnapshot) -> list[st
     return issues
 
 
+PIT_LEAKAGE_VERIFICATION_SCOPE: dict[str, Any] = {
+    "intrinsic_snapshot_invariants": {
+        "description": (
+            "Invariants checked directly from the snapshot alone without external reference inputs."
+        ),
+        "categories": [
+            "6_future_fixtures_or_results (finished=True or revealed match scores in target GW)",
+            "7_later_versions_of_statistics (cumulative starts/minutes/starts_last_3 exceeding finished_gameweeks physical bounds; non-zero cumulative stats at GW1)",
+        ],
+    },
+    "reference_comparative_checks": {
+        "description": (
+            "Differential checks that verify a snapshot against an explicitly supplied pre/post-deadline reference state (prior_snapshot, outcomes, or post_deadline_state)."
+        ),
+        "categories": [
+            "1_final_gw_statistics (requires prior_snapshot and outcomes to detect absorbed target-GW points)",
+            "2_future_injury_information (requires post_deadline_state['pre_deadline_status'] / ['future_status'])",
+            "3_future_price_changes (requires post_deadline_state['pre_deadline_price_tenths'] / ['future_price_tenths'])",
+            "4_future_ownership (requires post_deadline_state['pre_deadline_ownership'] / ['future_ownership'])",
+            "5_post_deadline_team_news (requires post_deadline_state['news_timestamp'] / ['deadline_timestamp'])",
+        ],
+    },
+}
+
+
 def validate_no_future_leakage(
     snapshot: HistoricalGameweekSnapshot,
     outcomes: dict[int, GameweekOutcome],
     prior_snapshot: HistoricalGameweekSnapshot | None = None,
     post_deadline_state: dict[int, dict[str, Any]] | None = None,
 ) -> list[str]:
-    """Verify that a snapshot contains NO knowledge of current or future gameweek outcomes (P1.1).
+    """Verify that a snapshot contains no knowledge of current or future gameweek outcomes (P1.1, P1.4).
 
-    Permanent point-in-time protections enforced:
-    1. Final GW statistics (GW N points, minutes, or starts leaked into pre-deadline GW N snapshot)
-    2. Future injury information (post-deadline injury status or chance_of_playing injected)
-    3. Future price changes (post-deadline price_tenths injected before deadline)
-    4. Future ownership (post-deadline selected_by_percent injected)
-    5. Post-deadline team news (news timestamp strictly after snapshot deadline)
-    6. Future fixtures/results (target GW fixtures marked finished or containing post-kickoff state)
-    7. Later versions of statistics (cumulative starts/minutes exceeding completed GWs)
+    Scope & Verification Semantics (P1.4 — see `PIT_LEAKAGE_VERIFICATION_SCOPE`):
+    - Intrinsic Snapshot Invariants (verified directly from `snapshot` alone):
+      * Category 6: Target-GW fixtures marked `finished=True` or containing revealed `team_h_score`/`team_a_score`.
+      * Category 7: Cumulative `starts`, `minutes`, or `starts_last_3` exceeding `snapshot.finished_gameweeks` bounds (or non-zero at GW1).
+    - Reference-Comparative Checks (verified when `prior_snapshot`, `outcomes`, or `post_deadline_state` is supplied):
+      * Category 1: Final GW points absorbed into `total_points` (requires `prior_snapshot` + `outcomes`).
+      * Categories 2-5: Post-deadline injury status, price changes, ownership, or news timestamps (requires `post_deadline_state`).
     """
     leakage_violations: list[str] = []
     max_possible_starts = max(0, int(snapshot.finished_gameweeks))

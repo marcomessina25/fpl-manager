@@ -564,19 +564,19 @@ These belong to post-V1.0 research tracks.
 V1.0 is ready for merge when:
 
 ```text
-[ ] P0.1 Independent exact transfer oracle
-[ ] P0.2 Independent exact multi-GW oracle
-[ ] P0.3 lineup objective/reporting regression fixed
-[ ] P1.1 decision-attribution semantics clarified
-[ ] P1.2 model metadata validation hardened
-[ ] P1.3 historical timestamps deterministic
-[ ] P1.4 PIT validation claims aligned with implementation
-[ ] P1.5 branch-and-bound bound change justified/tested
-[ ] P2 documentation cleanups completed
-[ ] P3 full test suite passes
-[ ] V0.9.1 regression is explained
-[ ] README/release documentation is consistent
-[ ] No known release-blocking correctness issue
+[x] P0.1 Independent exact transfer oracle
+[x] P0.2 Independent exact multi-GW oracle
+[x] P0.3 lineup objective/reporting regression fixed
+[x] P1.1 decision-attribution semantics clarified
+[x] P1.2 model metadata validation hardened
+[x] P1.3 historical timestamps deterministic
+[x] P1.4 PIT validation claims aligned with implementation
+[x] P1.5 branch-and-bound bound change justified/tested
+[x] P2 documentation cleanups completed
+[x] P3 full test suite passes
+[x] V0.9.1 regression is explained
+[x] README/release documentation is consistent
+[x] No known release-blocking correctness issue
 ```
 
 ## Final principle

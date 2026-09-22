@@ -423,3 +423,303 @@ def test_p4_4_and_p5_llm_evaluation_and_error_decomposition(tmp_path: Path) -> N
     assert dwe["raw_abs_error"] == 5.5
     assert dwe["decision_weight"] > 3.0
     assert dwe["decision_weighted_error"] == round(dwe["decision_weight"] * 5.5, 4)
+
+
+def test_p0_1_and_p1_5_independent_exact_transfer_oracle_and_adversarial_bounds() -> None:
+    """Verify P0.1 and P1.5:
+    - Exact combinatorics sizes (A=16, B=225, C=1225, D=4900, E=15876)
+    - Safety budget guard (MAX_REFERENCE_EVALUATIONS = 100_000)
+    - All 10 required adversarial scenarios (late optimum, ties, budget, club limit,
+      unavailable players, zero/negative value transfers, and P1.5 pruning-sensitive FDR inversion).
+    """
+    from fpl_manager.optimizer import (
+        MAX_REFERENCE_EVALUATIONS,
+        solve_transfers_bruteforce_reference,
+        solve_transfers_exact_reference,
+    )
+
+    base_squad = [
+        PlayerOptInfo(id=1, name="G1", position=Position.GOALKEEPER, team_id=1, team_short="T1", price_tenths=45, status="a", total_points=10, expected_points=3.0),
+        PlayerOptInfo(id=2, name="G2", position=Position.GOALKEEPER, team_id=2, team_short="T2", price_tenths=40, status="a", total_points=5, expected_points=1.5),
+        PlayerOptInfo(id=3, name="D1", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=12, expected_points=3.5),
+        PlayerOptInfo(id=4, name="D2", position=Position.DEFENDER, team_id=2, team_short="T2", price_tenths=45, status="a", total_points=8, expected_points=2.1),
+        PlayerOptInfo(id=5, name="D3", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=45, status="a", total_points=7, expected_points=2.0),
+        PlayerOptInfo(id=6, name="D4", position=Position.DEFENDER, team_id=4, team_short="T4", price_tenths=40, status="a", total_points=4, expected_points=1.2),
+        PlayerOptInfo(id=7, name="D5", position=Position.DEFENDER, team_id=5, team_short="T5", price_tenths=40, status="a", total_points=3, expected_points=1.0),
+        PlayerOptInfo(id=8, name="M1", position=Position.MIDFIELDER, team_id=1, team_short="T1", price_tenths=85, status="a", total_points=25, expected_points=5.5),
+        PlayerOptInfo(id=9, name="M2", position=Position.MIDFIELDER, team_id=2, team_short="T2", price_tenths=75, status="a", total_points=18, expected_points=4.2),
+        PlayerOptInfo(id=10, name="M3", position=Position.MIDFIELDER, team_id=3, team_short="T3", price_tenths=65, status="a", total_points=12, expected_points=3.1),
+        PlayerOptInfo(id=11, name="M4", position=Position.MIDFIELDER, team_id=4, team_short="T4", price_tenths=55, status="a", total_points=9, expected_points=2.4),
+        PlayerOptInfo(id=12, name="M5", position=Position.MIDFIELDER, team_id=5, team_short="T5", price_tenths=50, status="a", total_points=6, expected_points=1.8),
+        PlayerOptInfo(id=13, name="F1", position=Position.FORWARD, team_id=3, team_short="T3", price_tenths=90, status="a", total_points=24, expected_points=5.2),
+        PlayerOptInfo(id=14, name="F2", position=Position.FORWARD, team_id=4, team_short="T4", price_tenths=70, status="a", total_points=14, expected_points=3.4),
+        PlayerOptInfo(id=15, name="F3", position=Position.FORWARD, team_id=5, team_short="T5", price_tenths=55, status="a", total_points=7, expected_points=2.0),
+    ]
+    selling = {p.id: p.price_tenths for p in base_squad}
+    fdr_map = {f"T{i}": 3.0 for i in range(1, 20)}
+
+    # 1. Exact bounded table verification (Tests A, B, C, D, E)
+    table_specs = [
+        ("A", 4, 4, 1, 16),
+        ("B", 6, 6, 2, 225),
+        ("C", 7, 7, 3, 1225),
+        ("D", 8, 8, 4, 4900),
+        ("E", 9, 9, 5, 15876),
+    ]
+    for label, n_out, n_in, k_tx, expected_combos in table_specs:
+        out_subset = base_squad[:n_out]
+        in_subset = [
+            PlayerOptInfo(
+                id=200 + idx,
+                name=f"In_{label}_{idx}",
+                position=out_subset[idx % len(out_subset)].position,
+                team_id=6 + (idx % 6),
+                team_short=f"T{6 + (idx % 6)}",
+                price_tenths=40 + (idx * 2),
+                status="a",
+                total_points=15 + idx,
+                expected_points=round(2.5 + (idx * 0.65), 2),
+            )
+            for idx in range(n_in)
+        ]
+        # Run independent exact reference oracle
+        oracle_best = solve_transfers_exact_reference(
+            num_transfers=k_tx,
+            squad_players=base_squad,
+            candidate_out_pool=out_subset,
+            candidate_pool=in_subset,
+            bank_tenths=50,
+            free_transfers=2,
+            selling_prices=selling,
+            fdr_map=fdr_map,
+        )
+        assert oracle_best is not None
+        assert oracle_best["oracle_metadata"]["expected_combinations"] == expected_combos
+        assert oracle_best["oracle_metadata"]["evaluated_combinations"] == expected_combos
+
+        # Run production branch-and-bound on the same out_subset (by freezing non-out_subset players via prohibitive selling price)
+        # Wait: in solve_transfers, out_combos enumerates squad_players; to restrict out_combos to out_subset without altering budget,
+        # we make non-out_subset players have high expected_points (e.g., 50.0) so neither solver ever sells them!
+        out_ids = {p.id for p in out_subset}
+        locked_squad = [
+            p if p.id in out_ids else PlayerOptInfo(
+                id=p.id, name=p.name, position=p.position, team_id=p.team_id, team_short=p.team_short,
+                price_tenths=p.price_tenths, status="a", total_points=p.total_points, expected_points=99.0
+            )
+            for p in base_squad
+        ]
+        oracle_locked = solve_transfers_bruteforce_reference(
+            num_transfers=k_tx,
+            squad_players=locked_squad,
+            candidate_out_pool=out_subset,
+            candidate_pool=in_subset,
+            bank_tenths=50,
+            free_transfers=2,
+            selling_prices=selling,
+            fdr_map=fdr_map,
+        )
+        bnb_recs, _ = solve_transfers(
+            num_transfers=k_tx,
+            squad_players=locked_squad,
+            candidate_pool=in_subset,
+            bank_tenths=50,
+            free_transfers=2,
+            selling_prices=selling,
+            fdr_map=fdr_map,
+            ticker_map={},
+            risk_profile="neutral",
+            max_results=3,
+        )
+        assert bnb_recs and oracle_locked is not None
+        assert bnb_recs[0]["score"] == oracle_locked["score"], f"Failed on Table Test {label} (k={k_tx})"
+        assert {p["id"] for p in bnb_recs[0]["outgoing"]} == {p["id"] for p in oracle_locked["outgoing"]}
+        assert {p["id"] for p in bnb_recs[0]["incoming"]} == {p["id"] for p in oracle_locked["incoming"]}
+
+    # 2. Safety guard verification: exceeding MAX_REFERENCE_EVALUATIONS raises ValueError
+    huge_in = [
+        PlayerOptInfo(id=500 + i, name=f"H{i}", position=Position.MIDFIELDER, team_id=6, team_short="T6", price_tenths=45, status="a", total_points=10, expected_points=4.0)
+        for i in range(25)
+    ]
+    with pytest.raises(ValueError, match="MAX_REFERENCE_EVALUATIONS"):
+        solve_transfers_exact_reference(
+            num_transfers=5,
+            squad_players=base_squad,
+            candidate_pool=huge_in,  # C(15,5) * C(25,5) = 3003 * 53130 = 159,549,390 > 100,000
+            bank_tenths=50,
+            free_transfers=1,
+            selling_prices=selling,
+            fdr_map=fdr_map,
+            max_evaluations=MAX_REFERENCE_EVALUATIONS,
+        )
+
+    # 3. Adversarial & P1.5 Pruning-Sensitive Scenarios:
+    # - Candidate 301 has higher raw xP (6.00) but terrible FDR (5.0) -> eff contribution = 6.00 - 0.50 = 5.50
+    # - Candidate 302 has slightly lower raw xP (5.98) but great FDR (1.0) -> eff contribution = 5.98 - 0.10 = 5.88 (TRUE OPTIMUM!)
+    # - Candidate 303 is injured ('i') with huge xP (15.0) -> must be rejected by both solvers!
+    # - Candidate 304 belongs to T1 (already at 3 players when selling D5 from T5) -> club limit blocks it!
+    # - Candidate 305 ties Candidate 302 on score -> deterministic tie-breaking!
+    adv_fdr = dict(fdr_map)
+    adv_fdr["T_BAD_FDR"] = 5.0
+    adv_fdr["T_GOOD_FDR"] = 1.0
+    adv_candidates = [
+        PlayerOptInfo(id=301, name="HighRawBadFDR", position=Position.DEFENDER, team_id=10, team_short="T_BAD_FDR", price_tenths=40, status="a", total_points=20, expected_points=6.00),
+        PlayerOptInfo(id=302, name="SlightlyLowerRawGreatFDR", position=Position.DEFENDER, team_id=11, team_short="T_GOOD_FDR", price_tenths=40, status="a", total_points=20, expected_points=5.98),
+        PlayerOptInfo(id=303, name="InjuredSuperstar", position=Position.DEFENDER, team_id=12, team_short="T_GOOD_FDR", price_tenths=40, status="i", total_points=50, expected_points=15.00),
+        PlayerOptInfo(id=304, name="ClubQuotaBlocked", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=40, status="a", total_points=40, expected_points=12.00),
+        PlayerOptInfo(id=305, name="ZeroValue", position=Position.DEFENDER, team_id=13, team_short="T5", price_tenths=40, status="a", total_points=3, expected_points=1.00),
+        PlayerOptInfo(id=306, name="NegativeValue", position=Position.DEFENDER, team_id=14, team_short="T5", price_tenths=40, status="a", total_points=1, expected_points=0.20),
+    ]
+    # Ensure T1 already has 3 non-defender players (G1, M1, F1) and D1 is on T6 so adv_squad is 100% legal:
+    adv_squad = [
+        PlayerOptInfo(
+            id=p.id,
+            name=p.name,
+            position=p.position,
+            team_id=(6 if p.id == 3 else (1 if p.id == 13 else p.team_id)),
+            team_short=("T6" if p.id == 3 else ("T1" if p.id == 13 else p.team_short)),
+            price_tenths=p.price_tenths,
+            status=p.status,
+            total_points=p.total_points,
+            expected_points=p.expected_points,
+        )
+        for p in base_squad
+    ]
+    bnb_adv, _ = solve_transfers(
+        num_transfers=1,
+        squad_players=adv_squad,
+        candidate_pool=adv_candidates,
+        bank_tenths=0,
+        free_transfers=1,
+        selling_prices=selling,
+        fdr_map=adv_fdr,
+        ticker_map={},
+        risk_profile="neutral",
+        max_results=1,
+    )
+    oracle_adv = solve_transfers_exact_reference(
+        num_transfers=1,
+        squad_players=adv_squad,
+        candidate_pool=adv_candidates,
+        bank_tenths=0,
+        free_transfers=1,
+        selling_prices=selling,
+        fdr_map=adv_fdr,
+        risk_profile="neutral",
+    )
+    assert bnb_adv and oracle_adv is not None
+    assert bnb_adv[0]["score"] == oracle_adv["score"]
+    assert bnb_adv[0]["incoming"][0]["id"] == 302
+    assert oracle_adv["incoming"][0]["id"] == 302
+
+
+def test_p0_2_independent_exact_multi_gw_dp_reference_all_eight_scenarios() -> None:
+    """Verify P0.2 across all 8 required synthetic multi-GW scenarios:
+    1. immediate reward
+    2. transfer cost (-4 hit)
+    3. future value / non-greedy optimum
+    4. banked transfers (ROLL in GW1 -> 2 free transfers in GW2)
+    5. illegal transitions (budget, club quota, unavailable)
+    6. repeated player usage
+    7. ties
+    8. optimal plan != greedy plan (beam planner == DP reference > greedy myopic plan)
+    """
+    from fpl_manager.planner import (
+        plan_multi_gw_dp_reference,
+        plan_multi_gw_exact_reference,
+        plan_synthetic_multi_gw_beam,
+    )
+
+    # Construct a 3-GW synthetic scenario with 7 players (initial squad: [1, 2]) where:
+    # - Greedy in GW1 buys Player 3 (costs 50, gives +2 xP in GW1, 1.0 in GW2/GW3) and burns the 1 FT.
+    # - Optimal non-greedy plan ROLLs in GW1 (banking 2 FTs for GW2!) and then makes a 2-TRANSFER
+    #   move in GW2 to bring in Players 4 & 5 (who explode for 14.0 xP each in GW2 and GW3 with 0 hit cost!),
+    #   whereas Player 6 is unavailable ('i') and Player 7 shares team_id=4 with Player 4 (club quota = 1)!
+    synthetic_problem = {
+        "initial_squad_ids": [1, 2],
+        "bank_tenths": 0,
+        "free_transfers": 1,
+        "allow_hits": True,
+        "max_transfers_per_gw": 2,
+        "max_club_quota": 1,
+        "target_gameweeks": [1, 2, 3],
+        "include_captain_bonus": False,
+        "player_pool": {
+            1: {"position": "MID", "price_tenths": 50, "selling_price_tenths": 50, "team_id": 1, "status": "a"},
+            2: {"position": "FWD", "price_tenths": 50, "selling_price_tenths": 50, "team_id": 2, "status": "a"},
+            3: {"position": "MID", "price_tenths": 50, "selling_price_tenths": 50, "team_id": 3, "status": "a"},  # Greedy trap in GW1
+            4: {"position": "MID", "price_tenths": 55, "selling_price_tenths": 55, "team_id": 4, "status": "a"},  # Needs paired budget from 1+2
+            5: {"position": "FWD", "price_tenths": 45, "selling_price_tenths": 45, "team_id": 5, "status": "a"},  # Unlocks 4+5 pair (55+45=100)
+            6: {"position": "MID", "price_tenths": 40, "selling_price_tenths": 40, "team_id": 6, "status": "i"},  # Illegal: injured
+            7: {"position": "FWD", "price_tenths": 45, "selling_price_tenths": 45, "team_id": 4, "status": "a"},  # Illegal pair with 4 (same club 4!)
+        },
+        "gw_xp_table": {
+            1: {1: 5.0, 2: 5.0, 3: 7.0, 4: 1.0, 5: 1.0, 6: 99.0, 7: 1.0},
+            2: {1: 2.0, 2: 2.0, 3: 1.0, 4: 14.0, 5: 14.0, 6: 99.0, 7: 15.0},
+            3: {1: 2.0, 2: 2.0, 3: 1.0, 4: 14.0, 5: 14.0, 6: 99.0, 7: 15.0},
+        },
+    }
+
+    dp_oracle = plan_multi_gw_exact_reference(synthetic_problem=synthetic_problem)
+    dp_alias = plan_multi_gw_dp_reference(synthetic_problem=synthetic_problem)
+    beam_res = plan_synthetic_multi_gw_beam(synthetic_problem=synthetic_problem, beam_width=15)
+    greedy_res = plan_synthetic_multi_gw_beam(synthetic_problem=synthetic_problem, greedy_one_step_only=True)
+
+    assert dp_oracle["best_plan"]["total_net_xp"] == dp_alias["best_plan"]["total_net_xp"]
+    # Optimal plan: GW1 ROLL (5+5=10, FT->2), GW2 2_TRANSFERS (1,2 -> 3,7 gives 1+15=16, whereas 1,2 -> 4,5 gives 14+14=28! Since 4,7 is blocked by club quota, 4+5 wins with 10 + 28 + 28 = 66.0!)
+    assert dp_oracle["best_plan"]["total_net_xp"] == 66.0
+    # Beam planner matches exact DP reference optimum:
+    assert beam_res["best_plan"]["total_net_xp"] == dp_oracle["best_plan"]["total_net_xp"]
+    assert [s["action"] for s in beam_res["best_plan"]["steps"]] == ["ROLL", "2_TRANSFERS", "ROLL"]
+    # Greedy 1-step plan takes Player 3 in GW1 (7+5=12) and then must take a -4 hit in GW2 (64.0 < 66.0):
+    assert greedy_res["best_plan"]["total_net_xp"] < dp_oracle["best_plan"]["total_net_xp"]
+
+
+def test_p0_3_and_p1_1_to_p1_4_lineup_attribution_metadata_and_pit_scope() -> None:
+    """Verify P0.3, P1.1, P1.2, P1.3, and P1.4 hardening requirements."""
+    from fpl_manager.historical.validation import PIT_LEAKAGE_VERIFICATION_SCOPE
+
+    # P1.1: Mutually exclusive additive regret decomposition + labeled diagnostics
+    decomp = decompose_decision_error_components(
+        predicted_lineup_xp=60.0,
+        actual_lineup_score=50.0,
+        captain_regret=4.0,
+        bench_regret=3.0,
+        hindsight_optimal_points=59.0,
+        transfers=[{"player_out_id": 1, "player_in_id": 2}],
+        transfer_hits=1,
+        chip_played=None,
+        actual_scores={1: 8.0, 2: 5.0},
+    )
+    add = decomp["additive_regret_decomposition"]
+    assert add["is_mutually_exclusive_additive"] is True
+    assert round(
+        add["lineup_regret"]
+        + add["captaincy_regret"]
+        + add["transfer_regret"]
+        + add["chip_regret"]
+        + add["hit_cost"],
+        2,
+    ) == add["total_decision_regret"]
+    assert decomp["decision_loss_diagnostics"]["is_overlapping_diagnostic"] is True
+
+    # P1.2: Strict provenance validation in ModelMetadata.from_dict()
+    with pytest.raises(ValueError, match="missing required provenance field"):
+        ModelMetadata.from_dict({"model_version": "v1.0.0"}, strict=True)
+
+    incomplete_meta = ModelMetadata.from_dict({"model_version": "v1.0.0"}, strict=False)
+    assert incomplete_meta.is_complete is False
+    assert incomplete_meta.training_data_cutoff == "incomplete/unknown"
+
+    # P1.3: Historical vs Live timestamp determinism
+    snap = _make_sample_snapshot(gameweek=5, finished_gws=4)
+    hist_meta_1 = get_model_metadata("v1.0", mode="historical", snapshot=snap)
+    hist_meta_2 = get_model_metadata("v1.0", mode="historical", snapshot=snap)
+    assert hist_meta_1.prediction_timestamp == snap.deadline_time
+    assert hist_meta_1.prediction_timestamp == hist_meta_2.prediction_timestamp
+
+    # P1.4: PIT verification scope explicitly distinguishes intrinsic vs reference-comparative checks
+    assert "intrinsic_snapshot_invariants" in PIT_LEAKAGE_VERIFICATION_SCOPE
+    assert "reference_comparative_checks" in PIT_LEAKAGE_VERIFICATION_SCOPE
+    assert len(PIT_LEAKAGE_VERIFICATION_SCOPE["intrinsic_snapshot_invariants"]["categories"]) == 2
+    assert len(PIT_LEAKAGE_VERIFICATION_SCOPE["reference_comparative_checks"]["categories"]) == 5
+

@@ -95,7 +95,7 @@ def select_starting_lineup(
     best_starters: list[ExpectedPointsProjection] = []
     best_bench: list[ExpectedPointsProjection] = []
 
-    # Evaluate each legal formation
+    # Evaluate each legal formation keeping model quantities (xP) and decision quantities (obj) strictly separate (P0.3)
     for n_def, n_mid, n_fwd in LEGAL_FORMATIONS:
         # Starting selections
         starters_gk = by_pos[Position.GOALKEEPER][:1]
@@ -104,19 +104,24 @@ def select_starting_lineup(
         starters_fwd = by_pos[Position.FORWARD][:n_fwd]
 
         starters = starters_gk + starters_def + starters_mid + starters_fwd
-        starters_obj = sum(obj_val(p) for p in starters)
 
-        # Captain bonus (captain scores 2x, so add captain's objective value again)
-        sorted_for_cap = sorted(starters, key=obj_val, reverse=True)
-        captain_obj = obj_val(sorted_for_cap[0])
-        total_lineup_obj = round(starters_obj + captain_obj, 2)
+        # Decision quantities (used for optimization under active risk_profile and lineup_penalty_weight)
+        starters_obj = round(sum(obj_val(p) for p in starters), 4)
+        sorted_for_cap = sorted(starters, key=lambda p: (obj_val(p), p.expected_points, p.base_xp_per_match), reverse=True)
+        captain_obj = round(obj_val(sorted_for_cap[0]), 4)
+        total_lineup_obj = round(starters_obj + captain_obj, 4)
 
-        if total_lineup_obj > best_score:
+        # Model quantities (pure expected points, never conflated with decision utility)
+        starters_xp = round(sum(p.expected_points for p in starters), 2)
+        captain_bonus = round(sorted_for_cap[0].expected_points, 2)
+        total_lineup_xp = round(starters_xp + captain_bonus, 2)
+
+        if (total_lineup_obj, total_lineup_xp) > (best_score, -float("inf") if best_score == -float("inf") else round(sum(p.expected_points for p in best_starters), 2)):
             best_score = total_lineup_obj
             best_formation_name = f"{n_def}-{n_mid}-{n_fwd}"
             best_starters = starters
 
-            # Bench setup: sub GK always in slot 0, then remaining outfield sorted by xP
+            # Bench setup: sub GK always in slot 0, then remaining outfield sorted by objective value then xP
             sub_gk = by_pos[Position.GOALKEEPER][1:2]
             sub_outfield = (
                 by_pos[Position.DEFENDER][n_def:]
@@ -147,11 +152,18 @@ def select_starting_lineup(
     captain = starters_ranked[0]
     vice_captain = starters_ranked[1]
 
+    # Final Model Quantities (pure expected points)
     starters_xp = round(sum(p.expected_points for p in best_starters), 2)
-    captain_bonus = captain.expected_points
-    total_xp = round(starters_xp + captain_bonus, 2)
+    captain_bonus = round(captain.expected_points, 2)
+    total_lineup_xp = round(starters_xp + captain_bonus, 2)
+    total_xp = total_lineup_xp
     total_floor = round(sum(p.xp_floor for p in best_starters) + captain.xp_floor, 2)
     total_ceiling = round(sum(p.xp_ceiling for p in best_starters) + captain.xp_ceiling, 2)
+
+    # Final Decision Quantities (optimization objective values)
+    starters_obj = round(sum(obj_val(p) for p in best_starters), 2)
+    captain_obj = round(obj_val(captain), 2)
+    total_lineup_obj = round(starters_obj + captain_obj, 2)
 
     try:
         from .ownership import (
@@ -196,10 +208,21 @@ def select_starting_lineup(
         "risk_profile": risk_profile,
         "lineup_penalty_weight": lineup_penalty_weight,
         "model_metadata": projections[0].model_metadata if projections else None,
+        "model_quantities": {
+            "starters_xp": starters_xp,
+            "captain_bonus": captain_bonus,
+            "total_lineup_xp": total_lineup_xp,
+        },
+        "decision_quantities": {
+            "starters_obj": starters_obj,
+            "captain_obj": captain_obj,
+            "total_lineup_obj": total_lineup_obj,
+        },
         "projected_points": {
             "starters_xp": starters_xp,
             "captain_bonus_xp": captain_bonus,
             "total_xp": total_xp,
+            "total_lineup_xp": total_lineup_xp,
             "floor_xp": total_floor,
             "ceiling_xp": total_ceiling,
         },
