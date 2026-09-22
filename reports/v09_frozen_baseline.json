@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "baseline_identifier": "V0.9-FROZEN-2025-26-W0.00",
+  "season": "2025-26",
+  "gameweeks": "1-38",
+  "description": "Frozen V0.9.1 production baseline entering V1.0 development (lineup_penalty_weight = 0.0, validated across 5 seasons 2021/22-2025/26).",
+  "frozen_at": "2026-09-22T17:00:00Z",
+  "model_metadata": {
+    "model_version": "v0.9.1",
+    "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+    "feature_set_version": "v0.9.1-pit-rolling-congestion",
+    "parameter_version": "0.9.1-frozen-w0.00"
+  },
+  "implementation": {
+    "predictor_function": "fpl_manager.expected_points.project_player_gameweek(predictor_version='v0.9')",
+    "minutes_model": "fpl_manager.learned_participation.predict_player_participation_v09",
+    "calibration_model": "fpl_manager.calibration (Isotonic regression / Platt scaling)",
+    "decision_engine": "fpl_manager.backtest.decision_engine.DecisionEngineV09(lineup_penalty_weight=0.0)",
+    "optimizer_function": "fpl_manager.optimizer.solve_transfers (participation-aware)"
+  },
+  "metrics": {
+    "expected_points": {
+      "total_evaluated_records": 29338,
+      "xp_mae": 1.127,
+      "xp_rmse": 1.978,
+      "xp_spearman": 0.6779,
+      "xp_bias": 0.058,
+      "delta_vs_v08_mae": -0.023,
+      "delta_vs_v08_spearman": 0.0029
+    },
+    "expected_minutes": {
+      "xm_mae": 13.679,
+      "xm_rmse": 23.498,
+      "xm_bias": -1.226,
+      "conditional_starter_mae": 12.40,
+      "delta_vs_v08_mae": -0.240
+    },
+    "availability_classification": {
+      "threshold_p_play": 0.50,
+      "precision": 0.7868,
+      "recall": 0.8964,
+      "false_positives_headline": 2520,
+      "false_negatives_headline": 1295
+    },
+    "calibration": {
+      "p_start_ece": 0.0225,
+      "p_start_brier": 0.0898,
+      "p_play_ece": 0.0412,
+      "p_play_brier": 0.1004
+    },
+    "decision_replay_2025_26": {
+      "engine_version": "v0.9",
+      "lineup_penalty_weight": 0.0,
+      "net_points": 2014,
+      "gross_points": 2014,
+      "hits": 0,
+      "hit_penalty_points": 0,
+      "total_transfers": 37,
+      "zero_minute_starters": 44,
+      "zero_minute_captains": 4,
+      "bench_regret_points": 247,
+      "transfer_gross_gain": 154,
+      "points_vs_no_transfer": 412,
+      "points_vs_v08": 52
+    },
+    "multi_season_summary_2021_2026": {
+      "seasons": ["2021-22", "2022-23", "2023-24", "2024-25", "2025-26"],
+      "total_gameweeks": 190,
+      "aggregate_net_points_w000": 10187,
+      "aggregate_net_points_w020": 10172,
+      "mean_season_points_w000": 2037.4,
+      "mean_bench_regret_w000": 250.8
+    }
+  }
+}

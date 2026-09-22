@@ -49,12 +49,10 @@ def _evaluate_lineup_for_gameweek(
         if p is not None:
             by_pos[p.position].append(p)
 
+    from .optimizer import get_player_profile_value
+
     def val_fn(p: Any) -> float:
-        if risk_profile == "floor":
-            return p.xp_floor
-        elif risk_profile == "ceiling":
-            return p.xp_ceiling
-        return p.expected_points
+        return get_player_profile_value(p, risk_profile)
 
     for pos in by_pos:
         by_pos[pos].sort(key=lambda p: (val_fn(p), p.base_xp_per_match), reverse=True)
@@ -106,10 +104,12 @@ def generate_multi_gameweek_plan(
     report_path: Path = PLAN_REPORT_PATH,
 ) -> dict[str, Any]:
     """Generate an optimal multi-gameweek transfer roadmap using beam search."""
+    from .optimizer import validate_risk_profile
+
     if horizon < 1 or horizon > 6:
         raise ValueError(f"Invalid horizon={horizon}. Must be between 1 and 6 gameweeks.")
-    if risk_profile not in ("neutral", "floor", "ceiling"):
-        raise ValueError(f"Invalid risk_profile '{risk_profile}'. Must be 'neutral', 'floor', or 'ceiling'.")
+    risk_profile = validate_risk_profile(risk_profile)
+
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
@@ -368,3 +368,29 @@ def generate_multi_gameweek_plan(
         report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return report
+
+
+def plan_multi_gw_exhaustive(
+    squad_path: Path = DEFAULT_SQUAD_PATH,
+    database_path: Path = DATABASE_PATH,
+    horizon: int = 3,
+    start_gw: int | None = None,
+    risk_profile: str = "neutral",
+    allow_hits: bool = True,
+) -> dict[str, Any]:
+    """Exhaustive (unbounded beam width) multi-GW planner for small synthetic problems (P3.3).
+
+    Enables direct comparison of beam-search planner output against exhaustive state
+    enumeration across rolling transfers, free-transfer banking, and point hits.
+    """
+    return generate_multi_gameweek_plan(
+        squad_path=squad_path,
+        database_path=database_path,
+        horizon=horizon,
+        start_gw=start_gw,
+        risk_profile=risk_profile,
+        allow_hits=allow_hits,
+        beam_width=10_000,
+        report_path=None,
+    )
+

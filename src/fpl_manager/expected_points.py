@@ -77,6 +77,8 @@ class ExpectedPointsProjection:
     standard_deviation: float = 0.0
     play_probability: float = 0.0
     sub_probability: float = 0.0
+    regime: str = "STARTER"
+    model_metadata: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +437,7 @@ def project_player_gameweek(
     days_since_prev_fixture: float | None = None,
     matches_last_7_days: int = 0,
     predictor_version: str = "v0.9",
+    model_metadata: dict[str, str] | None = None,
 ) -> ExpectedPointsProjection:
     """Compute expected points projection for a single player in a specific gameweek."""
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
@@ -466,6 +469,7 @@ def project_player_gameweek(
         part_mode = "v0.9"
         comp_version = "v0.9"
 
+    regime_str = "STARTER"
     if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
@@ -514,6 +518,7 @@ def project_player_gameweek(
         prob_60 = part.prob_60_plus
         prob_sub = part.p_sub
         p_play = part.p_play
+        regime_str = getattr(part, "regime", "STARTER")
     else:
         from .participation import predict_player_participation
         part = predict_player_participation(
@@ -537,6 +542,7 @@ def project_player_gameweek(
         prob_60 = part.prob_60_plus
         prob_sub = part.p_sub
         p_play = part.p_play
+        regime_str = getattr(part, "regime", "STARTER")
 
     fixture_projections: list[PlayerFixtureProjection] = []
     total_xp = 0.0
@@ -608,6 +614,11 @@ def project_player_gameweek(
         )
 
     std_dev = round(math.sqrt(sum_variance), 2)
+    if model_metadata is None:
+        from .model_registry import get_model_metadata
+        meta_dict = get_model_metadata(predictor_version=predictor_version, gameweek=gameweek).to_dict()
+    else:
+        meta_dict = dict(model_metadata)
 
     return ExpectedPointsProjection(
         player_id=player_id,
@@ -629,7 +640,10 @@ def project_player_gameweek(
         standard_deviation=std_dev,
         play_probability=p_play,
         sub_probability=prob_sub,
+        regime=regime_str,
+        model_metadata=meta_dict,
     )
+
 
 
 def project_gameweek(

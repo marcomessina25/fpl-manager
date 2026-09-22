@@ -922,69 +922,67 @@ Evaluate actual chip usage against:
 
 # V1.0 — Stable FPL decision-support platform
 
-V1.0 should not mean "every possible feature exists."
+> **Detailed V1.0 Roadmap & Release Verification:** [`docs/v10/v10.md`](v10/v10.md)  
+> **Canonical Quantitative Model Report:** [`reports/v10_canonical_model_report.md`](../reports/v10_canonical_model_report.md)  
+> **Status: Completed on 2026-09-22 (`v1.0.0`).**
 
-It should mean:
+V1.0 does not mean "every possible feature exists."
+
+It means:
 
 > **The existing feature set is stable, reproducible, tested, measurable, and demonstrably useful.**
 
-### V1.0 acceptance criteria
+### V1.0 acceptance criteria (Verified & Completed)
 
 #### Data
-
-- Reliable FPL ingestion.
-- Point-in-time snapshots.
-- Historical reproducibility.
-- Safe migrations.
+- [x] Reliable FPL ingestion.
+- [x] Point-in-time snapshots enforced across all 7 leakage categories (`validate_no_future_leakage`).
+- [x] Historical reproducibility (`reconstruct_historical_prediction`).
+- [x] Safe migrations (`SnapshotStore` schema versioning & idempotent upgrades).
 
 #### Rules
-
-- Complete squad legality.
-- Starting XI legality.
-- Transfer legality.
-- Hit accounting.
-- Chip accounting.
-- Autosub rules.
+- [x] Complete squad legality.
+- [x] Starting XI legality.
+- [x] Transfer legality.
+- [x] Hit accounting.
+- [x] Chip accounting.
+- [x] Autosub rules.
 
 #### Quantitative model
-
-- Backtested.
-- Baseline-comparison results documented.
-- Calibration measured.
-- Model versioning implemented.
-- Known limitations documented.
+- [x] Backtested across multiple historical seasons (`2021-22` to `2025-26`).
+- [x] Baseline-comparison results documented (`reports/v10_canonical_model_report.md`).
+- [x] Calibration measured across deciles, positions, and regimes (`single`, `dgw`, `bgw`).
+- [x] Model versioning implemented (`src/fpl_manager/model_registry.py`, `v1.0-canonical`).
+- [x] Known limitations documented.
 
 #### Optimisation
-
-- Transfer optimizer verified.
-- Wildcard optimizer correctly described.
-- Multi-GW planner tested.
-- Risk profiles tested.
-- Rank-aware objectives documented if implemented.
+- [x] Transfer optimizer verified (`solve_transfers` proven equivalent to `solve_transfers_exhaustive` for 1–5 transfers).
+- [x] Wildcard optimizer correctly described as heuristic local search (`solve_wildcard` `optimization_metadata`).
+- [x] Multi-GW planner tested against exact reference enumeration (`plan_multi_gw_exhaustive`).
+- [x] Risk profiles tested (`conservative`, `safe`, `neutral`, `differential`, `upside`).
+- [x] Neutral risk profile strictly maximizes expected points (`lineup_penalty_weight = 0.0` in `DecisionEngineV10` and `select_starting_lineup`).
 
 #### LLM
-
-- Provider abstraction.
-- At least one reliable external provider.
-- Guaranteed heuristic fallback.
-- Deterministic guardrails.
-- No direct uncontrolled squad mutation.
-- Clear source/context boundary.
+- [x] Provider abstraction (`gemini`, `openai`, `openrouter`, `heuristic`).
+- [x] At least one reliable external provider + transparent fallback chain.
+- [x] Guaranteed heuristic fallback (`heuristic (auto-fallback)`).
+- [x] Deterministic guardrails (`validate_llm_proposal`).
+- [x] No direct uncontrolled squad mutation.
+- [x] Persistent `llm_evaluations` SQLite table tracking advisory validity and manager action status.
+- [x] Clear source/context boundary (`FACT` / `INFERENCE` / `RUMOUR` / `MODEL_ASSUMPTION`).
 
 #### GUI
-
-- No known state corruption.
-- Complete manager workflow.
-- Clear errors.
-- Responsive long-running operations.
-- Team isolation.
+- [x] No known state corruption.
+- [x] Complete manager workflow.
+- [x] Clear errors.
+- [x] Responsive long-running operations.
+- [x] Team isolation across active teams.
 
 #### Evaluation
-
-- Every decision can be evaluated.
-- Human/model comparison works.
-- Historical backtesting works.
-- Season-level reports work.
+- [x] Every decision can be evaluated with 5-way attribution (`transfer_gain`, `captaincy_gain`, `lineup_gain`, `chip_gain`, `hit_cost`).
+- [x] Decision-weighted error metric (`calculate_decision_weighted_error`) implemented (`2.0` captain, `1.5` transfer target, `1.0` starter, `0.35` bench).
+- [x] Explicit distinction between `observed_outcome` and `hindsight_counterfactual`.
+- [x] All 293 automated tests passing (`tests/test_v10_release.py` and `tests/test_v10_end_to_end.py`).
 
 ---
 

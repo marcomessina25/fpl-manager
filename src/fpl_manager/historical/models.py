@@ -59,6 +59,8 @@ class HistoricalFixture:
     matches_7d_a: int = 0
     matches_14d_h: int = 0
     matches_14d_a: int = 0
+    finished: bool = False
+
 
 
 @dataclass(frozen=True, slots=True)

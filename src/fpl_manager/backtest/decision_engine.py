@@ -762,6 +762,29 @@ class DecisionEngineV09(BaseDecisionEngine):
         return cfg
 
 
+class DecisionEngineV10(DecisionEngineV09):
+    """V1.0 Production Decision Engine (Frozen V0.9.1 baseline with lineup_penalty_weight = 0.0).
+
+    Explicitly separates quantitative prediction from the decision objective:
+    - Neutral lineup path uses calibrated expected points directly (lineup_penalty_weight = 0.0).
+    - Preserves participation signals (P(start), P(sub), P(play), expected_minutes, regime).
+    - Enforces captaincy safeguard (P(start) >= 0.60) and play-probability bench ordering.
+    """
+
+    def __init__(self, lineup_penalty_weight: float = 0.0) -> None:
+        super().__init__(lineup_penalty_weight=lineup_penalty_weight)
+
+    @property
+    def version(self) -> str:
+        return "v1.0"
+
+    @property
+    def name(self) -> str:
+        if abs(self.lineup_penalty_weight - 0.0) < 1e-6:
+            return "V1.0 Production Decision Engine (Neutral Calibrated xP, w=0.00)"
+        return f"V1.0 Production Decision Engine (w={self.lineup_penalty_weight:.2f})"
+
+
 def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -> BaseDecisionEngine:
     """Instantiate and return the appropriate DecisionEngine implementation."""
     if isinstance(engine_version, BaseDecisionEngine):
@@ -772,6 +795,8 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
         return DecisionEngineV09()
+    elif clean in ("v1.0", "v10", "v1.0.0"):
+        return DecisionEngineV10()
     elif "_w" in clean:
         parts = clean.split("_w")
         base = parts[0].replace(".", "")
@@ -779,6 +804,11 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
             w_val = float(parts[1])
             if base == "v09":
                 return DecisionEngineV09(lineup_penalty_weight=w_val)
+            if base == "v10":
+                return DecisionEngineV10(lineup_penalty_weight=w_val)
         except ValueError:
             pass
-    raise ValueError(f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v0.9_w<float>'")
+    raise ValueError(
+        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v0.9_w<float>'"
+    )
+
