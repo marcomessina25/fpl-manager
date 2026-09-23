@@ -73,6 +73,11 @@ class SimulationResult:
     decision_engine_version: str = "v0.9"
     optimizer_implementation: str = "fpl_manager.optimizer.solve_transfers:v0.9_participation_aware"
     optimizer_config: dict[str, Any] = field(default_factory=dict)
+    initial_strategy: str = "balanced"
+    initial_horizon: int = 5
+    initial_squad_ids: tuple[int, ...] = ()
+    initial_squad_cost_tenths: int = 1000
+    initial_squad_bank_tenths: int = 0
 
 
 
@@ -335,9 +340,26 @@ def run_sequential_simulation(
     output_path: Path | None = None,
     predictor_version: str = "v0.9",
     decision_engine: str | BaseDecisionEngine = "v0.9",
+    initial_strategy: str | None = None,
+    initial_horizon: int = 5,
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
-    dec_engine = resolve_decision_engine(decision_engine)
+    chosen_initial_strategy = initial_strategy or (
+        getattr(decision_engine, "initial_strategy", "balanced")
+        if isinstance(decision_engine, BaseDecisionEngine)
+        else "balanced"
+    )
+    chosen_initial_horizon = initial_horizon or (
+        getattr(decision_engine, "initial_horizon", 5)
+        if isinstance(decision_engine, BaseDecisionEngine)
+        else 5
+    )
+
+    dec_engine = resolve_decision_engine(
+        decision_engine,
+        initial_strategy=chosen_initial_strategy,
+        initial_horizon=chosen_initial_horizon,
+    )
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
@@ -346,11 +368,43 @@ def run_sequential_simulation(
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
+        if dec_engine.version == "v1.1" or initial_strategy is not None:
+            try:
+                from .strategic_analysis import load_historical_strategic_players
+                from ..strategic_squad import StrategicConstraints, solve_strategic_squad
+
+                strat_players, _ = load_historical_strategic_players(
+                    season_dir,
+                    gameweek=start_gw,
+                    horizon=chosen_initial_horizon,
+                    predictor_version=predictor_version,
+                )
+                c = StrategicConstraints(
+                    budget_tenths=1000,
+                    target_gameweeks=tuple(range(start_gw, min(39, start_gw + chosen_initial_horizon))),
+                )
+                cand = solve_strategic_squad(
+                    candidate_pool=strat_players,
+                    constraints=c,
+                    strategy=chosen_initial_strategy,
+                    mode="initial",
+                    horizon=chosen_initial_horizon,
+                )
+                squad_ids = list(cand.player_ids)
+                purchase_prices = {p.id: p.price_tenths for p in strat_players if p.id in squad_ids}
+                bank = cand.bank_remaining_tenths
+            except Exception:
+                squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
+        else:
+            squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
     else:
         squad_ids = list(initial_squad_ids)
         purchase_prices = {p.player_id: p.price_tenths for p in init_projs if p.player_id in squad_ids}
         bank = 1000 - sum(purchase_prices.values())
+
+    starting_squad_ids_record = tuple(squad_ids)
+    starting_cost_tenths = sum(purchase_prices.values())
+    starting_bank_tenths = bank
 
     free_transfers = 1
     total_net_points = 0
@@ -484,7 +538,7 @@ def run_sequential_simulation(
 
     result = SimulationResult(
         strategy_name=strategy.name,
-        season=snapshot.season,
+        season=init_snap.season,
         start_gw=start_gw,
         end_gw=end_gw,
         gameweeks_played=(end_gw - start_gw + 1),
@@ -504,6 +558,11 @@ def run_sequential_simulation(
         decision_engine_version=dec_engine.version,
         optimizer_implementation=dec_engine.optimizer_implementation,
         optimizer_config=opt_cfg,
+        initial_strategy=chosen_initial_strategy,
+        initial_horizon=chosen_initial_horizon,
+        initial_squad_ids=starting_squad_ids_record,
+        initial_squad_cost_tenths=starting_cost_tenths,
+        initial_squad_bank_tenths=starting_bank_tenths,
     )
 
     if save_report and target_path_str is not None:
@@ -529,8 +588,10 @@ def run_decision_backtest(
     initial_squad_ids: list[int] | None = None,
     save_report: bool = False,
     output_path: Path | None = None,
-    predictor_version: str = "v0.9",
-    decision_engine: str | BaseDecisionEngine = "v0.9",
+    predictor_version: str = "v1.0.1",
+    decision_engine: str | BaseDecisionEngine = "v1.1",
+    initial_strategy: str | None = None,
+    initial_horizon: int = 5,
 ) -> list[SimulationResult]:
     """Execute sequential manager decision simulations across one or more strategies.
 
@@ -543,8 +604,10 @@ def run_decision_backtest(
         initial_squad_ids: Optional fixed starting squad of 15 player IDs.
         save_report: Whether to save formatted Markdown decision report to reports/backtests/.
         output_path: Optional custom path for the saved Markdown report.
-        predictor_version: Prediction model version to evaluate ("v0.9", "v0.8", or "v0.7").
-        decision_engine: Decision engine version to evaluate ("v0.9" or "v0.8").
+        predictor_version: Prediction model version to evaluate ("v1.1", "v1.0.1", "v0.9", "v0.8", or "v0.7").
+        decision_engine: Decision engine version to evaluate ("v1.1", "v1.0", "v0.9" or "v0.8").
+        initial_strategy: Initial 15-player team selection strategy before GW1 (default: "balanced").
+        initial_horizon: Initial selection planning horizon in gameweeks (default: 5).
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
@@ -552,7 +615,22 @@ def run_decision_backtest(
     from .reporting import build_backtest_report_path, format_decision_report, save_backtest_report
     from .strategies import NoTransferStrategy, OptimizerStrategy, SimpleXpStrategy
 
-    dec_engine = resolve_decision_engine(decision_engine)
+    chosen_init_strat = initial_strategy or (
+        getattr(decision_engine, "initial_strategy", "balanced")
+        if isinstance(decision_engine, BaseDecisionEngine)
+        else "balanced"
+    )
+    chosen_init_horizon = initial_horizon or (
+        getattr(decision_engine, "initial_horizon", 5)
+        if isinstance(decision_engine, BaseDecisionEngine)
+        else 5
+    )
+
+    dec_engine = resolve_decision_engine(
+        decision_engine,
+        initial_strategy=chosen_init_strat,
+        initial_horizon=chosen_init_horizon,
+    )
     strategies: list[BacktestStrategy] = []
     strategy_label = "all"
 
@@ -592,6 +670,8 @@ def run_decision_backtest(
             save_report=False,
             predictor_version=predictor_version,
             decision_engine=dec_engine,
+            initial_strategy=chosen_init_strat,
+            initial_horizon=chosen_init_horizon,
         )
         simulations.append(sim)
 

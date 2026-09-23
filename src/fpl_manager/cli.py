@@ -796,6 +796,8 @@ import sys
 
 def resolve_predictor_version(name: str) -> str:
     clean = name.lower()
+    if clean in ("v1.1", "v11"):
+        return "v1.1"
     if clean in ("v1.0.1", "v101", "v1.0.1-canonical"):
         return "v1.0.1"
     if clean in ("v1.0", "v10", "v1.0.0", "v1.0-canonical"):
@@ -1037,6 +1039,7 @@ def main(argv: list[str] | None = None) -> None:
         ap.add_argument("--model", type=str, default=None, help="Model name override")
 
     PREDICTOR_CHOICES = [
+        "v1.1", "v11",
         "v1.0.1", "v1.0", "v1.0.0", "v1.0-canonical", "v1.0.1-canonical", "v101", "v10",
         "v0.9.1", "v0.9", "v0.8", "v0.7", "v091", "v09", "v08", "v07",
         "v0.9_part_v0.8_comp", "v0.8_part_v0.9_comp",
@@ -1044,13 +1047,22 @@ def main(argv: list[str] | None = None) -> None:
         "v09_part_v08_comp", "v08_part_v09_comp",
         "v09_no_regimes", "v09_no_calib", "v09_raw",
     ]
-    DECISION_ENGINE_CHOICES = ["v1.0.1", "v1.0", "v101", "v10", "v0.9.1", "v0.9", "v0.8", "v091", "v09", "v08"]
+    DECISION_ENGINE_CHOICES = [
+        "v1.1", "v11", "strategic",
+        "v1.0.1", "v1.0", "v101", "v10", "v0.9.1", "v0.9", "v0.8", "v091", "v09", "v08"
+    ]
+    INITIAL_STRATEGY_CHOICES = [
+        "balanced", "maximum_ev", "ceiling", "floor", "flexibility", "defend_lead", "chase_rank"
+    ]
 
     bt_pred_parser = subcommands.add_parser("backtest-predictions", help="Run historical prediction backtest against point-in-time datasets")
     bt_pred_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
     bt_pred_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_pred_parser.add_argument("--end-gw", type=int, default=38, help="Ending gameweek (default: 38)")
-    bt_pred_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
+    bt_pred_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v1.0.1", help="Prediction model version (v1.1, v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
+    bt_pred_parser.add_argument("--initial-strategy", choices=INITIAL_STRATEGY_CHOICES, default=None, help="Strategy for initial starting squad selection prior to GW1 (e.g. balanced, maximum_ev, ceiling, floor, flexibility, defend_lead, chase_rank)")
+    bt_pred_parser.add_argument("--initial-horizon", type=int, default=5, help="Planning horizon in gameweeks for initial squad selection (default: 5)")
+    bt_pred_parser.add_argument("--squad-only", "--filter-to-squad", dest="squad_only", action="store_true", help="Filter prediction evaluation metrics strictly to the selected starting 15-player squad")
     bt_pred_parser.add_argument("--report", action="store_true", help="Print formatted Markdown research report")
     bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
@@ -1060,8 +1072,10 @@ def main(argv: list[str] | None = None) -> None:
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
     bt_dec_parser.add_argument("--end-gw", type=int, default=10, help="Ending gameweek (default: 10)")
     bt_dec_parser.add_argument("--max-transfers", type=int, default=1, help="Max transfers evaluated per GW by optimizer")
-    bt_dec_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v0.9", help="Prediction model version (v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
-    bt_dec_parser.add_argument("--decision-engine", choices=DECISION_ENGINE_CHOICES, default="v0.9", help="Decision engine version ('v1.0.1'/'v1.0' neutral w=0.0, 'v0.9' participation-aware, or 'v0.8' frozen heuristic)")
+    bt_dec_parser.add_argument("--predictor", choices=PREDICTOR_CHOICES, default="v1.0.1", help="Prediction model version (v1.1, v1.0.1, v1.0, v0.9, v0.8, v0.7, or ablation variants)")
+    bt_dec_parser.add_argument("--decision-engine", choices=DECISION_ENGINE_CHOICES, default="v1.1", help="Decision engine version ('v1.1' strategic initial squad, 'v1.0.1'/'v1.0' neutral w=0.0, 'v0.9' participation-aware, or 'v0.8' frozen heuristic)")
+    bt_dec_parser.add_argument("--initial-strategy", choices=INITIAL_STRATEGY_CHOICES, default="balanced", help="Strategy for initial starting squad selection prior to GW1 (e.g. balanced, maximum_ev, ceiling, floor, flexibility, defend_lead, chase_rank)")
+    bt_dec_parser.add_argument("--initial-horizon", type=int, default=5, help="Planning horizon in gameweeks for initial squad selection (default: 5)")
     bt_dec_parser.add_argument("--compare-predictors", action="store_true", help="Run comparative A/B backtest against frozen baseline predictor")
     bt_dec_parser.add_argument("--baseline-predictor", choices=PREDICTOR_CHOICES, default="v0.8", help="Baseline predictor to compare against (default: v0.8)")
     bt_dec_parser.add_argument("--baseline-decision-engine", choices=DECISION_ENGINE_CHOICES, default="v0.8", help="Baseline decision engine to compare against (default: v0.8)")
@@ -1446,12 +1460,18 @@ def main(argv: list[str] | None = None) -> None:
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
             pred_ver = resolve_predictor_version(arguments.predictor)
+            init_strat = getattr(arguments, "initial_strategy", None)
+            init_horiz = getattr(arguments, "initial_horizon", 5)
+            squad_only = getattr(arguments, "squad_only", False)
             metrics, _ = run_prediction_backtest(
                 season_dir,
                 start_gw=arguments.start_gw,
                 end_gw=arguments.end_gw,
                 save_report=arguments.save_report,
                 predictor_version=pred_ver,
+                initial_strategy=init_strat,
+                initial_horizon=init_horiz,
+                filter_to_squad=squad_only,
             )
             if arguments.save_report:
                 print(f"Prediction backtest report saved to: {metrics.get('saved_report_path')}")
@@ -1465,10 +1485,12 @@ def main(argv: list[str] | None = None) -> None:
             if not season_dir.exists():
                 raise RuntimeError(f"Historical season dataset not found: {season_dir}")
             pred_ver = resolve_predictor_version(arguments.predictor)
-            dec_engine_ver = "v0.8" if arguments.decision_engine in ("v0.8", "v08") else "v0.9"
+            dec_engine_ver = arguments.decision_engine
+            init_strat = getattr(arguments, "initial_strategy", "balanced")
+            init_horiz = getattr(arguments, "initial_horizon", 5)
             if getattr(arguments, "compare_predictors", False):
                 base_ver = resolve_predictor_version(arguments.baseline_predictor)
-                base_dec_engine_ver = "v0.8" if getattr(arguments, "baseline_decision_engine", "v0.8") in ("v0.8", "v08") else "v0.9"
+                base_dec_engine_ver = getattr(arguments, "baseline_decision_engine", "v0.8")
                 sims_primary = run_decision_backtest(
                     season_dir=season_dir,
                     strategy=arguments.strategy,
@@ -1478,6 +1500,8 @@ def main(argv: list[str] | None = None) -> None:
                     save_report=False,
                     predictor_version=pred_ver,
                     decision_engine=dec_engine_ver,
+                    initial_strategy=init_strat,
+                    initial_horizon=init_horiz,
                 )
                 sims_baseline = run_decision_backtest(
                     season_dir=season_dir,
@@ -1488,6 +1512,8 @@ def main(argv: list[str] | None = None) -> None:
                     save_report=False,
                     predictor_version=base_ver,
                     decision_engine=base_dec_engine_ver,
+                    initial_strategy=init_strat,
+                    initial_horizon=init_horiz,
                 )
                 all_sims = sims_primary + sims_baseline
                 for sim in all_sims:
@@ -1510,6 +1536,8 @@ def main(argv: list[str] | None = None) -> None:
                     save_report=arguments.save_report,
                     predictor_version=pred_ver,
                     decision_engine=dec_engine_ver,
+                    initial_strategy=init_strat,
+                    initial_horizon=init_horiz,
                 )
 
                 for sim in simulations:

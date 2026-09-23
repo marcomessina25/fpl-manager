@@ -292,3 +292,122 @@ def test_cli_save_report_flags(capsys) -> None:
         dec_file.unlink()
 
 
+def test_run_prediction_backtest_v11_initial_squad() -> None:
+    season_dir = Path("data/historical/2023-24")
+    if not season_dir.exists():
+        pytest.skip("Historical data for 2023-24 not found")
+
+    metrics, records = run_prediction_backtest(
+        season_dir,
+        start_gw=1,
+        end_gw=2,
+        predictor_version="v1.1",
+        initial_strategy="balanced",
+        initial_horizon=5,
+    )
+
+    assert "ideal_initial_squad" in metrics
+    ideal = metrics["ideal_initial_squad"]
+    assert ideal is not None
+    assert ideal["strategy"] == "balanced"
+    assert ideal["horizon"] == 5
+    assert len(ideal["squad_ids"]) == 15
+    assert len(ideal["starters"]) == 11
+    assert len(ideal["bench"]) == 4
+    assert ideal["total_cost_tenths"] <= 1000
+    assert ideal["bank_remaining_tenths"] >= 0
+
+    assert "ideal_squad_metrics" in metrics
+    sq_metrics = metrics["ideal_squad_metrics"]
+    assert sq_metrics is not None
+    assert "xp" in sq_metrics
+    assert "xm" in sq_metrics
+    assert "availability" in sq_metrics
+
+
+def test_run_prediction_backtest_squad_only() -> None:
+    season_dir = Path("data/historical/2023-24")
+    if not season_dir.exists():
+        pytest.skip("Historical data for 2023-24 not found")
+
+    metrics, records = run_prediction_backtest(
+        season_dir,
+        start_gw=1,
+        end_gw=1,
+        predictor_version="v1.1",
+        initial_strategy="maximum_ev",
+        filter_to_squad=True,
+    )
+
+    # When filtered strictly to squad for 1 GW, total records should be 15
+    assert metrics["total_records"] == 15
+    assert len(records) == 15
+
+
+def test_run_decision_backtest_v11_initial_strategy() -> None:
+    from fpl_manager.backtest.engine import run_decision_backtest
+
+    season_dir = Path("data/historical/2023-24")
+    if not season_dir.exists():
+        pytest.skip("Historical data for 2023-24 not found")
+
+    sims = run_decision_backtest(
+        season_dir,
+        strategy="notransfer",
+        start_gw=1,
+        end_gw=2,
+        decision_engine="v1.1",
+        initial_strategy="maximum_ev",
+        initial_horizon=5,
+        save_report=False,
+    )
+
+    assert len(sims) == 1
+    sim = sims[0]
+    assert sim.decision_engine_version == "v1.1"
+    assert sim.initial_strategy == "maximum_ev"
+    assert sim.initial_horizon == 5
+    assert sim.initial_squad_ids is not None
+    assert len(sim.initial_squad_ids) == 15
+    assert sim.initial_squad_cost_tenths <= 1000
+    assert sim.initial_squad_bank_tenths >= 0
+
+
+def test_cli_backtest_v11_commands(capsys) -> None:
+    from fpl_manager.cli import main
+
+    season_dir = Path("data/historical/2023-24")
+    if not season_dir.exists():
+        pytest.skip("Historical data for 2023-24 not found")
+
+    # 1. Prediction CLI with v1.1 and initial strategy
+    main([
+        "backtest-predictions",
+        "--season", "2023-24",
+        "--start-gw", "1",
+        "--end-gw", "1",
+        "--predictor", "v1.1",
+        "--initial-strategy", "balanced",
+        "--report",
+    ])
+    captured = capsys.readouterr()
+    assert "## 0. V1.1 Ideal Initial Squad Selection" in captured.out
+    assert "Selection Strategy:" in captured.out
+    assert "`balanced`" in captured.out
+    assert "Starting XI Selected Before Matchday 1" in captured.out
+
+    # 2. Decision CLI with v1.1 and initial strategy
+    main([
+        "backtest-decisions",
+        "--season", "2023-24",
+        "--start-gw", "1",
+        "--end-gw", "1",
+        "--strategy", "notransfer",
+        "--decision-engine", "v1.1",
+        "--initial-strategy", "maximum_ev",
+    ])
+    captured = capsys.readouterr()
+    assert "engine=v1.1" in captured.out
+    assert "Net Points:" in captured.out
+
+
