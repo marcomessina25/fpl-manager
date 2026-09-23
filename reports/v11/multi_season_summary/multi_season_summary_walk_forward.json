@@ -1,0 +1,61 @@
+{
+  "seasons_evaluated": [
+    "2021-22",
+    "2022-23",
+    "2023-24",
+    "2024-25",
+    "2025-26"
+  ],
+  "horizon": 5,
+  "end_gw": 10,
+  "mean_point_gain": 12.0,
+  "std_point_gain": 33.95,
+  "win_rate_pct": 40.0,
+  "season_summaries": [
+    {
+      "season": "2021-22",
+      "strategic_net_points": 544,
+      "baseline_net_points": 551,
+      "delta_points": -7,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2022-23",
+      "strategic_net_points": 399,
+      "baseline_net_points": 405,
+      "delta_points": -6,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2023-24",
+      "strategic_net_points": 522,
+      "baseline_net_points": 527,
+      "delta_points": -5,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2024-25",
+      "strategic_net_points": 542,
+      "baseline_net_points": 536,
+      "delta_points": 6,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": true
+    },
+    {
+      "season": "2025-26",
+      "strategic_net_points": 570,
+      "baseline_net_points": 498,
+      "delta_points": 72,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": true
+    }
+  ]
+}

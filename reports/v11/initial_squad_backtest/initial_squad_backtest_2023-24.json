@@ -1,0 +1,427 @@
+{
+  "season": "2023-24",
+  "start_gw": 1,
+  "end_gw": 3,
+  "horizon": 3,
+  "predictor_version": "v1.0.1",
+  "decision_engine_version": "v1.0.1",
+  "timestamp": "2026-09-23T19:24:29.764286+00:00",
+  "starting_metrics": {
+    "Baseline A (Template)": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1175,
+      "squad_cost_millions": 117.5,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 260,
+      "bench_value_millions": 26.0,
+      "horizon_expected_points": 98.1,
+      "realized_horizon_points": 111,
+      "expected_vs_realized_delta": 12.9,
+      "captaincy_opportunity": 1.14,
+      "future_transfer_flexibility": 0.0,
+      "corrective_transfers_early": 0,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 37.24,
+          "realized_points": 36,
+          "captain_id": 500,
+          "captain_points": 0,
+          "zero_min_starters": [
+            500,
+            117
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 29.68,
+          "realized_points": 42,
+          "captain_id": 19,
+          "captain_points": 6,
+          "zero_min_starters": [
+            349,
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 31.18,
+          "realized_points": 33,
+          "captain_id": 352,
+          "captain_points": 4,
+          "zero_min_starters": [
+            349,
+            500
+          ]
+        }
+      ]
+    },
+    "Baseline B (Single-GW Optimizer)": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 200,
+      "bench_value_millions": 20.0,
+      "horizon_expected_points": 89.23,
+      "realized_horizon_points": 124,
+      "expected_vs_realized_delta": 34.77,
+      "captaincy_opportunity": 2.23,
+      "future_transfer_flexibility": 0.0,
+      "corrective_transfers_early": 2,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 34.1,
+          "realized_points": 51,
+          "captain_id": 355,
+          "captain_points": 26,
+          "zero_min_starters": [
+            10,
+            24,
+            500
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 24.54,
+          "realized_points": 43,
+          "captain_id": 355,
+          "captain_points": 4,
+          "zero_min_starters": [
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 30.59,
+          "realized_points": 30,
+          "captain_id": 343,
+          "captain_points": 4,
+          "zero_min_starters": [
+            209,
+            500
+          ]
+        }
+      ]
+    },
+    "Candidate Maximum EV": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 200,
+      "bench_value_millions": 20.0,
+      "horizon_expected_points": 345.15,
+      "realized_horizon_points": 146,
+      "expected_vs_realized_delta": -199.15,
+      "captaincy_opportunity": 2.34,
+      "future_transfer_flexibility": 68.0,
+      "corrective_transfers_early": 2,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 34.42,
+          "realized_points": 63,
+          "captain_id": 355,
+          "captain_points": 26,
+          "zero_min_starters": [
+            10,
+            500
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 25.58,
+          "realized_points": 55,
+          "captain_id": 355,
+          "captain_points": 4,
+          "zero_min_starters": [
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 33.21,
+          "realized_points": 28,
+          "captain_id": 398,
+          "captain_points": 0,
+          "zero_min_starters": [
+            398,
+            209
+          ]
+        }
+      ]
+    },
+    "Candidate Balanced": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 200,
+      "bench_value_millions": 20.0,
+      "horizon_expected_points": 345.0,
+      "realized_horizon_points": 144,
+      "expected_vs_realized_delta": -201.0,
+      "captaincy_opportunity": 2.34,
+      "future_transfer_flexibility": 68.0,
+      "corrective_transfers_early": 2,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 34.42,
+          "realized_points": 61,
+          "captain_id": 355,
+          "captain_points": 26,
+          "zero_min_starters": [
+            10,
+            500
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 25.58,
+          "realized_points": 54,
+          "captain_id": 355,
+          "captain_points": 4,
+          "zero_min_starters": [
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 33.19,
+          "realized_points": 29,
+          "captain_id": 398,
+          "captain_points": 0,
+          "zero_min_starters": [
+            398,
+            500
+          ]
+        }
+      ]
+    },
+    "Candidate High Floor": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 220,
+      "bench_value_millions": 22.0,
+      "horizon_expected_points": 91.83,
+      "realized_horizon_points": 146,
+      "expected_vs_realized_delta": 54.17,
+      "captaincy_opportunity": 1.73,
+      "future_transfer_flexibility": 0.0,
+      "corrective_transfers_early": 2,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 33.97,
+          "realized_points": 38,
+          "captain_id": 500,
+          "captain_points": 0,
+          "zero_min_starters": [
+            350,
+            500,
+            617
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 24.67,
+          "realized_points": 67,
+          "captain_id": 14,
+          "captain_points": 22,
+          "zero_min_starters": [
+            26,
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 33.19,
+          "realized_points": 41,
+          "captain_id": 195,
+          "captain_points": 12,
+          "zero_min_starters": [
+            148,
+            398,
+            500
+          ]
+        }
+      ]
+    },
+    "Candidate High Ceiling": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 200,
+      "bench_value_millions": 20.0,
+      "horizon_expected_points": 92.99,
+      "realized_horizon_points": 133,
+      "expected_vs_realized_delta": 40.01,
+      "captaincy_opportunity": 1.63,
+      "future_transfer_flexibility": 0.0,
+      "corrective_transfers_early": 3,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 34.4,
+          "realized_points": 37,
+          "captain_id": 308,
+          "captain_points": 10,
+          "zero_min_starters": [
+            152,
+            24,
+            390
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 25.56,
+          "realized_points": 63,
+          "captain_id": 308,
+          "captain_points": 10,
+          "zero_min_starters": [
+            349,
+            188
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 33.03,
+          "realized_points": 33,
+          "captain_id": 101,
+          "captain_points": 8,
+          "zero_min_starters": [
+            398,
+            349
+          ]
+        }
+      ]
+    },
+    "Candidate Flexibility": {
+      "squad_size": 15,
+      "squad_cost_tenths": 1000,
+      "squad_cost_millions": 100.0,
+      "bank_tenths": 0,
+      "bank_millions": 0.0,
+      "bench_value_tenths": 200,
+      "bench_value_millions": 20.0,
+      "horizon_expected_points": 343.62,
+      "realized_horizon_points": 124,
+      "expected_vs_realized_delta": -219.62,
+      "captaincy_opportunity": 2.23,
+      "future_transfer_flexibility": 68.0,
+      "corrective_transfers_early": 2,
+      "gw_breakdown": [
+        {
+          "gameweek": 1,
+          "projected_xp": 34.1,
+          "realized_points": 51,
+          "captain_id": 355,
+          "captain_points": 26,
+          "zero_min_starters": [
+            10,
+            24,
+            500
+          ]
+        },
+        {
+          "gameweek": 2,
+          "projected_xp": 24.54,
+          "realized_points": 43,
+          "captain_id": 355,
+          "captain_points": 4,
+          "zero_min_starters": [
+            500
+          ]
+        },
+        {
+          "gameweek": 3,
+          "projected_xp": 30.59,
+          "realized_points": 30,
+          "captain_id": 343,
+          "captain_points": 4,
+          "zero_min_starters": [
+            209,
+            500
+          ]
+        }
+      ]
+    }
+  },
+  "downstream_simulations": {
+    "Baseline A (Template)": {
+      "total_net_points": 111,
+      "total_gross_points": 111,
+      "total_hits": 0,
+      "total_transfers": 0,
+      "zero_min_starters": 6,
+      "bench_regret_points": 14,
+      "strategic_regret": 51
+    },
+    "Baseline B (Single-GW Optimizer)": {
+      "total_net_points": 139,
+      "total_gross_points": 139,
+      "total_hits": 0,
+      "total_transfers": 2,
+      "zero_min_starters": 6,
+      "bench_regret_points": 3,
+      "strategic_regret": 23
+    },
+    "Candidate Maximum EV": {
+      "total_net_points": 162,
+      "total_gross_points": 162,
+      "total_hits": 0,
+      "total_transfers": 2,
+      "zero_min_starters": 5,
+      "bench_regret_points": 3,
+      "strategic_regret": 0
+    },
+    "Candidate Balanced": {
+      "total_net_points": 160,
+      "total_gross_points": 160,
+      "total_hits": 0,
+      "total_transfers": 2,
+      "zero_min_starters": 5,
+      "bench_regret_points": 3,
+      "strategic_regret": 2
+    },
+    "Candidate High Floor": {
+      "total_net_points": 155,
+      "total_gross_points": 155,
+      "total_hits": 0,
+      "total_transfers": 2,
+      "zero_min_starters": 7,
+      "bench_regret_points": 1,
+      "strategic_regret": 7
+    },
+    "Candidate High Ceiling": {
+      "total_net_points": 152,
+      "total_gross_points": 152,
+      "total_hits": 0,
+      "total_transfers": 3,
+      "zero_min_starters": 6,
+      "bench_regret_points": 6,
+      "strategic_regret": 10
+    },
+    "Candidate Flexibility": {
+      "total_net_points": 139,
+      "total_gross_points": 139,
+      "total_hits": 0,
+      "total_transfers": 2,
+      "zero_min_starters": 6,
+      "bench_regret_points": 3,
+      "strategic_regret": 23
+    }
+  }
+}

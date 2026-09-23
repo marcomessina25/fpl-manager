@@ -1,0 +1,51 @@
+{
+  "season": "2023-24",
+  "end_gw": 3,
+  "error_counts": {
+    "STARTING_STATE_ERROR": 0,
+    "PREDICTION_ERROR": 5,
+    "DECISION_ERROR": 0,
+    "INTERACTION_ERROR": 0,
+    "HARMLESS": 0
+  },
+  "lost_points_by_category": {
+    "STARTING_STATE_ERROR": 0,
+    "PREDICTION_ERROR": 10,
+    "DECISION_ERROR": 0,
+    "INTERACTION_ERROR": 0,
+    "HARMLESS": 0
+  },
+  "total_lost_points": 10,
+  "ledger_sample": [
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 10,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 500,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 2,
+      "category": "PREDICTION_ERROR",
+      "player_id": 500,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 3,
+      "category": "PREDICTION_ERROR",
+      "player_id": 398,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 3,
+      "category": "PREDICTION_ERROR",
+      "player_id": 500,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    }
+  ]
+}

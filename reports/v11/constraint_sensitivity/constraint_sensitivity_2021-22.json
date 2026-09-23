@@ -1,0 +1,41 @@
+{
+  "season": "2021-22",
+  "horizon": 5,
+  "scenarios": {
+    "Baseline (Unconstrained)": {
+      "objective": 989.04,
+      "opportunity_cost": 0.0,
+      "players_changed": 0,
+      "net_points_gw10": 544,
+      "delta_points": 0
+    },
+    "Lock 'Mohamed Salah'": {
+      "objective": 989.24,
+      "opportunity_cost": 0.0,
+      "players_changed": 2,
+      "net_points_gw10": 556,
+      "delta_points": 12
+    },
+    "Exclude 'Mohamed Salah'": {
+      "objective": 979.63,
+      "opportunity_cost": 9.41,
+      "players_changed": 5,
+      "net_points_gw10": 354,
+      "delta_points": -190
+    },
+    "Prefer 'Sadio Mané'": {
+      "objective": 991.04,
+      "opportunity_cost": 0.0,
+      "players_changed": 0,
+      "net_points_gw10": 544,
+      "delta_points": 0
+    },
+    "Reserve £1.0m Bank": {
+      "objective": 980.3,
+      "opportunity_cost": 8.74,
+      "players_changed": 1,
+      "net_points_gw10": 575,
+      "delta_points": 31
+    }
+  }
+}

@@ -28,12 +28,29 @@ from ..fixtures import get_current_gameweek
 from ..lineup import build_logged_lineup, select_starting_lineup
 from ..live_matchday import get_live_gameweek_matchday_summary
 from ..llm_advisor import generate_llm_advisory
+from ..models import Position
 from ..planner import generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
 from ..squad_report import generate_squad_report
 from ..storage import SnapshotStore
-from ..suggest_transfers import suggest_transfers, suggest_wildcard
-from ..transfers import execute_transfers
+from ..strategic_squad import (
+    STRATEGIC_MODES,
+    STRATEGIC_PROFILES,
+    StrategicCandidate,
+    StrategicConstraints,
+    analyze_constraint_impact,
+    generate_strategic_candidates,
+    reoptimize_strategic_squad,
+    solve_strategic_squad,
+)
+from ..suggest_transfers import (
+    load_all_players_meta,
+    suggest_initial_squad,
+    suggest_strategic_squad,
+    suggest_transfers,
+    suggest_wildcard,
+)
+from ..transfers import execute_transfers, selling_price
 from ..teams import (
     create_team,
     delete_team,
@@ -220,6 +237,71 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                     num_gameweeks=gws,
                     risk_profile=risk,
+                )
+                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+                self._send_json(rep)
+            elif path == "/api/strategic-squad/config":
+                tid = get_arg("team") or get_active_team_id(self.config_dir)
+                store = SnapshotStore(self.database_path)
+                current_gw = get_current_gameweek(store)
+                team_info = get_team(tid, self.config_dir)
+
+                players_map, _ = load_all_players_meta(store)
+                player_list = [
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "position": p.position.name,
+                        "pos_abbr": {
+                            Position.GOALKEEPER: "GKP",
+                            Position.DEFENDER: "DEF",
+                            Position.MIDFIELDER: "MID",
+                            Position.FORWARD: "FWD",
+                        }.get(p.position, "MID"),
+                        "team": p.team_short,
+                        "team_id": p.team_id,
+                        "price_fmt": f"£{p.price_tenths / 10:.1f}m",
+                        "price_tenths": p.price_tenths,
+                        "expected_points": getattr(p, "expected_points", 0.0),
+                        "status": getattr(p, "status", "a"),
+                    }
+                    for p in sorted(players_map.values(), key=lambda x: (x.position.value, -x.total_points))
+                ]
+
+                self._send_json({
+                    "modes": list(STRATEGIC_MODES),
+                    "strategies": list(STRATEGIC_PROFILES),
+                    "default_horizons": [1, 2, 3, 4, 5, 6, 7, 8],
+                    "current_gameweek": current_gw,
+                    "active_team": team_info,
+                    "players": player_list,
+                })
+            elif path == "/api/strategic-squad":
+                tid = get_arg("team")
+                mode = get_arg("mode", "initial")
+                horizon = int(get_arg("horizon", 5))
+                strategy = get_arg("strategy", "balanced")
+                budget_arg = get_arg("budget")
+                budget = float(budget_arg) if budget_arg else None
+                locks_raw = get_arg("lock") or get_arg("locks")
+                locks = [int(i.strip()) for i in locks_raw.split(",") if i.strip()] if locks_raw else []
+                excl_raw = get_arg("exclude") or get_arg("excludes")
+                excl = [int(i.strip()) for i in excl_raw.split(",") if i.strip()] if excl_raw else []
+                pref_raw = get_arg("prefer") or get_arg("prefers")
+                pref = [int(i.strip()) for i in pref_raw.split(",") if i.strip()] if pref_raw else []
+                squad_path = get_team_squad_path(tid, self.config_dir)
+
+                rep = suggest_strategic_squad(
+                    mode=mode,
+                    budget_millions=budget,
+                    squad_path=squad_path,
+                    database_path=self.database_path,
+                    num_gameweeks=horizon,
+                    strategy=strategy,
+                    locked_player_ids=locks,
+                    excluded_player_ids=excl,
+                    preferred_player_ids=pref,
+                    generate_all_candidates=True,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -481,6 +563,152 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                 )
                 self._send_json(res)
+            elif path == "/api/strategic-squad/optimize":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                mode = body.get("mode", "initial")
+                horizon = int(body.get("horizon", 5))
+                strategy = body.get("strategy", "balanced")
+                budget = float(body.get("budget")) if body.get("budget") is not None else None
+                locked_ids = [int(i) for i in body.get("locked_player_ids", [])]
+                excluded_ids = [int(i) for i in body.get("excluded_player_ids", [])]
+                preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
+                squad_path = get_team_squad_path(tid, self.config_dir)
+
+                rep = suggest_strategic_squad(
+                    mode=mode,
+                    budget_millions=budget,
+                    squad_path=squad_path,
+                    database_path=self.database_path,
+                    num_gameweeks=horizon,
+                    strategy=strategy,
+                    locked_player_ids=locked_ids,
+                    excluded_player_ids=excluded_ids,
+                    preferred_player_ids=preferred_ids,
+                    generate_all_candidates=True,
+                )
+                rep["team_id"] = tid
+                self._send_json(rep)
+            elif path == "/api/strategic-squad/reoptimize":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                prev_cand_data = body.get("previous_candidate", {})
+                mode = body.get("mode") or prev_cand_data.get("mode", "initial")
+                horizon = int(body.get("horizon") or len(prev_cand_data.get("horizon_gws", [1, 2, 3, 4, 5])))
+                strategy = body.get("strategy") or prev_cand_data.get("strategy", "balanced")
+                budget = float(body.get("budget")) if body.get("budget") is not None else None
+                locked_ids = [int(i) for i in body.get("locked_player_ids", [])]
+                excluded_ids = [int(i) for i in body.get("excluded_player_ids", [])]
+                preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
+                squad_path = get_team_squad_path(tid, self.config_dir)
+
+                store = SnapshotStore(self.database_path)
+                start_gw = get_current_gameweek(store)
+                h_len = max(1, min(8, horizon))
+                target_gws = list(range(start_gw, start_gw + h_len))
+                from ..expected_points import project_multi_gameweek_profiles
+                profiles_map = project_multi_gameweek_profiles(target_gws, database_path=self.database_path)
+                players_map, _ = load_all_players_meta(store, profiles_map)
+
+                if budget is not None:
+                    budget_tenths = int(round(budget * 10))
+                elif mode == "initial":
+                    budget_tenths = 1000
+                else:
+                    try:
+                        state = load_current_squad(squad_path)
+                        squad_selling_value = sum(
+                            selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+                            for p_id in state.player_ids
+                            if p_id in players_map
+                        )
+                        budget_tenths = state.bank_tenths + squad_selling_value
+                    except Exception:
+                        budget_tenths = 1000
+
+                constraints = StrategicConstraints(
+                    budget_tenths=budget_tenths,
+                    locked_player_ids=set(locked_ids),
+                    excluded_player_ids=set(excluded_ids),
+                    preferred_player_ids=set(preferred_ids),
+                    target_gameweeks=tuple(target_gws),
+                )
+                candidate_pool = list(players_map.values())
+                new_cand = solve_strategic_squad(
+                    candidate_pool=candidate_pool,
+                    constraints=constraints,
+                    strategy=strategy,
+                    mode=mode,
+                )
+
+                if prev_cand_data and "player_ids" in prev_cand_data:
+                    prev_cand = StrategicCandidate(
+                        candidate_id=prev_cand_data.get("candidate_id", "prev"),
+                        mode=prev_cand_data.get("mode", mode),
+                        strategy=prev_cand_data.get("strategy", strategy),
+                        total_objective_value=float(prev_cand_data.get("total_objective_value", 0.0)),
+                        horizon_gws=prev_cand_data.get("horizon_gws", target_gws),
+                        horizon_xp=float(prev_cand_data.get("horizon_xp", 0.0)),
+                        horizon_breakdown=prev_cand_data.get("horizon_breakdown", {}),
+                        start_gw_lineup_xp=float(prev_cand_data.get("start_gw_lineup_xp", 0.0)),
+                        formation=prev_cand_data.get("formation", "3-4-3"),
+                        total_cost_tenths=int(prev_cand_data.get("total_cost_tenths", 1000)),
+                        bank_remaining_tenths=int(prev_cand_data.get("bank_remaining_tenths", 0)),
+                        total_cost_fmt=prev_cand_data.get("total_cost_fmt", "£100.0m"),
+                        bank_remaining_fmt=prev_cand_data.get("bank_remaining_fmt", "£0.0m"),
+                        future_flexibility_score=float(prev_cand_data.get("future_flexibility_score", 50.0)),
+                        fixture_ease_score=float(prev_cand_data.get("fixture_ease_score", 3.0)),
+                        bench_value_score=float(prev_cand_data.get("bench_value_score", 0.0)),
+                        captaincy_score=float(prev_cand_data.get("captaincy_score", 0.0)),
+                        risk_score=float(prev_cand_data.get("risk_score", 0.0)),
+                        starters=prev_cand_data.get("starters", []),
+                        bench=prev_cand_data.get("bench", []),
+                        captain=prev_cand_data.get("captain", {}),
+                        vice_captain=prev_cand_data.get("vice_captain", {}),
+                        squad=prev_cand_data.get("squad", []),
+                        player_ids=prev_cand_data.get("player_ids", []),
+                        locked_player_ids=prev_cand_data.get("locked_player_ids", []),
+                        excluded_player_ids=prev_cand_data.get("excluded_player_ids", []),
+                        preferred_player_ids=prev_cand_data.get("preferred_player_ids", []),
+                        is_exact_global_optimum=prev_cand_data.get("is_exact_global_optimum", False),
+                        algorithm=prev_cand_data.get("algorithm", ""),
+                        search_metadata=prev_cand_data.get("search_metadata", {}),
+                        provenance=prev_cand_data.get("provenance", {}),
+                    )
+                    impact = analyze_constraint_impact(prev_cand, new_cand)
+                else:
+                    impact = {"summary": "Re-optimization completed.", "opportunity_cost": 0.0, "objective_delta": 0.0}
+
+                res = new_cand.to_dict()
+                res["constraint_impact"] = impact
+                self._send_json(res)
+            elif path == "/api/strategic-squad/apply":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                mode = body.get("mode", "initial")
+                cand_data = body.get("candidate", {})
+                squad_ids = [int(i) for i in cand_data.get("player_ids", body.get("squad_ids", []))]
+                starter_ids = [int(p["id"]) for p in cand_data.get("starters", [])] or [int(i) for i in body.get("starter_ids", [])]
+                bench_ids = [int(p["id"]) for p in cand_data.get("bench", [])] or [int(i) for i in body.get("bench_ids", [])]
+                cap_id = int(cand_data.get("captain", {}).get("id") or (starter_ids[0] if starter_ids else 0))
+                vc_id = int(cand_data.get("vice_captain", {}).get("id") or (starter_ids[1] if len(starter_ids) > 1 else cap_id))
+                bank_tenths = int(cand_data.get("bank_remaining_tenths", body.get("bank_tenths", 0)))
+                gw_val = body.get("gameweek")
+                gw = int(gw_val) if gw_val is not None else 1
+                squad_path = get_team_squad_path(tid, self.config_dir)
+
+                res = apply_wildcard_or_freehit(
+                    squad_path=squad_path,
+                    gameweek=gw,
+                    mode=mode,
+                    squad_ids=squad_ids,
+                    starter_ids=starter_ids,
+                    bench_ids=bench_ids,
+                    captain_id=cap_id,
+                    vice_captain_id=vc_id,
+                    bank_tenths=bank_tenths,
+                    team_id=tid,
+                    season=body.get("season", "2026/27"),
+                    database_path=self.database_path,
+                )
+                self._send_json(res)
             elif path == "/api/update-data":
                 from ..cli import update
                 res = update()
@@ -490,7 +718,6 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if gw is not None:
                     gw = int(gw)
                 else:
-                    from ..fixtures import get_current_gameweek
                     from contextlib import closing
                     store = SnapshotStore(self.database_path)
                     curr_gw = get_current_gameweek(store)

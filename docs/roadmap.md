@@ -134,7 +134,7 @@ Automated learning loops
 | V0.8 | Participation/rank/context | Completed |
 | V0.9 | Learned participation/closed-loop/hardening | Completed |
 | V1.0 | Stable production platform | Release candidate / PR-ready |
-| **V1.1** | **Strategic squad + GUI + full ML analysis** | **Next major milestone** |
+| **V1.1** | **Strategic squad + GUI + full ML analysis** | **Completed / Validated** |
 | V1.2 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
@@ -1993,51 +1993,51 @@ Use distinct states:
 
 ### Engine
 
-- [ ] Generalize squad-construction framework.
-- [ ] Define strategic objective interface.
-- [ ] Add Initial Squad mode.
-- [ ] Add strategic Wildcard mode.
-- [ ] Generalize Free Hit.
-- [ ] Add hard constraints.
-- [ ] Add soft preferences.
-- [ ] Add lock/exclude/prefer model.
-- [ ] Add multiple candidate solutions.
-- [ ] Add configurable horizons.
-- [ ] Add constraint impact analysis.
-- [ ] Integrate with multi-GW planner.
+- [x] Generalize squad-construction framework.
+- [x] Define strategic objective interface.
+- [x] Add Initial Squad mode.
+- [x] Add strategic Wildcard mode.
+- [x] Generalize Free Hit.
+- [x] Add hard constraints.
+- [x] Add soft preferences.
+- [x] Add lock/exclude/prefer model.
+- [x] Add multiple candidate solutions.
+- [x] Add configurable horizons.
+- [x] Add constraint impact analysis.
+- [x] Integrate with multi-GW planner.
 
 ### GUI
 
-- [ ] Build Strategic Squad Studio.
-- [ ] Add Initial Squad workflow.
-- [ ] Add Wildcard workflow.
-- [ ] Generalize Free Hit workflow.
-- [ ] Add candidate comparison.
-- [ ] Add player lock/unlock.
-- [ ] Add exclude/prefer.
-- [ ] Add strategy selection.
-- [ ] Add horizon selection.
-- [ ] Add re-optimization.
-- [ ] Add opportunity-cost explanation.
-- [ ] Add provenance.
-- [ ] Connect output to normal decision workflow.
+- [x] Build Strategic Squad Studio.
+- [x] Add Initial Squad workflow.
+- [x] Add Wildcard workflow.
+- [x] Generalize Free Hit workflow.
+- [x] Add candidate comparison.
+- [x] Add player lock/unlock.
+- [x] Add exclude/prefer.
+- [x] Add strategy selection.
+- [x] Add horizon selection.
+- [x] Add re-optimization.
+- [x] Add opportunity-cost explanation.
+- [x] Add provenance.
+- [x] Connect output to normal decision workflow.
 
 ### ML
 
-- [ ] Historical initial-squad reconstruction.
-- [ ] Historical Wildcard reconstruction.
-- [ ] Multi-strategy backtest.
-- [ ] Multi-horizon backtest.
-- [ ] Starting-state metrics.
-- [ ] End-to-end season replay.
-- [ ] Starting-state × predictor × decision-engine ablation.
-- [ ] Strategic regret.
-- [ ] Solution multiplicity.
-- [ ] Constraint sensitivity.
-- [ ] Horizon sensitivity.
-- [ ] Strategy sensitivity.
-- [ ] Starting-state error attribution.
-- [ ] Multi-season walk-forward reports.
+- [x] Historical initial-squad reconstruction.
+- [x] Historical Wildcard reconstruction.
+- [x] Multi-strategy backtest.
+- [x] Multi-horizon backtest.
+- [x] Starting-state metrics.
+- [x] End-to-end season replay.
+- [x] Starting-state × predictor × decision-engine ablation.
+- [x] Strategic regret.
+- [x] Solution multiplicity.
+- [x] Constraint sensitivity.
+- [x] Horizon sensitivity.
+- [x] Strategy sensitivity.
+- [x] Starting-state error attribution.
+- [x] Multi-season walk-forward reports.
 
 ## After V1.1 — V1.2
 

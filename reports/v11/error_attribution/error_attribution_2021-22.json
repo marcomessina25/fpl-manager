@@ -1,0 +1,81 @@
+{
+  "season": "2021-22",
+  "end_gw": 10,
+  "error_counts": {
+    "STARTING_STATE_ERROR": 0,
+    "PREDICTION_ERROR": 17,
+    "DECISION_ERROR": 5,
+    "INTERACTION_ERROR": 0,
+    "HARMLESS": 0
+  },
+  "lost_points_by_category": {
+    "STARTING_STATE_ERROR": 0,
+    "PREDICTION_ERROR": 34,
+    "DECISION_ERROR": 33,
+    "INTERACTION_ERROR": 0,
+    "HARMLESS": 0
+  },
+  "total_lost_points": 67,
+  "ledger_sample": [
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 65,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 121,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 243,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 164,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 1,
+      "category": "PREDICTION_ERROR",
+      "player_id": 166,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 2,
+      "category": "PREDICTION_ERROR",
+      "player_id": 243,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 2,
+      "category": "PREDICTION_ERROR",
+      "player_id": 164,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 3,
+      "category": "PREDICTION_ERROR",
+      "player_id": 164,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 4,
+      "category": "PREDICTION_ERROR",
+      "player_id": 43,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    },
+    {
+      "gw": 4,
+      "category": "PREDICTION_ERROR",
+      "player_id": 164,
+      "description": "0-minute starter selected; expected minutes prediction failed."
+    }
+  ]
+}

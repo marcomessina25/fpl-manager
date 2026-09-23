@@ -93,6 +93,7 @@ function initTabs() {
           populateDecisionLoggerSquad(state.currentSquad.players);
         }
       }
+      if (target === "strategic") loadStrategicStudio();
       if (target === "chips") loadChipStrategy();
       if (target === "evaluation") loadEvaluation();
       if (target === "live") loadLiveMatchday();
@@ -2711,12 +2712,603 @@ async function syncGameweekAndScoresAtStartup() {
   }
 }
 
+// =========================================================================
+// STRATEGIC SQUAD STUDIO (V1.1) CLIENT CONTROLLER
+// =========================================================================
+
+const strategicState = {
+  mode: "initial",
+  horizon: 5,
+  strategy: "balanced",
+  budget: 100.0,
+  lockedPlayerIds: new Set(),
+  excludedPlayerIds: new Set(),
+  preferredPlayerIds: new Set(),
+  candidates: {},
+  selectedCandidateKey: "balanced",
+  previousCandidate: null,
+  allPlayers: [],
+  initialized: false,
+};
+
+async function loadStrategicStudio() {
+  try {
+    const config = await api("/api/strategic-squad/config");
+    if (config && config.players) {
+      strategicState.allPlayers = config.players;
+      populateStrategicPlayersDatalist(config.players);
+    }
+    const statusBadge = document.getElementById("strategic-status-badge");
+    const horizonBadge = document.getElementById("strategic-horizon-badge");
+    if (statusBadge) statusBadge.textContent = `Mode: ${strategicState.mode.replace('_', ' ').toUpperCase()}`;
+    if (horizonBadge) horizonBadge.textContent = `Horizon: ${strategicState.horizon} GWs`;
+  } catch (err) {
+    console.warn("Failed to load strategic squad config:", err);
+  }
+}
+
+function populateStrategicPlayersDatalist(players) {
+  const datalist = document.getElementById("strategic-players-datalist");
+  if (!datalist) return;
+  datalist.innerHTML = "";
+  players.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = `${p.name} (${p.pos_abbr || p.position}, ${p.team}, ${p.price_fmt})`;
+    opt.dataset.id = p.id;
+    datalist.appendChild(opt);
+  });
+}
+
+function findStrategicPlayerFromInput() {
+  const input = document.getElementById("strategic-player-search");
+  if (!input || !input.value.trim()) return null;
+  const val = input.value.trim().toLowerCase();
+  const matched = strategicState.allPlayers.find(p => {
+    const full = `${p.name} (${p.pos_abbr || p.position}, ${p.team}, ${p.price_fmt})`.toLowerCase();
+    return full === val || p.name.toLowerCase() === val;
+  });
+  if (matched) return matched;
+  return strategicState.allPlayers.find(p => p.name.toLowerCase().includes(val));
+}
+
+function renderActiveConstraintPills() {
+  const container = document.getElementById("active-constraints-container");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const hasConstraints = (
+    strategicState.lockedPlayerIds.size > 0 ||
+    strategicState.excludedPlayerIds.size > 0 ||
+    strategicState.preferredPlayerIds.size > 0
+  );
+
+  const reoptBtn = document.getElementById("btn-reoptimize-strategic");
+  if (reoptBtn) reoptBtn.disabled = !hasConstraints || !strategicState.previousCandidate;
+
+  if (!hasConstraints) {
+    container.innerHTML = `<span class="text-muted" id="no-constraints-text" style="font-size: 0.85rem;">No active player constraints. Optimizer has full search freedom.</span>`;
+    return;
+  }
+
+  const playerById = new Map(strategicState.allPlayers.map(p => [p.id, p]));
+
+  strategicState.lockedPlayerIds.forEach(id => {
+    const p = playerById.get(id);
+    const name = p ? `${p.name} (${p.pos_abbr || p.position})` : `ID:${id}`;
+    const pill = document.createElement("span");
+    pill.className = "constraint-pill constraint-pill-lock";
+    pill.innerHTML = `🔒 ${escapeHtml(name)} <button type="button" class="btn-remove-pill" data-type="lock" data-id="${id}" title="Remove lock">×</button>`;
+    container.appendChild(pill);
+  });
+
+  strategicState.excludedPlayerIds.forEach(id => {
+    const p = playerById.get(id);
+    const name = p ? `${p.name} (${p.pos_abbr || p.position})` : `ID:${id}`;
+    const pill = document.createElement("span");
+    pill.className = "constraint-pill constraint-pill-exclude";
+    pill.innerHTML = `🚫 ${escapeHtml(name)} <button type="button" class="btn-remove-pill" data-type="exclude" data-id="${id}" title="Remove exclusion">×</button>`;
+    container.appendChild(pill);
+  });
+
+  strategicState.preferredPlayerIds.forEach(id => {
+    const p = playerById.get(id);
+    const name = p ? `${p.name} (${p.pos_abbr || p.position})` : `ID:${id}`;
+    const pill = document.createElement("span");
+    pill.className = "constraint-pill constraint-pill-prefer";
+    pill.innerHTML = `⭐ ${escapeHtml(name)} <button type="button" class="btn-remove-pill" data-type="prefer" data-id="${id}" title="Remove preference">×</button>`;
+    container.appendChild(pill);
+  });
+
+  container.querySelectorAll(".btn-remove-pill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.type;
+      const pid = parseInt(btn.dataset.id, 10);
+      if (type === "lock") strategicState.lockedPlayerIds.delete(pid);
+      if (type === "exclude") strategicState.excludedPlayerIds.delete(pid);
+      if (type === "prefer") strategicState.preferredPlayerIds.delete(pid);
+      renderActiveConstraintPills();
+    });
+  });
+}
+
+function renderStrategicMatrix(candidates) {
+  const tbody = document.getElementById("strategic-matrix-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const candidateKeys = ["maximum_ev", "balanced", "floor", "ceiling", "flexibility"];
+
+  const metrics = [
+    { label: "Total Strategic Objective", fn: c => c.total_objective_value ? c.total_objective_value.toFixed(1) : "-" },
+    { label: "Horizon Projected xP", fn: c => c.horizon_xp ? `${c.horizon_xp.toFixed(1)} xP` : "-" },
+    { label: "GW1 Lineup Projected xP", fn: c => c.start_gw_lineup_xp ? `${c.start_gw_lineup_xp.toFixed(1)} xP` : "-" },
+    { label: "Optimized Formation", fn: c => c.formation || "-" },
+    { label: "Total Cost", fn: c => c.total_cost_fmt || "-" },
+    { label: "Bank Remaining", fn: c => c.bank_remaining_fmt || "-" },
+    { label: "Future Flexibility Score", fn: c => c.future_flexibility_score ? `${c.future_flexibility_score.toFixed(0)} / 100` : "-" },
+    { label: "Bench Value Score", fn: c => c.bench_value_score ? `${c.bench_value_score.toFixed(1)}` : "-" },
+    { label: "Structural Risk Penalty", fn: c => c.risk_score ? `-${c.risk_score.toFixed(1)} pts` : "0.0 pts" },
+  ];
+
+  metrics.forEach(m => {
+    const tr = document.createElement("tr");
+    let rowHtml = `<td class="metric-name">${escapeHtml(m.label)}</td>`;
+    candidateKeys.forEach(k => {
+      const c = candidates[k];
+      const val = c ? m.fn(c) : "-";
+      const isSel = k === strategicState.selectedCandidateKey;
+      rowHtml += `<td style="${isSel ? 'background: rgba(124, 58, 237, 0.2); font-weight: 700;' : ''}">${escapeHtml(val)}</td>`;
+    });
+    tr.innerHTML = rowHtml;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderStrategicPitch(candidate) {
+  const container = document.getElementById("strategic-pitch-container");
+  if (!container || !candidate) return;
+  container.innerHTML = "";
+
+  const titleEl = document.getElementById("selected-candidate-title");
+  const formEl = document.getElementById("selected-candidate-formation");
+  if (titleEl) titleEl.textContent = `${candidate.strategy.toUpperCase().replace('_', ' ')} Strategic Candidate`;
+  if (formEl) formEl.textContent = `Formation: ${candidate.formation || "3-4-3"} · Total Cost: ${candidate.total_cost_fmt || ""} · Bank: ${candidate.bank_remaining_fmt || ""}`;
+
+  const starters = candidate.starters || [];
+  const bench = candidate.bench || [];
+
+  const byPos = { GKP: [], DEF: [], MID: [], FWD: [] };
+  starters.forEach(p => {
+    const pos = p.pos_abbr || p.position;
+    if (byPos[pos]) byPos[pos].push(p);
+    else byPos.MID.push(p);
+  });
+
+  ["GKP", "DEF", "MID", "FWD"].forEach(pos => {
+    const row = document.createElement("div");
+    row.className = "strategic-pitch-row";
+    (byPos[pos] || []).forEach(p => {
+      row.appendChild(createStrategicPlayerCard(p, candidate));
+    });
+    container.appendChild(row);
+  });
+
+  if (bench.length > 0) {
+    const benchHeader = document.createElement("div");
+    benchHeader.style.cssText = "font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: rgba(255,255,255,0.7); text-align: center; margin-top: 0.5rem;";
+    benchHeader.textContent = "Bench Substitutes";
+    container.appendChild(benchHeader);
+
+    const benchRow = document.createElement("div");
+    benchRow.className = "strategic-pitch-row";
+    bench.forEach(p => {
+      benchRow.appendChild(createStrategicPlayerCard(p, candidate, true));
+    });
+    container.appendChild(benchRow);
+  }
+}
+
+function createStrategicPlayerCard(p, candidate, isBench = false) {
+  const card = document.createElement("div");
+  card.className = `strategic-player-card ${p.is_locked ? "is-locked" : ""}`;
+  
+  let roleBadge = "";
+  if (p.role === "CAPTAIN") roleBadge = `<span class="p-card-role" style="background: #f59e0b; color: #000;">C</span>`;
+  else if (p.role === "VICE_CAPTAIN") roleBadge = `<span class="p-card-role" style="background: #94a3b8; color: #000;">VC</span>`;
+  else if (p.role === "GK_SUB") roleBadge = `<span class="p-card-role" style="background: #3b82f6; color: #fff;">SUB</span>`;
+
+  let lockIcon = p.is_locked ? "🔒 " : (p.is_preferred ? "⭐ " : "");
+
+  card.innerHTML = `
+    ${roleBadge}
+    <div class="p-card-name" title="${escapeHtml(p.name)}">${lockIcon}${escapeHtml(p.name)}</div>
+    <div class="p-card-meta">${escapeHtml(p.team || '')} · ${escapeHtml(p.price_fmt || '')}</div>
+    <div class="p-card-xp">${p.expected_points !== undefined ? Number(p.expected_points).toFixed(1) : '0.0'} xP</div>
+  `;
+  return card;
+}
+
+function renderStrategicDossier(candidate) {
+  const container = document.getElementById("strategic-dossier-content");
+  if (!container || !candidate) return;
+
+  const hBreakdown = candidate.horizon_breakdown || {};
+  const breakdownRows = Object.entries(hBreakdown).map(([gw, xp]) => `
+    <div style="display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <span class="text-muted">GW${gw}:</span>
+      <strong>${Number(xp).toFixed(1)} xP</strong>
+    </div>
+  `).join("");
+
+  container.innerHTML = `
+    <div style="margin-bottom: 1rem;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+        <span class="text-muted">Horizon Projected Total:</span>
+        <strong style="color: var(--accent-green); font-size: 1.1rem;">${candidate.horizon_xp ? candidate.horizon_xp.toFixed(1) : 0} xP</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+        <span class="text-muted">Start GW Lineup Projected:</span>
+        <strong>${candidate.start_gw_lineup_xp ? candidate.start_gw_lineup_xp.toFixed(1) : 0} xP</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+        <span class="text-muted">Captaincy Score:</span>
+        <strong>${candidate.captaincy_score ? candidate.captaincy_score.toFixed(1) : 0}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+        <span class="text-muted">Bench Quality Score:</span>
+        <strong>${candidate.bench_value_score ? candidate.bench_value_score.toFixed(1) : 0}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span class="text-muted">Future Transfer Flexibility:</span>
+        <strong style="color: var(--accent-blue);">${candidate.future_flexibility_score ? candidate.future_flexibility_score.toFixed(0) : 50} / 100</strong>
+      </div>
+    </div>
+
+    <div style="margin-top: 1rem;">
+      <h4 style="font-size: 0.82rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 0.4rem;">Horizon GW-by-GW Breakdown:</h4>
+      ${breakdownRows}
+    </div>
+  `;
+
+  const provEl = document.getElementById("strategic-provenance-info");
+  if (provEl) {
+    const prov = candidate.provenance || {};
+    const exactBadge = candidate.is_exact_global_optimum ? "✅ Exact Global Solver" : "⚡ Heuristic 1-Opt/2-Opt Local Search";
+    provEl.innerHTML = `
+      <div>Algorithm: <strong>${escapeHtml(candidate.algorithm || "solve_strategic_squad")}</strong></div>
+      <div>Optimality Guarantee: <strong>${exactBadge}</strong></div>
+      <div>Provenance Timestamp: <em>${escapeHtml(prov.timestamp || new Date().toISOString())}</em></div>
+    `;
+  }
+}
+
+function renderConstraintImpactBanner(impact) {
+  const banner = document.getElementById("constraint-impact-banner");
+  if (!banner) return;
+  if (!impact) {
+    banner.classList.add("hidden");
+    return;
+  }
+
+  banner.classList.remove("hidden");
+  document.getElementById("impact-summary-text").textContent = impact.summary || "Constraint impact analysis complete.";
+  
+  const oppCostEl = document.getElementById("impact-opp-cost");
+  if (oppCostEl) {
+    const opp = impact.opportunity_cost || 0;
+    oppCostEl.textContent = `${opp.toFixed(1)} pts`;
+    oppCostEl.style.color = opp > 0 ? "var(--accent-red)" : "var(--accent-green)";
+  }
+
+  const xpDeltaEl = document.getElementById("impact-xp-delta");
+  if (xpDeltaEl) {
+    const xpD = impact.horizon_xp_delta || 0;
+    xpDeltaEl.textContent = `${xpD >= 0 ? '+' : ''}${xpD.toFixed(1)} pts`;
+  }
+
+  const bankDeltaEl = document.getElementById("impact-bank-delta");
+  if (bankDeltaEl) {
+    bankDeltaEl.textContent = impact.bank_delta_fmt || "£0.0m";
+  }
+
+  const flexDeltaEl = document.getElementById("impact-flex-delta");
+  if (flexDeltaEl) {
+    const fD = impact.flexibility_delta || 0;
+    flexDeltaEl.textContent = `${fD >= 0 ? '+' : ''}${fD.toFixed(1)}`;
+  }
+
+  const diffEl = document.getElementById("impact-players-diff");
+  if (diffEl) {
+    const added = impact.players_added || [];
+    const removed = impact.players_removed || [];
+    if (added.length > 0 || removed.length > 0) {
+      diffEl.innerHTML = `
+        <div style="margin-top: 0.4rem;">
+          ${added.length ? `<span style="color: var(--accent-green);">IN:</span> ${added.map(p => `<strong>${escapeHtml(p.name)}</strong> (${p.pos_abbr || p.position})`).join(', ')} ` : ''}
+          ${removed.length ? `<span style="color: var(--accent-red); margin-left: 0.5rem;">OUT:</span> ${removed.map(p => `<strong>${escapeHtml(p.name)}</strong> (${p.pos_abbr || p.position})`).join(', ')}` : ''}
+        </div>
+      `;
+    } else {
+      diffEl.innerHTML = "";
+    }
+  }
+}
+
+function initStrategicStudio() {
+  if (strategicState.initialized) return;
+  strategicState.initialized = true;
+
+  const modeSel = document.getElementById("strategic-mode-select");
+  const horizonSel = document.getElementById("strategic-horizon-select");
+  const stratSel = document.getElementById("strategic-strategy-select");
+  const budgetInp = document.getElementById("strategic-budget-input");
+
+  if (modeSel) {
+    modeSel.addEventListener("change", e => {
+      strategicState.mode = e.target.value;
+      const b = document.getElementById("strategic-status-badge");
+      if (b) b.textContent = `Mode: ${e.target.value.replace('_', ' ').toUpperCase()}`;
+    });
+  }
+
+  if (horizonSel) {
+    horizonSel.addEventListener("change", e => {
+      strategicState.horizon = parseInt(e.target.value, 10);
+      const b = document.getElementById("strategic-horizon-badge");
+      if (b) b.textContent = `Horizon: ${e.target.value} GWs`;
+    });
+  }
+
+  if (stratSel) {
+    stratSel.addEventListener("change", e => {
+      strategicState.strategy = e.target.value;
+    });
+  }
+
+  if (budgetInp) {
+    budgetInp.addEventListener("change", e => {
+      strategicState.budget = parseFloat(e.target.value) || 100.0;
+    });
+  }
+
+  const addLockBtn = document.getElementById("btn-add-lock");
+  const addExclBtn = document.getElementById("btn-add-exclude");
+  const addPrefBtn = document.getElementById("btn-add-prefer");
+  const clearBtn = document.getElementById("btn-clear-constraints");
+  const searchInp = document.getElementById("strategic-player-search");
+
+  if (addLockBtn) {
+    addLockBtn.addEventListener("click", () => {
+      const p = findStrategicPlayerFromInput();
+      if (!p) {
+        showToast("Please select a player to lock.", true);
+        return;
+      }
+      strategicState.excludedPlayerIds.delete(p.id);
+      strategicState.lockedPlayerIds.add(p.id);
+      if (searchInp) searchInp.value = "";
+      renderActiveConstraintPills();
+      showToast(`Locked ${p.name} as Must-Have.`);
+    });
+  }
+
+  if (addExclBtn) {
+    addExclBtn.addEventListener("click", () => {
+      const p = findStrategicPlayerFromInput();
+      if (!p) {
+        showToast("Please select a player to exclude.", true);
+        return;
+      }
+      strategicState.lockedPlayerIds.delete(p.id);
+      strategicState.excludedPlayerIds.add(p.id);
+      if (searchInp) searchInp.value = "";
+      renderActiveConstraintPills();
+      showToast(`Excluded ${p.name} from squad.`);
+    });
+  }
+
+  if (addPrefBtn) {
+    addPrefBtn.addEventListener("click", () => {
+      const p = findStrategicPlayerFromInput();
+      if (!p) {
+        showToast("Please select a player to prefer.", true);
+        return;
+      }
+      strategicState.preferredPlayerIds.add(p.id);
+      if (searchInp) searchInp.value = "";
+      renderActiveConstraintPills();
+      showToast(`Added soft preference for ${p.name}.`);
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      strategicState.lockedPlayerIds.clear();
+      strategicState.excludedPlayerIds.clear();
+      strategicState.preferredPlayerIds.clear();
+      renderActiveConstraintPills();
+      showToast("Cleared all player constraints.");
+    });
+  }
+
+  const genBtn = document.getElementById("btn-generate-strategic");
+  if (genBtn) {
+    genBtn.addEventListener("click", async () => {
+      try {
+        genBtn.disabled = true;
+        genBtn.textContent = "⏳ Solving Strategic Space...";
+
+        const payload = {
+          mode: strategicState.mode,
+          horizon: strategicState.horizon,
+          strategy: strategicState.strategy,
+          budget: strategicState.budget,
+          locked_player_ids: Array.from(strategicState.lockedPlayerIds),
+          excluded_player_ids: Array.from(strategicState.excludedPlayerIds),
+          preferred_player_ids: Array.from(strategicState.preferredPlayerIds),
+          team_id: state.activeTeamId,
+        };
+
+        const res = await api("/api/strategic-squad/optimize", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (res && res.squad) {
+          strategicState.candidates = res.strategic_candidates || { [res.strategy]: res };
+          strategicState.selectedCandidateKey = res.strategy || "balanced";
+          strategicState.previousCandidate = res;
+
+          renderCandidateSwitcherTabs(strategicState.candidates);
+          renderStrategicMatrix(strategicState.candidates);
+          renderStrategicPitch(res);
+          renderStrategicDossier(res);
+
+          const resPanel = document.getElementById("strategic-results-panel");
+          if (resPanel) resPanel.classList.remove("hidden");
+
+          const reoptBtn = document.getElementById("btn-reoptimize-strategic");
+          if (reoptBtn) reoptBtn.disabled = false;
+
+          showToast(`Generated ${Object.keys(strategicState.candidates).length} strategic candidates!`);
+        }
+      } catch (err) {
+        showToast(`Strategic optimization error: ${err.message}`, true);
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = "⚡ Generate Strategic Candidates";
+      }
+    });
+  }
+
+  const reoptBtn = document.getElementById("btn-reoptimize-strategic");
+  if (reoptBtn) {
+    reoptBtn.addEventListener("click", async () => {
+      try {
+        reoptBtn.disabled = true;
+        reoptBtn.textContent = "⏳ Re-optimizing...";
+
+        const payload = {
+          previous_candidate: strategicState.previousCandidate,
+          mode: strategicState.mode,
+          horizon: strategicState.horizon,
+          strategy: strategicState.selectedCandidateKey || strategicState.strategy,
+          budget: strategicState.budget,
+          locked_player_ids: Array.from(strategicState.lockedPlayerIds),
+          excluded_player_ids: Array.from(strategicState.excludedPlayerIds),
+          preferred_player_ids: Array.from(strategicState.preferredPlayerIds),
+          team_id: state.activeTeamId,
+        };
+
+        const res = await api("/api/strategic-squad/reoptimize", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (res && res.squad) {
+          strategicState.candidates[res.strategy] = res;
+          strategicState.selectedCandidateKey = res.strategy;
+          strategicState.previousCandidate = res;
+
+          renderCandidateSwitcherTabs(strategicState.candidates);
+          renderStrategicMatrix(strategicState.candidates);
+          renderStrategicPitch(res);
+          renderStrategicDossier(res);
+
+          if (res.constraint_impact) {
+            renderConstraintImpactBanner(res.constraint_impact);
+          }
+
+          showToast("Re-optimization complete. Opportunity cost evaluated!");
+        }
+      } catch (err) {
+        showToast(`Re-optimization error: ${err.message}`, true);
+      } finally {
+        reoptBtn.disabled = false;
+        reoptBtn.textContent = "🔄 Re-Optimize Under Constraints";
+      }
+    });
+  }
+
+  const applyBtn = document.getElementById("btn-apply-strategic-squad");
+  if (applyBtn) {
+    applyBtn.addEventListener("click", async () => {
+      const cand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (!cand) return;
+
+      const confirmed = confirm(`Are you sure you want to apply this ${cand.strategy.toUpperCase()} squad (${cand.mode.toUpperCase()}) to your active team?`);
+      if (!confirmed) return;
+
+      try {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "Applying...";
+
+        const res = await api("/api/strategic-squad/apply", {
+          method: "POST",
+          body: JSON.stringify({
+            candidate: cand,
+            team_id: state.activeTeamId,
+            mode: cand.mode,
+            gameweek: state.activeGameweek || 1,
+          }),
+        });
+
+        if (res && res.success) {
+          showToast(`Successfully applied strategic squad!`);
+          await loadCurrentSquad();
+          await loadLineup();
+        }
+      } catch (err) {
+        showToast(`Failed to apply squad: ${err.message}`, true);
+      } finally {
+        applyBtn.disabled = false;
+        applyBtn.textContent = "💾 Apply Squad to Team";
+      }
+    });
+  }
+
+  const seedBtn = document.getElementById("btn-seed-planner-strategic");
+  if (seedBtn) {
+    seedBtn.addEventListener("click", () => {
+      const cand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (!cand) return;
+
+      const plannerTabBtn = document.querySelector('.tabs-nav .tab-btn[data-tab="planner"]');
+      if (plannerTabBtn) plannerTabBtn.click();
+      showToast(`Seeded planner with ${cand.strategy} squad! Click "Generate Multi-GW Plan" to evaluate trajectories.`);
+    });
+  }
+}
+
+function renderCandidateSwitcherTabs(candidates) {
+  const container = document.getElementById("candidate-selector-tabs");
+  if (!container) return;
+  container.innerHTML = "";
+
+  Object.keys(candidates).forEach(key => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `candidate-tab-btn ${key === strategicState.selectedCandidateKey ? "active" : ""}`;
+    btn.textContent = key.replace('_', ' ').toUpperCase();
+    btn.addEventListener("click", () => {
+      strategicState.selectedCandidateKey = key;
+      renderCandidateSwitcherTabs(candidates);
+      renderStrategicMatrix(candidates);
+      renderStrategicPitch(candidates[key]);
+      renderStrategicDossier(candidates[key]);
+    });
+    container.appendChild(btn);
+  });
+}
+
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   initModal();
   initEventListeners();
+  initStrategicStudio();
   await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();
 });
+

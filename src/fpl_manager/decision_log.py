@@ -1180,26 +1180,32 @@ def apply_wildcard_or_freehit(
         else:
             new_prices[pid] = costs.get(pid, 50)
 
-    chip_norm = "wildcard" if mode.lower().strip() in ("wildcard", "wc") else "freehit"
+    if mode.lower().strip() in ("initial", "init", "start"):
+        chip_norm = None
+    elif mode.lower().strip() in ("wildcard", "wc"):
+        chip_norm = "wildcard"
+    else:
+        chip_norm = "freehit"
 
-    # Deduct chip from chips_remaining
+    # Deduct chip from chips_remaining if a chip was used
     rem_chips = list(state.chips_remaining)
     to_remove = None
-    for c in rem_chips:
-        c_norm = str(c).lower().strip()
-        if chip_norm == "wildcard":
-            if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
+    if chip_norm:
+        for c in rem_chips:
+            c_norm = str(c).lower().strip()
+            if chip_norm == "wildcard":
+                if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
+                    to_remove = c
+                    break
+                elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
+                    to_remove = c
+                    break
+            elif chip_norm == "freehit" and c_norm in ("freehit", "free_hit", "fh"):
                 to_remove = c
                 break
-            elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
-                to_remove = c
-                break
-        elif chip_norm == "freehit" and c_norm in ("freehit", "free_hit", "fh"):
-            to_remove = c
-            break
 
-    if to_remove and to_remove in rem_chips:
-        rem_chips.remove(to_remove)
+        if to_remove and to_remove in rem_chips:
+            rem_chips.remove(to_remove)
 
     updated_state = CurrentSquadState(
         player_ids=tuple(squad_ids),
@@ -1211,6 +1217,14 @@ def apply_wildcard_or_freehit(
         gameweek=max(state.gameweek or 1, gameweek),
     )
     save_current_squad(squad_path, updated_state)
+    # If default team, also sync legacy current_squad.json if present
+    try:
+        if team_id == "default" and "teams" in squad_path.parts:
+            legacy_file = squad_path.parent.parent.parent / "current_squad.json"
+            if legacy_file.exists():
+                save_current_squad(legacy_file, updated_state)
+    except Exception:
+        pass
 
     # Reconcile transfers made from previous gameweek decision or previous squad state
     prev_dec = get_gameweek_decision(gameweek - 1, season=season or state.season, team_id=team_id, database_path=database_path) if gameweek > 1 else None
@@ -1243,11 +1257,12 @@ def apply_wildcard_or_freehit(
         overwrite=True,
     )
 
+    mode_label = (chip_norm or mode or "initial").upper()
     return {
         "success": True,
-        "mode": chip_norm,
+        "mode": chip_norm or mode,
         "gameweek": gameweek,
-        "message": f"Successfully applied {chip_norm.upper()} squad for GW{gameweek}!",
+        "message": f"Successfully applied {mode_label} squad for GW{gameweek}!",
         "squad_player_ids": squad_ids,
         "bank_tenths": max(0, bank_tenths),
     }

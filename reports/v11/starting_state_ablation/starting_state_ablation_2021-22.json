@@ -1,0 +1,92 @@
+{
+  "season": "2021-22",
+  "end_gw": 10,
+  "horizon": 5,
+  "matrix": [
+    {
+      "starting_state": "Baseline Squad (Single-GW)",
+      "is_strategic_state": false,
+      "predictor": "v0.8",
+      "decision_engine": "v0.8",
+      "net_points": 577,
+      "gross_points": 577,
+      "hits": 0,
+      "transfers": 10
+    },
+    {
+      "starting_state": "Baseline Squad (Single-GW)",
+      "is_strategic_state": false,
+      "predictor": "v0.8",
+      "decision_engine": "v1.0.1",
+      "net_points": 577,
+      "gross_points": 577,
+      "hits": 0,
+      "transfers": 10
+    },
+    {
+      "starting_state": "Baseline Squad (Single-GW)",
+      "is_strategic_state": false,
+      "predictor": "v1.0.1",
+      "decision_engine": "v0.8",
+      "net_points": 550,
+      "gross_points": 550,
+      "hits": 0,
+      "transfers": 9
+    },
+    {
+      "starting_state": "Baseline Squad (Single-GW)",
+      "is_strategic_state": false,
+      "predictor": "v1.0.1",
+      "decision_engine": "v1.0.1",
+      "net_points": 551,
+      "gross_points": 551,
+      "hits": 0,
+      "transfers": 9
+    },
+    {
+      "starting_state": "Strategic Squad (Multi-GW)",
+      "is_strategic_state": true,
+      "predictor": "v0.8",
+      "decision_engine": "v0.8",
+      "net_points": 565,
+      "gross_points": 565,
+      "hits": 0,
+      "transfers": 10
+    },
+    {
+      "starting_state": "Strategic Squad (Multi-GW)",
+      "is_strategic_state": true,
+      "predictor": "v0.8",
+      "decision_engine": "v1.0.1",
+      "net_points": 565,
+      "gross_points": 565,
+      "hits": 0,
+      "transfers": 10
+    },
+    {
+      "starting_state": "Strategic Squad (Multi-GW)",
+      "is_strategic_state": true,
+      "predictor": "v1.0.1",
+      "decision_engine": "v0.8",
+      "net_points": 545,
+      "gross_points": 545,
+      "hits": 0,
+      "transfers": 10
+    },
+    {
+      "starting_state": "Strategic Squad (Multi-GW)",
+      "is_strategic_state": true,
+      "predictor": "v1.0.1",
+      "decision_engine": "v1.0.1",
+      "net_points": 544,
+      "gross_points": 544,
+      "hits": 0,
+      "transfers": 10
+    }
+  ],
+  "main_effects": {
+    "starting_state_effect": -9.0,
+    "predictor_effect": -23.5,
+    "decision_engine_effect": 0.0
+  }
+}

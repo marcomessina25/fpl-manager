@@ -103,6 +103,9 @@ def generate_multi_gameweek_plan(
     allow_hits: bool = True,
     beam_width: int = 5,
     report_path: Path = PLAN_REPORT_PATH,
+    initial_squad_ids: list[int] | None = None,
+    initial_bank_tenths: int | None = None,
+    initial_purchase_prices: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """Generate an optimal multi-gameweek transfer roadmap using beam search."""
     from .optimizer import validate_risk_profile
@@ -111,8 +114,6 @@ def generate_multi_gameweek_plan(
         raise ValueError(f"Invalid horizon={horizon}. Must be between 1 and 6 gameweeks.")
     risk_profile = validate_risk_profile(risk_profile)
 
-
-    state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     if start_gw is None:
         start_gw = get_current_gameweek(store)
@@ -134,11 +135,25 @@ def generate_multi_gameweek_plan(
 
     candidate_pool_all = [p for p in players_map.values() if p.status in ("a", "d")]
 
-    initial_prices = {p_id: state.purchase_price(p_id) for p_id in state.player_ids}
+    if initial_squad_ids is not None:
+        init_ids = list(initial_squad_ids)
+        init_bank = initial_bank_tenths if initial_bank_tenths is not None else 0
+        init_ft = 1
+        init_prices = (
+            dict(initial_purchase_prices)
+            if initial_purchase_prices is not None
+            else {pid: players_map[pid].price_tenths for pid in init_ids if pid in players_map}
+        )
+    else:
+        state = load_current_squad(squad_path)
+        init_ids = state.player_ids
+        init_bank = state.bank_tenths
+        init_ft = state.free_transfers
+        init_prices = {p_id: state.purchase_price(p_id) for p_id in state.player_ids}
 
     # Beam item: (cumulative_net_score, cumulative_floor, cumulative_ceil, player_ids, bank, ft, purchase_prices, history)
     beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]]]] = [
-        (0.0, 0.0, 0.0, set(state.player_ids), state.bank_tenths, state.free_transfers, dict(initial_prices), [])
+        (0.0, 0.0, 0.0, set(init_ids), init_bank, init_ft, dict(init_prices), [])
     ]
 
     for step_idx, gw in enumerate(target_gws):
@@ -358,8 +373,8 @@ def generate_multi_gameweek_plan(
         "target_gameweeks": target_gws,
         "risk_profile": risk_profile,
         "allow_hits": allow_hits,
-        "free_transfers_initial": state.free_transfers,
-        "bank_initial_fmt": f"£{state.bank_tenths / 10:.1f}m",
+        "free_transfers_initial": init_ft,
+        "bank_initial_fmt": f"£{init_bank / 10:.1f}m",
         "optimization_metadata": {
             "algorithm": "beam_search_multi_gw",
             "is_exact_global_optimum": False,

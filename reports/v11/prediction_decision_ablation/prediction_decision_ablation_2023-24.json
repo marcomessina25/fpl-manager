@@ -1,0 +1,87 @@
+{
+  "season": "2023-24",
+  "gameweek_range": "GW1–GW3",
+  "combinations": [
+    {
+      "predictor": "v0.8",
+      "engine": "v0.8",
+      "net_points": 115,
+      "gross_points": 115,
+      "hits": 0,
+      "zero_min_starters": 5,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v0.8",
+      "engine": "v0.9",
+      "net_points": 121,
+      "gross_points": 121,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 14
+    },
+    {
+      "predictor": "v0.8",
+      "engine": "v1.0.1",
+      "net_points": 121,
+      "gross_points": 121,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 14
+    },
+    {
+      "predictor": "v0.9",
+      "engine": "v0.8",
+      "net_points": 117,
+      "gross_points": 117,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v0.9",
+      "engine": "v0.9",
+      "net_points": 115,
+      "gross_points": 115,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v0.9",
+      "engine": "v1.0.1",
+      "net_points": 115,
+      "gross_points": 115,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v1.0.1",
+      "engine": "v0.8",
+      "net_points": 117,
+      "gross_points": 117,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v1.0.1",
+      "engine": "v0.9",
+      "net_points": 115,
+      "gross_points": 115,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    },
+    {
+      "predictor": "v1.0.1",
+      "engine": "v1.0.1",
+      "net_points": 115,
+      "gross_points": 115,
+      "hits": 0,
+      "zero_min_starters": 3,
+      "bench_regret": 12
+    }
+  ]
+}
