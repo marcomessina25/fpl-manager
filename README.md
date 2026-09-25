@@ -19,6 +19,12 @@ FPL API -> local SQLite snapshots -> rules + validation -> reports -> human / LL
 
 Both human contributors and AI agents must read the relevant living documents before making material changes and update them whenever architecture, scope, priorities, or delivery status changes.
 
+## Data & Attribution
+
+This project processes official FPL data from the Fantasy Premier League API.
+Commercial use of FPL data must comply with FPL's terms of service.
+See [FPL Data Usage](https://fantasy.premierleague.com/) for details.
+
 ## Quick start
 
 Create the Conda environment and install the project in editable mode:
