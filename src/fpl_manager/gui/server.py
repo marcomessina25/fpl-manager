@@ -59,6 +59,7 @@ from ..teams import (
     get_team,
     get_team_squad_path,
     list_teams,
+    rename_team,
     set_active_team,
 )
 
@@ -214,6 +215,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 num_tx = int(get_arg("transfers", 1))
                 gws = int(get_arg("gameweeks", 5))
                 risk = get_arg("risk", "neutral")
+                gw_param = get_arg("gameweek") or get_arg("gw")
+                gw_val = int(gw_param) if gw_param else None
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 rep = suggest_transfers(
                     num_transfers=num_tx,
@@ -221,6 +224,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                     num_gameweeks=gws,
                     risk_profile=risk,
+                    gameweek=gw_val,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -459,6 +463,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if not tid:
                     raise ValueError("Field 'team_id' is required.")
                 result = delete_team(tid, self.config_dir)
+                self._send_json(result)
+            elif path == "/api/teams/rename" or (path.startswith("/api/teams/") and path.endswith("/rename")):
+                if path.endswith("/rename") and path != "/api/teams/rename":
+                    tid = path.split("/")[3]
+                else:
+                    tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                name = body.get("name")
+                if not name or not str(name).strip():
+                    raise ValueError("Field 'name' is required.")
+                result = rename_team(tid, str(name).strip(), self.config_dir)
                 self._send_json(result)
             elif path == "/api/transfers/execute":
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
@@ -774,6 +788,29 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             if path.startswith("/api/teams/") and len(path.split("/")) == 4:
                 tid = path.split("/")[3]
                 result = delete_team(tid, self.config_dir)
+                self._send_json(result)
+            else:
+                self._send_error_json("Endpoint not found", status=404)
+        except Exception as err:
+            self._send_error_json(str(err), status=400)
+
+    def do_PATCH(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        content_length = int(self.headers.get("Content-Length", 0))
+        body_bytes = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        try:
+            body = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+        except Exception:
+            body = {}
+
+        try:
+            if path.startswith("/api/teams/") and len(path.split("/")) == 4:
+                tid = path.split("/")[3]
+                name = body.get("name")
+                if not name or not str(name).strip():
+                    raise ValueError("Field 'name' is required.")
+                result = rename_team(tid, str(name).strip(), self.config_dir)
                 self._send_json(result)
             else:
                 self._send_error_json("Endpoint not found", status=404)

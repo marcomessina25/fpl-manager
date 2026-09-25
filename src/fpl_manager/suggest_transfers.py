@@ -130,6 +130,7 @@ def suggest_transfers(
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
+    gameweek: int | None = None,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad using branch-and-bound optimization."""
     if num_transfers < 1 or num_transfers > 5:
@@ -141,7 +142,12 @@ def suggest_transfers(
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
-    start_gw = get_current_gameweek(store)
+    if gameweek is not None:
+        start_gw = gameweek
+    elif state.gameweek is not None:
+        start_gw = state.gameweek
+    else:
+        start_gw = get_current_gameweek(store)
     target_gws = list(range(start_gw, start_gw + num_gameweeks))
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)

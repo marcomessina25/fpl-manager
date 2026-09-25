@@ -24,6 +24,7 @@ from fpl_manager.teams import (
     get_team_id_from_squad_path,
     get_team_squad_path,
     list_teams,
+    rename_team,
     set_active_team,
     slugify_team_id,
 )
@@ -360,7 +361,34 @@ def test_cli_teams_flow(teams_test_env: tuple[Path, Path], monkeypatch: pytest.M
     out, _ = capsys.readouterr()
     assert "Switched active team to 'Default Team' [default]." in out
 
-    # 5. fpl team delete league-winner
+    # 5. fpl team rename
+    main(["team", "rename", "Team Marco", "--id", "default"])
+    out, _ = capsys.readouterr()
+    assert "Renamed team 'default' to 'Team Marco'." in out
+
+    # 6. fpl team delete league-winner
     main(["team", "delete", "league-winner"])
     out, _ = capsys.readouterr()
     assert "Deleted team 'league-winner'. Active team is now 'default'." in out
+
+
+def test_rename_team(teams_test_env: tuple[Path, Path]) -> None:
+    config_dir, _ = teams_test_env
+    ensure_teams_initialized(config_dir)
+
+    # Rename default team
+    renamed = rename_team("default", "Team Marco", config_dir=config_dir)
+    assert renamed["name"] == "Team Marco"
+    assert renamed["team_id"] == "default"
+
+    # Verify reflected in list_teams
+    teams = list_teams(config_dir)
+    default_meta = next(t for t in teams if t["team_id"] == "default")
+    assert default_meta["name"] == "Team Marco"
+
+    # Validation errors
+    with pytest.raises(ValueError, match="Team name cannot be empty"):
+        rename_team("default", "   ", config_dir=config_dir)
+
+    with pytest.raises(ValueError, match="not found"):
+        rename_team("nonexistent-team", "New Name", config_dir=config_dir)

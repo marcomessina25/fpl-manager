@@ -1819,6 +1819,50 @@ function initModal() {
     }
   });
 
+  // Team Renaming Modal
+  const renameModal = document.getElementById("modal-rename-team");
+  const openRenameBtn = document.getElementById("btn-rename-team");
+  const closeRenameBtn = document.getElementById("btn-close-rename-modal");
+  const cancelRenameBtn = document.getElementById("btn-cancel-rename-modal");
+  const renameForm = document.getElementById("form-rename-team");
+  const editTeamNameInput = document.getElementById("edit-team-name");
+
+  if (openRenameBtn && renameModal) {
+    openRenameBtn.addEventListener("click", () => {
+      const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
+      if (editTeamNameInput) {
+        editTeamNameInput.value = activeObj ? activeObj.name : "";
+      }
+      renameModal.classList.remove("hidden");
+    });
+    [closeRenameBtn, cancelRenameBtn].forEach(b => {
+      if (b) b.addEventListener("click", () => renameModal.classList.add("hidden"));
+    });
+
+    if (renameForm) {
+      renameForm.addEventListener("submit", async e => {
+        e.preventDefault();
+        const newName = editTeamNameInput.value.trim();
+        if (!newName) {
+          showToast("Team name cannot be empty.", true);
+          return;
+        }
+
+        try {
+          const res = await api("/api/teams/rename", {
+            method: "POST",
+            body: JSON.stringify({ team_id: state.activeTeamId, name: newName }),
+          });
+          renameModal.classList.add("hidden");
+          showToast(`Renamed team to '${res.name}'!`);
+          await loadTeams();
+        } catch (err) {
+          showToast(`Error renaming team: ${err.message}`, true);
+        }
+      });
+    }
+  }
+
   // Player Stats Modal
   const psModal = document.getElementById("modal-player-stats");
   const psClose = document.getElementById("btn-close-player-stats");

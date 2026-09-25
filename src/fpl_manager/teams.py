@@ -25,8 +25,9 @@ def slugify_team_id(name: str) -> str:
     return slug
 
 
-def ensure_teams_initialized(config_dir: Path = CONFIG_DIR) -> None:
+def ensure_teams_initialized(config_dir: Path | None = None) -> None:
     """Ensure the teams directory and default team are initialized from current_squad.json."""
+    config_dir = config_dir or CONFIG_DIR
     teams_dir = config_dir / "teams"
     teams_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,8 +68,9 @@ def ensure_teams_initialized(config_dir: Path = CONFIG_DIR) -> None:
         active_file.write_text(json.dumps({"active_team_id": "default"}, indent=2) + "\n", encoding="utf-8")
 
 
-def get_active_team_id(config_dir: Path = CONFIG_DIR) -> str:
+def get_active_team_id(config_dir: Path | None = None) -> str:
     """Return the currently selected active team ID."""
+    config_dir = config_dir or CONFIG_DIR
     active_file = config_dir / "active_team.json"
     if active_file.exists():
         try:
@@ -81,8 +83,9 @@ def get_active_team_id(config_dir: Path = CONFIG_DIR) -> str:
     return "default"
 
 
-def set_active_team(team_id: str, config_dir: Path = CONFIG_DIR) -> dict[str, Any]:
+def set_active_team(team_id: str, config_dir: Path | None = None) -> dict[str, Any]:
     """Switch the global active team pointer to the specified team ID."""
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     teams = list_teams(config_dir)
     matching = [t for t in teams if t["team_id"] == team_id]
@@ -96,8 +99,9 @@ def set_active_team(team_id: str, config_dir: Path = CONFIG_DIR) -> dict[str, An
     return team_meta
 
 
-def get_team_squad_path(team_id: str | None = None, config_dir: Path = CONFIG_DIR) -> Path:
+def get_team_squad_path(team_id: str | None = None, config_dir: Path | None = None) -> Path:
     """Return the squad.json path for a given team ID or the active team."""
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     target_id = team_id or get_active_team_id(config_dir)
 
@@ -113,13 +117,14 @@ def get_team_squad_path(team_id: str | None = None, config_dir: Path = CONFIG_DI
     return team_squad
 
 
-def get_active_squad_path(config_dir: Path = CONFIG_DIR) -> Path:
+def get_active_squad_path(config_dir: Path | None = None) -> Path:
     """Convenience shortcut returning the squad.json path for the active team."""
     return get_team_squad_path(None, config_dir)
 
 
-def get_team_id_from_squad_path(squad_path: Path, config_dir: Path = CONFIG_DIR) -> str:
+def get_team_id_from_squad_path(squad_path: Path, config_dir: Path | None = None) -> str:
     """Identify which team ID a given squad path corresponds to."""
+    config_dir = config_dir or CONFIG_DIR
     resolved = squad_path.resolve()
     teams_dir = (config_dir / "teams").resolve()
 
@@ -144,13 +149,14 @@ def create_team(
     manager: str = "",
     fpl_team_id: int | None = None,
     copy_from_team_id: str | None = None,
-    config_dir: Path = CONFIG_DIR,
+    config_dir: Path | None = None,
     set_as_active: bool = True,
 ) -> dict[str, Any]:
     """Create a new isolated team with its own squad state and metadata."""
     if not name or not name.strip():
         raise ValueError("Team name cannot be empty.")
 
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     clean_name = name.strip()
     teams_dir = config_dir / "teams"
@@ -215,10 +221,11 @@ def create_team(
 def sync_squad_with_current_gameweek(
     squad_file: Path,
     team_id: str = "default",
-    config_dir: Path = CONFIG_DIR,
+    config_dir: Path | None = None,
     database_path: Path | None = None,
 ) -> CurrentSquadState:
     """Check and synchronize squad state gameweek and free transfers with the database."""
+    config_dir = config_dir or CONFIG_DIR
     state = load_current_squad(squad_file)
     db_path = database_path or (config_dir.parent / "data" / "fpl.sqlite3")
     if db_path.exists():
@@ -246,8 +253,9 @@ def sync_squad_with_current_gameweek(
     return state
 
 
-def list_teams(config_dir: Path = CONFIG_DIR, database_path: Path | None = None) -> list[dict[str, Any]]:
+def list_teams(config_dir: Path | None = None, database_path: Path | None = None) -> list[dict[str, Any]]:
     """List all configured teams, their metadata, squad summaries, and active status."""
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     teams_dir = config_dir / "teams"
     active_id = get_active_team_id(config_dir)
@@ -338,10 +346,11 @@ def list_teams(config_dir: Path = CONFIG_DIR, database_path: Path | None = None)
 
 def get_team(
     team_id: str | None = None,
-    config_dir: Path = CONFIG_DIR,
+    config_dir: Path | None = None,
     database_path: Path | None = None,
 ) -> dict[str, Any]:
     """Retrieve full team metadata and squad state for a given team ID or active team."""
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     target_id = team_id or get_active_team_id(config_dir)
 
@@ -366,11 +375,12 @@ def get_team(
     }
 
 
-def delete_team(team_id: str, config_dir: Path = CONFIG_DIR) -> dict[str, Any]:
+def delete_team(team_id: str, config_dir: Path | None = None) -> dict[str, Any]:
     """Delete a team directory and reset the active team if needed."""
     if team_id == "default":
         raise ValueError("Cannot delete the default team.")
 
+    config_dir = config_dir or CONFIG_DIR
     ensure_teams_initialized(config_dir)
     teams = list_teams(config_dir)
     matching = [t for t in teams if t["team_id"] == team_id]
@@ -397,3 +407,43 @@ def delete_team(team_id: str, config_dir: Path = CONFIG_DIR) -> dict[str, Any]:
         "deleted_team_id": team_id,
         "active_team_id": new_active,
     }
+
+
+def rename_team(team_id: str, new_name: str, config_dir: Path | None = None) -> dict[str, Any]:
+    """Change the display name of an existing team in its metadata."""
+    clean_name = new_name.strip()
+    if not clean_name:
+        raise ValueError("Team name cannot be empty.")
+
+    config_dir = config_dir or CONFIG_DIR
+    ensure_teams_initialized(config_dir)
+    teams_dir = config_dir / "teams"
+    team_dir = teams_dir / team_id
+    if not team_dir.exists():
+        raise ValueError(f"Team '{team_id}' not found.")
+
+    meta_file = team_dir / "metadata.json"
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            meta = {
+                "team_id": team_id,
+                "manager": "Manager",
+                "fpl_team_id": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+    else:
+        meta = {
+            "team_id": team_id,
+            "manager": "Manager",
+            "fpl_team_id": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    meta["name"] = clean_name
+    meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    active_id = get_active_team_id(config_dir)
+    meta["is_active"] = (team_id == active_id)
+    return meta

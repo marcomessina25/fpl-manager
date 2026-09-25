@@ -64,6 +64,7 @@ from .teams import (
     get_team_id_from_squad_path,
     get_team_squad_path,
     list_teams,
+    rename_team,
     set_active_team,
 )
 from .transfers import Transfer, validate_transfers
@@ -853,6 +854,10 @@ def main(argv: list[str] | None = None) -> None:
     del_p = team_sub.add_parser("delete", help="Delete a team")
     del_p.add_argument("team_id", help="Team ID to delete")
 
+    rename_p = team_sub.add_parser("rename", help="Rename an existing team")
+    rename_p.add_argument("name", help="New human-readable team name")
+    rename_p.add_argument("--id", dest="team_id", default=None, help="Team ID to rename (defaults to active team)")
+
     for sq_cmd in ("squad", "squad-report"):
         sq_p = subcommands.add_parser(sq_cmd, help="Generate a detailed analysis report of your current squad")
         sq_p.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
@@ -1175,6 +1180,13 @@ def main(argv: list[str] | None = None) -> None:
                 print(json.dumps(deleted, indent=2, ensure_ascii=False))
             else:
                 print(f"Deleted team '{deleted['deleted_team_id']}'. Active team is now '{deleted['active_team_id']}'.")
+        elif arguments.command == "team" and arguments.team_command == "rename":
+            target_id = arguments.team_id or get_active_team_id()
+            renamed = rename_team(target_id, arguments.name)
+            if arguments.verbose:
+                print(json.dumps(renamed, indent=2, ensure_ascii=False))
+            else:
+                print(f"Renamed team '{target_id}' to '{renamed['name']}'.")
         elif arguments.command == "gui":
             from .gui.server import start_gui_server
             start_gui_server(host=arguments.host, port=arguments.port, open_browser=not arguments.no_browser)
