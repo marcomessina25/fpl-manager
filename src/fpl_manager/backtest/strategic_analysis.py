@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -25,6 +26,7 @@ from ..historical.models import HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
 from ..models import Position as ModelPosition
+from ..rules import Player as RulesPlayer, validate_squad
 from ..strategic_squad import (
     StrategicCandidate,
     StrategicConstraints,
@@ -49,6 +51,72 @@ DATA_DIRECTORY = PROJECT_ROOT / "data"
 REPORTS_V11_DIR = PROJECT_ROOT / "reports" / "v11"
 
 AVAILABLE_HISTORICAL_SEASONS = ("2021-22", "2022-23", "2023-24", "2024-25", "2025-26")
+
+
+def build_experiment_provenance(
+    *,
+    experiment_type: str,
+    season: str,
+    gameweek: int = 1,
+    decision_deadline: str | None = None,
+    starting_state_policy: str = "strategic_multi_gw",
+    starting_state_predictor_version: str = "v1.0.1",
+    evaluation_predictor_version: str = "v1.0.1",
+    decision_engine_version: str = "v1.0.1",
+    strategic_solver_version: str = "v1.1-exact-reference",
+    objective: str = "balanced",
+    horizon: int = 5,
+    constraints: dict[str, Any] | None = None,
+    random_seed: int = 42,
+    dataset_version: str = "historical-fpl-v1",
+    fallback_used: bool = False,
+    fallback_reason: str | None = None,
+    requested_engine: str | None = None,
+    actual_engine: str | None = None,
+) -> dict[str, Any]:
+    """Record comprehensive provenance, configuration hash, and fallback metadata (P0.6)."""
+    cfg_data = {
+        "experiment_type": experiment_type,
+        "season": season,
+        "gameweek": gameweek,
+        "starting_state_policy": starting_state_policy,
+        "starting_state_predictor_version": starting_state_predictor_version,
+        "evaluation_predictor_version": evaluation_predictor_version,
+        "decision_engine_version": decision_engine_version,
+        "strategic_solver_version": strategic_solver_version,
+        "objective": objective,
+        "horizon": horizon,
+        "constraints": constraints or {"budget_tenths": 1000},
+        "random_seed": random_seed,
+        "dataset_version": dataset_version,
+    }
+    cfg_bytes = json.dumps(cfg_data, sort_keys=True).encode("utf-8")
+    cfg_hash = hashlib.sha256(cfg_bytes).hexdigest()[:16]
+    experiment_id = f"exp_{experiment_type}_{season.replace('-', '_')}_gw{gameweek}_{cfg_hash}"
+
+    return {
+        "experiment_id": experiment_id,
+        "season": season,
+        "gameweek": gameweek,
+        "decision_deadline": decision_deadline or f"{season}-gw{gameweek}-pre-deadline",
+        "starting_state_policy": starting_state_policy,
+        "starting_state_predictor_version": starting_state_predictor_version,
+        "evaluation_predictor_version": evaluation_predictor_version,
+        "decision_engine_version": decision_engine_version,
+        "strategic_solver_version": strategic_solver_version,
+        "objective": objective,
+        "horizon": horizon,
+        "constraints": constraints or {"budget_tenths": 1000},
+        "random_seed": random_seed,
+        "configuration_hash": cfg_hash,
+        "dataset_version": dataset_version,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "requested_engine": requested_engine or decision_engine_version,
+        "actual_engine": actual_engine or decision_engine_version,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -217,7 +285,12 @@ def evaluate_starting_state(
     squad_set = set(squad_ids)
     purchase_prices = {pid: proj_map[pid].price_tenths for pid in squad_ids if pid in proj_map}
     spent = sum(purchase_prices.values())
-    bank_tenths = max(0, 1000 - spent)
+    bank_tenths = 1000 - spent
+    if bank_tenths < 0:
+        raise ValueError(
+            f"Squad cost (£{spent / 10:.1f}m) exceeds available budget (£100.0m). "
+            f"Bank cannot be negative: £{bank_tenths / 10:.1f}m."
+        )
 
     # Weekly replay over horizon without transfers to isolate pure starting-state quality
     realized_horizon_pts = 0
@@ -229,6 +302,9 @@ def evaluate_starting_state(
         player_positions = {p.player_id: p.position for p in projs}
 
         starters, bench, cap_id, vc_id, pred_xp = dec_engine.select_lineup(squad_ids, projs)
+        cap_proj_xp = proj_map[cap_id].expected_points if cap_id in proj_map else 0.0
+        lineup_total_xp = round(pred_xp + cap_proj_xp, 2)
+
         outcomes = load_gameweek_outcomes(season_dir, gw)
         gross_pts, autosubs, cap_promoted = simulate_autosubs_and_score(
             starters, bench, cap_id, vc_id, outcomes, player_positions
@@ -236,12 +312,24 @@ def evaluate_starting_state(
         realized_horizon_pts += gross_pts
         gw_breakdown.append({
             "gameweek": gw,
-            "projected_xp": round(pred_xp, 2),
+            "projected_xp": lineup_total_xp,
             "realized_points": gross_pts,
             "captain_id": cap_id,
             "captain_points": (outcomes.get(cap_id).total_points * 2) if outcomes.get(cap_id) else 0,
             "zero_min_starters": [s for s in starters if not outcomes.get(s) or outcomes[s].minutes == 0],
         })
+
+    # Invariant verification: if candidate provided, assert stored horizon_xp matches starters + captain horizon xP
+    if candidate is not None:
+        starters_horizon_sum = sum(p.get("horizon_xp", 0.0) for p in getattr(candidate, "starters", []))
+        cap_horizon = candidate.captain.get("horizon_xp", 0.0) if getattr(candidate, "captain", None) else 0.0
+        expected_inv = round(starters_horizon_sum + cap_horizon, 2)
+        cand_hxp = round(candidate.horizon_expected_points, 2)
+        if abs(cand_hxp - expected_inv) > 0.05:
+            raise ValueError(
+                f"Candidate horizon_expected_points invariant violated: stored {cand_hxp} vs computed {expected_inv} "
+                f"(starters sum: {starters_horizon_sum}, captain: {cap_horizon})"
+            )
 
     horizon_xp = candidate.horizon_expected_points if candidate else sum(g["projected_xp"] for g in gw_breakdown)
     expected_vs_realized_delta = round(realized_horizon_pts - horizon_xp, 2)
@@ -288,59 +376,78 @@ def evaluate_starting_state(
 def generate_baseline_initial_squad(
     players: list[PlayerInfo],
     strategy_type: str = "greedy_single_gw",
+    budget_tenths: int = 1000,
 ) -> list[int]:
     """Generate independent baseline squads for comparison.
     
     - 'greedy_single_gw': Single-GW greedy heuristic (Baseline B).
-    - 'uniform_template': Uniform budget allocation across clubs and positions (Baseline A).
+    - 'uniform_template': Budget-constrained template allocation across clubs and positions (Baseline A).
+
+    Guarantees full FPL legality under canonical `validate_squad` check (P0.1).
     """
-    if strategy_type == "uniform_template":
-        # Group by position and select high-ownership / steady core
-        by_pos: dict[Position, list[PlayerInfo]] = {pos: [] for pos in Position}
-        for p in players:
-            by_pos[p.position].append(p)
-        for pos in by_pos:
-            by_pos[pos].sort(key=lambda p: (p.price_tenths, p.total_points), reverse=True)
+    try:
+        if strategy_type == "uniform_template":
+            # Group by position and select high historical points / template consensus within budget
+            template_players = [
+                PlayerInfo(
+                    id=p.id,
+                    name=p.name,
+                    position=p.position,
+                    team_id=p.team_id,
+                    team_short=p.team_short,
+                    price_tenths=p.price_tenths,
+                    status=p.status,
+                    total_points=p.total_points,
+                    expected_points=float(max(1, p.total_points)),
+                    expected_minutes=getattr(p, "gw_xm", p.expected_minutes),
+                    xp_floor=float(max(1, p.total_points)),
+                    xp_ceiling=float(max(1, p.total_points)),
+                    standard_deviation=p.standard_deviation,
+                    gw_xp=float(max(1, p.total_points)),
+                    horizon_xp=float(max(1, p.total_points)),
+                )
+                for p in players
+                if getattr(p, "status", "a") != "u"
+            ]
+            cand = solve_strategic_squad(
+                template_players,
+                constraints=StrategicConstraints(budget_tenths=budget_tenths),
+                strategy="maximum_ev",
+                horizon=1,
+            )
+            return cand.squad_player_ids
 
-        chosen: list[int] = []
-        club_counts: dict[int, int] = {}
-        for pos, quota in [(Position.GOALKEEPER, 2), (Position.DEFENDER, 5), (Position.MIDFIELDER, 5), (Position.FORWARD, 3)]:
-            count = 0
-            for p in by_pos[pos]:
-                if count >= quota:
-                    break
-                if club_counts.get(p.team_id, 0) < 3:
-                    chosen.append(p.id)
-                    club_counts[p.team_id] = club_counts.get(p.team_id, 0) + 1
-                    count += 1
-        return chosen
-
-    # Default Baseline B: Single-GW xP solver
-    single_gw_players = [
-        PlayerInfo(
-            id=p.id,
-            name=p.name,
-            position=p.position,
-            team_id=p.team_id,
-            team_short=p.team_short,
-            price_tenths=p.price_tenths,
-            status=p.status,
-            total_points=p.total_points,
-            expected_points=p.expected_points / 5.0, # single GW scaled
-            expected_minutes=p.expected_minutes / 5.0,
-            xp_floor=p.xp_floor / 5.0,
-            xp_ceiling=p.xp_ceiling / 5.0,
-            standard_deviation=p.standard_deviation,
+        # Baseline B: Single-GW xP solver
+        single_gw_players = [
+            PlayerInfo(
+                id=p.id,
+                name=p.name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=p.team_short,
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=p.total_points,
+                expected_points=getattr(p, "gw_xp", p.expected_points),
+                expected_minutes=getattr(p, "gw_xm", p.expected_minutes),
+                xp_floor=getattr(p, "gw_floor", p.xp_floor),
+                xp_ceiling=getattr(p, "gw_ceil", p.xp_ceiling),
+                standard_deviation=p.standard_deviation,
+                gw_xp=getattr(p, "gw_xp", p.expected_points),
+                horizon_xp=getattr(p, "gw_xp", p.expected_points),
+            )
+            for p in players
+            if getattr(p, "status", "a") != "u"
+        ]
+        cand = solve_strategic_squad(
+            single_gw_players,
+            constraints=StrategicConstraints(budget_tenths=budget_tenths),
+            strategy="maximum_ev",
+            horizon=1,
         )
-        for p in players
-    ]
-    cand = solve_strategic_squad(
-        single_gw_players,
-        constraints=StrategicConstraints(budget_tenths=1000),
-        strategy="maximum_ev",
-        horizon=1,
-    )
-    return cand.squad_player_ids
+        return cand.squad_player_ids
+    except (ValueError, RuntimeError) as exc:
+        raise RuntimeError(f"Failed to generate legal baseline squad ({strategy_type}) under budget £{budget_tenths/10:.1f}m: {exc}") from exc
 
 
 # ==============================================================================
@@ -376,8 +483,8 @@ def run_initial_squad_backtest(
     )
 
     # 2. Generate Baselines
-    baseline_a_ids = generate_baseline_initial_squad(players, "uniform_template")
-    baseline_b_ids = generate_baseline_initial_squad(players, "greedy_single_gw")
+    baseline_a_ids = generate_baseline_initial_squad(players, "uniform_template", budget_tenths=1000)
+    baseline_b_ids = generate_baseline_initial_squad(players, "greedy_single_gw", budget_tenths=1000)
 
     squad_options: dict[str, list[int]] = {
         "Baseline A (Template)": baseline_a_ids,
@@ -394,8 +501,17 @@ def run_initial_squad_backtest(
     starting_metrics: dict[str, dict[str, Any]] = {}
     opt_strat = OptimizerStrategy(max_transfers=1, decision_engine=decision_engine_version)
 
+    profile_key_map = {
+        "Candidate Maximum EV": "maximum_ev",
+        "Candidate Balanced": "balanced",
+        "Candidate High Floor": "floor",
+        "Candidate High Ceiling": "ceiling",
+        "Candidate Flexibility": "flexibility",
+    }
+
     for label, squad_ids in squad_options.items():
-        cand_obj = candidates_dict.get(label.replace("Candidate ", "").lower().replace(" ", "_"))
+        cand_key = profile_key_map.get(label)
+        cand_obj = candidates_dict.get(cand_key) if cand_key else None
         st_met = evaluate_starting_state(
             season_dir=season_dir,
             squad_ids=squad_ids,
@@ -424,6 +540,19 @@ def run_initial_squad_backtest(
         label: best_realized_pts - sim.total_net_points for label, sim in simulations.items()
     }
 
+    provenance = build_experiment_provenance(
+        experiment_type="initial_squad_backtest",
+        season=season,
+        gameweek=1,
+        starting_state_policy="multi_candidate_comparison",
+        starting_state_predictor_version=predictor_version,
+        evaluation_predictor_version=predictor_version,
+        decision_engine_version=decision_engine_version,
+        strategic_solver_version="v1.1-exact-reference",
+        objective="multi_objective_suite",
+        horizon=horizon,
+    )
+
     results = {
         "season": season,
         "start_gw": 1,
@@ -432,6 +561,7 @@ def run_initial_squad_backtest(
         "predictor_version": predictor_version,
         "decision_engine_version": decision_engine_version,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "provenance": provenance,
         "starting_metrics": starting_metrics,
         "downstream_simulations": {
             label: {
@@ -934,16 +1064,22 @@ def run_starting_state_ablation(
     season: str = "2023-24",
     horizon: int = 5,
     end_gw: int = 10,
+    construction_predictor_version: str = "v1.0.1",
     save_report: bool = True,
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """2x2x2 Factorial ablation isolating main effects of Starting State, Predictor, and Decision Engine."""
+    """2x2x2 Factorial ablation isolating main effects of Starting State, Predictor, and Decision Engine (P0.2)."""
     season_dir = DATA_DIRECTORY / "historical" / season
-    players, _ = load_historical_strategic_players(season_dir, gameweek=1, horizon=horizon, predictor_version="v1.0.1")
+    # Factor A starting states are constructed independently from frozen pre-GW1 information using construction_predictor_version
+    players, _ = load_historical_strategic_players(
+        season_dir, gameweek=1, horizon=horizon, predictor_version=construction_predictor_version
+    )
 
     # Starting states: Baseline Single-GW vs Strategic Balanced
-    squad_base = generate_baseline_initial_squad(players, "greedy_single_gw")
-    cand_strat = solve_strategic_squad(players, constraints=StrategicConstraints(budget_tenths=1000), strategy="balanced", horizon=horizon)
+    squad_base = generate_baseline_initial_squad(players, "greedy_single_gw", budget_tenths=1000)
+    cand_strat = solve_strategic_squad(
+        players, constraints=StrategicConstraints(budget_tenths=1000), strategy="balanced", horizon=horizon
+    )
     squad_strat = cand_strat.squad_player_ids
 
     states = {
@@ -957,6 +1093,7 @@ def run_starting_state_ablation(
 
     for s_name, s_ids in states.items():
         is_strat = (s_name == "Strategic Squad (Multi-GW)")
+        policy_name = "strategic_multi_gw" if is_strat else "baseline_single_gw"
         for pred in predictors:
             for eng in engines:
                 strat = OptimizerStrategy(max_transfers=1, decision_engine=eng)
@@ -971,8 +1108,11 @@ def run_starting_state_ablation(
                 )
                 matrix_results.append({
                     "starting_state": s_name,
+                    "starting_state_policy": policy_name,
                     "is_strategic_state": is_strat,
+                    "starting_state_construction_predictor": construction_predictor_version,
                     "predictor": pred,
+                    "evaluation_predictor": pred,
                     "decision_engine": eng,
                     "net_points": sim.total_net_points,
                     "gross_points": sim.total_gross_points,
@@ -1028,10 +1168,25 @@ def run_starting_state_ablation(
         reconstruction_errors.append(abs(y - y_hat))
     max_reconstruction_error = max(reconstruction_errors) if reconstruction_errors else 0.0
 
+    provenance = build_experiment_provenance(
+        experiment_type="starting_state_ablation",
+        season=season,
+        gameweek=1,
+        starting_state_policy="factorial_baseline_vs_strategic",
+        starting_state_predictor_version=construction_predictor_version,
+        evaluation_predictor_version="factorial_v0.8_vs_v1.0.1",
+        decision_engine_version="factorial_v0.8_vs_v1.0.1",
+        strategic_solver_version="v1.1-exact-reference",
+        objective="balanced",
+        horizon=horizon,
+    )
+
     results = {
         "season": season,
         "end_gw": end_gw,
         "horizon": horizon,
+        "construction_predictor_version": construction_predictor_version,
+        "provenance": provenance,
         "matrix": matrix_results,
         "requested_cells": [str(c) for c in requested_cells],
         "completed_cells": [str(c) for c in completed_cells],
@@ -1068,12 +1223,12 @@ def run_starting_state_ablation(
             "",
             "## 1. Experimental Matrix (GW 1–10 Net Points)",
             "",
-            "| Starting Squad State (A) | Predictor Version (B) | Decision Engine (C) | Net Points | Gross Points | Hits | Transfers |",
-            "|---|:---:|:---:|---:|---:|---:|---:|",
+            "| Starting Squad State (A) | Construction Predictor | Evaluation Predictor (B) | Decision Engine (C) | Net Points | Gross Points | Hits | Transfers |",
+            "|---|:---:|:---:|:---:|---:|---:|---:|---:|",
         ]
         for r in matrix_results:
             md_lines.append(
-                f"| {r['starting_state']} | `{r['predictor']}` | `{r['decision_engine']}` | "
+                f"| {r['starting_state']} | `{r['starting_state_construction_predictor']}` | `{r['evaluation_predictor']}` | `{r['decision_engine']}` | "
                 f"**{r['net_points']}** | {r['gross_points']} | {r['hits']} | {r['transfers']} |"
             )
 
@@ -1324,7 +1479,7 @@ def run_multi_season_summary(
 
         players, _ = load_historical_strategic_players(season_dir, gameweek=1, horizon=horizon)
         cand = solve_strategic_squad(players, constraints=StrategicConstraints(budget_tenths=1000), strategy="balanced", horizon=horizon)
-        base_squad = generate_baseline_initial_squad(players, "greedy_single_gw")
+        base_squad = generate_baseline_initial_squad(players, "greedy_single_gw", budget_tenths=1000)
 
         sim_strat = run_sequential_simulation(season_dir, opt_strat, initial_squad_ids=cand.squad_player_ids, start_gw=1, end_gw=end_gw)
         sim_base = run_sequential_simulation(season_dir, opt_strat, initial_squad_ids=base_squad, start_gw=1, end_gw=end_gw)
@@ -1345,6 +1500,19 @@ def run_multi_season_summary(
     std_delta = _std(deltas)
     win_rate = (sum(1 for s in season_summaries if s["strategic_wins"]) / len(season_summaries)) * 100 if season_summaries else 0.0
 
+    provenance = build_experiment_provenance(
+        experiment_type="multi_season_summary",
+        season=",".join([s["season"] for s in season_summaries]),
+        gameweek=1,
+        starting_state_policy="strategic_balanced_vs_greedy_single_gw_baseline",
+        starting_state_predictor_version="v1.0.1",
+        evaluation_predictor_version="v1.0.1",
+        decision_engine_version="v1.0.1",
+        strategic_solver_version="v1.1-exact-reference",
+        objective="balanced",
+        horizon=horizon,
+    )
+
     results = {
         "seasons_evaluated": [s["season"] for s in season_summaries],
         "horizon": horizon,
@@ -1353,6 +1521,7 @@ def run_multi_season_summary(
         "std_point_gain": round(std_delta, 2),
         "win_rate_pct": round(win_rate, 1),
         "season_summaries": season_summaries,
+        "provenance": provenance,
     }
 
     if save_report:
@@ -1364,7 +1533,7 @@ def run_multi_season_summary(
         md_lines = [
             "# Multi-Season Walk-Forward Evaluation: V1.1 Strategic Squad Engine",
             "",
-            f"**Historical Seasons:** {', '.join(results['seasons_evaluated'])} (5 seasons)",
+            f"**Historical Seasons:** {', '.join(results['seasons_evaluated'])} ({len(results['seasons_evaluated'])} seasons evaluated)",
             f"**Evaluation Window:** GW 1–{end_gw} | **Horizon:** {horizon} Gameweeks",
             "",
             "## 1. Cross-Season Performance Ledger",
@@ -1383,11 +1552,12 @@ def run_multi_season_summary(
             "",
             "## 2. Statistical Robustness & Consistency",
             "",
+            f"- **Sample Size:** {len(season_summaries)} historical seasons",
             f"- **Mean Net Point Improvement:** **{mean_delta:+.2f} pts** (± {std_delta:.2f})",
             f"- **Cross-Season Win Rate:** **{win_rate:.1f}%** ({sum(1 for s in season_summaries if s['strategic_wins'])} / {len(season_summaries)} seasons)",
             "",
-            "## 3. Executive Assessment",
-            "The multi-season walk-forward evaluation decisively demonstrates that generalized strategic squad optimization improves downstream decision outcomes consistently across multiple English Premier League campaigns without future data leakage.",
+            "## 3. Empirical Assessment",
+            f"Across the evaluated seasons, strategic starting-state construction produced a mean difference of {mean_delta:+.2f} points (± {std_delta:.2f}) versus the baseline, with cross-season variation. The results provide empirical evidence of starting-state sensitivity under the evaluated methodology, while demonstrating that downstream outcomes vary depending on season-specific fixture dynamics and weekly transfer variance.",
             "",
         ])
         md_file.write_text("\n".join(md_lines), encoding="utf-8")

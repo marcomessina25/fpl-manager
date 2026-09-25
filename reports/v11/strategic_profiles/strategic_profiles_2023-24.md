@@ -4,11 +4,11 @@ Comparative evaluation of the 5 canonical strategic objectives under identical b
 
 | Strategic Profile | Objective | Horizon xP | Realized Horizon Pts | Downstream Net (GW1–10) | Flexibility | Risk | Formation |
 |---|---:|---:|---:|---:|---:|---:|:---:|
-| `maximum_ev` | 350.1 | 345.1 | 146 | **162** | 68.00 | 0.0 | 3---5 |
-| `balanced` | 368.5 | 345.0 | 144 | **160** | 68.00 | 0.0 | 3---4 |
-| `floor` | 139.0 | 336.3 | 146 | **155** | 64.00 | 0.0 | 3---4 |
-| `ceiling` | 483.9 | 340.6 | 133 | **152** | 68.00 | 0.0 | 3---4 |
-| `flexibility` | 323.5 | 343.6 | 124 | **139** | 68.00 | 0.0 | 3---5 |
+| `maximum_ev` | 193.5 | 188.2 | 209 | **522** | 60.00 | 0.0 | 3---5 |
+| `balanced` | 210.8 | 188.1 | 209 | **522** | 60.00 | 0.0 | 3---4 |
+| `floor` | 79.7 | 185.4 | 252 | **569** | 60.00 | 0.0 | 3---4 |
+| `ceiling` | 261.1 | 185.2 | 235 | **588** | 64.00 | 0.0 | 4---4 |
+| `flexibility` | 190.9 | 188.2 | 209 | **522** | 60.00 | 0.0 | 3---5 |
 
 ## Strategic Takeaways
 - `maximum_ev` maximizes mathematical expectation but may take higher structural risks.

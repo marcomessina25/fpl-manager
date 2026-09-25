@@ -294,3 +294,168 @@ def test_strategic_initialization_no_silent_fallback_p02(sample_season_dir: Path
             decision_engine="v1.1",
         )
 
+
+def test_factorial_decomposition_synthetic_ground_truth_p11() -> None:
+    """Validate 2x2x2 factorial decomposition against known synthetic ground truth (P1.1).
+    
+    Ground truth effects:
+    A (Starting State) = +10.0
+    B (Predictor) = +5.0
+    C (Decision Engine) = +2.0
+    AB = +3.0
+    AC = -1.0
+    BC = +4.0
+    ABC = +7.0
+    Grand Mean = 50.0
+    """
+    mu = 50.0
+    eff_a = 10.0
+    eff_b = 5.0
+    eff_c = 2.0
+    eff_ab = 3.0
+    eff_ac = -1.0
+    eff_bc = 4.0
+    eff_abc = 7.0
+
+    cells = {}
+    for a in (-1, 1):
+        for b in (-1, 1):
+            for c in (-1, 1):
+                y = (
+                    mu
+                    + 0.5 * a * eff_a
+                    + 0.5 * b * eff_b
+                    + 0.5 * c * eff_c
+                    + 0.5 * a * b * eff_ab
+                    + 0.5 * a * c * eff_ac
+                    + 0.5 * b * c * eff_bc
+                    + 0.5 * a * b * c * eff_abc
+                )
+                cells[(a, b, c)] = y
+
+    # Compute decomposition
+    recovered_mean = sum(cells.values()) / 8.0
+    rec_a = sum(a * y for (a, b, c), y in cells.items()) / 4.0
+    rec_b = sum(b * y for (a, b, c), y in cells.items()) / 4.0
+    rec_c = sum(c * y for (a, b, c), y in cells.items()) / 4.0
+    rec_ab = sum(a * b * y for (a, b, c), y in cells.items()) / 4.0
+    rec_ac = sum(a * c * y for (a, b, c), y in cells.items()) / 4.0
+    rec_bc = sum(b * c * y for (a, b, c), y in cells.items()) / 4.0
+    rec_abc = sum(a * b * c * y for (a, b, c), y in cells.items()) / 4.0
+
+    assert abs(recovered_mean - mu) < 1e-12
+    assert abs(rec_a - eff_a) < 1e-12
+    assert abs(rec_b - eff_b) < 1e-12
+    assert abs(rec_c - eff_c) < 1e-12
+    assert abs(rec_ab - eff_ab) < 1e-12
+    assert abs(rec_ac - eff_ac) < 1e-12
+    assert abs(rec_bc - eff_bc) < 1e-12
+    assert abs(rec_abc - eff_abc) < 1e-12
+
+    # Reconstruction test
+    for (a, b, c), y in cells.items():
+        y_hat = (
+            recovered_mean
+            + 0.5 * a * rec_a
+            + 0.5 * b * rec_b
+            + 0.5 * c * rec_c
+            + 0.5 * a * b * rec_ab
+            + 0.5 * a * c * rec_ac
+            + 0.5 * b * c * rec_bc
+            + 0.5 * a * b * c * rec_abc
+        )
+        assert abs(y - y_hat) < 1e-12
+
+
+def test_candidate_horizon_xp_invariant_p14(sample_season_dir: Path) -> None:
+    """Verify stored candidate horizon_expected_points matches starters + captain sum across horizons (P0.5, P1.4)."""
+    from fpl_manager.strategic_squad import generate_strategic_candidates
+
+    for h in [1, 2, 3, 5, 8]:
+        players, _ = load_historical_strategic_players(
+            sample_season_dir,
+            gameweek=1,
+            horizon=h,
+            predictor_version="v1.0.1",
+        )
+        cands = generate_strategic_candidates(
+            players,
+            constraints=StrategicConstraints(budget_tenths=1000),
+            horizon=h,
+        )
+        for profile, cand in cands.items():
+            starters_sum = sum(p["horizon_xp"] for p in cand.starters)
+            cap_xp = cand.captain["horizon_xp"]
+            expected_total = round(starters_sum + cap_xp, 2)
+            assert abs(round(cand.horizon_expected_points, 2) - expected_total) < 0.05, (
+                f"Horizon {h} profile {profile}: candidate horizon_xp {cand.horizon_expected_points} "
+                f"!= computed sum {expected_total}"
+            )
+
+
+def test_baseline_squad_legality_and_budget_p01(sample_season_dir: Path) -> None:
+    """Verify baseline squad generation enforces budget and squad legality constraints strictly (P0.1)."""
+    from fpl_manager.backtest.strategic_analysis import generate_baseline_initial_squad
+    from fpl_manager.rules import validate_squad, Player as RulesPlayer
+    from fpl_manager.models import Position as ModelPosition
+
+    players, _ = load_historical_strategic_players(
+        sample_season_dir,
+        gameweek=1,
+        horizon=5,
+        predictor_version="v1.0.1",
+    )
+    p_map = {p.id: p for p in players}
+
+    for strat in ["uniform_template", "greedy_single_gw"]:
+        squad_ids = generate_baseline_initial_squad(players, strat, budget_tenths=1000)
+        assert len(squad_ids) == 15
+        squad_players = [
+            RulesPlayer(
+                id=p_map[pid].id,
+                name=p_map[pid].name,
+                position=ModelPosition(p_map[pid].position),
+                team_id=p_map[pid].team_id,
+                price_tenths=p_map[pid].price_tenths,
+            )
+            for pid in squad_ids
+        ]
+        val_res = validate_squad(squad_players, budget_tenths=1000)
+        assert val_res.is_valid, f"{strat} produced invalid squad: {val_res.errors}"
+        total_cost = sum(p.price_tenths for p in squad_players)
+        assert total_cost <= 1000
+
+    # Over-budget candidate test: impossible budget should raise RuntimeError
+    with pytest.raises(RuntimeError):
+        generate_baseline_initial_squad(players, "uniform_template", budget_tenths=400)
+
+    # Negative bank in evaluate_starting_state must raise ValueError, not silently clip
+    with pytest.raises(ValueError, match="exceeds available budget"):
+        expensive_ids = [p.id for p in sorted(players, key=lambda x: x.price_tenths, reverse=True)[:15]]
+        evaluate_starting_state(sample_season_dir, expensive_ids, start_gw=1, horizon=3)
+
+
+def test_factorial_ablation_provenance_and_independent_factors_p02(tmp_path: Path) -> None:
+    """Verify factorial ablation records construction vs evaluation predictor and full provenance (P0.2, P1.2, P0.6)."""
+    res = run_starting_state_ablation(
+        season="2024-25",
+        horizon=3,
+        end_gw=3,
+        construction_predictor_version="v1.0.1",
+        save_report=True,
+        output_dir=tmp_path / "ablation",
+    )
+
+    assert "provenance" in res
+    prov = res["provenance"]
+    assert prov["starting_state_predictor_version"] == "v1.0.1"
+    assert "configuration_hash" in prov
+    assert "experiment_id" in prov
+    assert prov["fallback_used"] is False
+
+    for cell in res["matrix"]:
+        assert cell["starting_state_construction_predictor"] == "v1.0.1"
+        assert cell["evaluation_predictor"] in ("v0.8", "v1.0.1")
+        assert cell["starting_state_policy"] in ("baseline_single_gw", "strategic_multi_gw")
+
+

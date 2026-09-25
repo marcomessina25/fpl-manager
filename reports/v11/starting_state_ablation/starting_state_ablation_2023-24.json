@@ -1,92 +1,183 @@
 {
   "season": "2023-24",
-  "end_gw": 3,
-  "horizon": 3,
+  "end_gw": 10,
+  "horizon": 5,
+  "construction_predictor_version": "v1.0.1",
+  "provenance": {
+    "experiment_id": "exp_starting_state_ablation_2023_24_gw1_bcbdb171787413db",
+    "season": "2023-24",
+    "gameweek": 1,
+    "decision_deadline": "2023-24-gw1-pre-deadline",
+    "starting_state_policy": "factorial_baseline_vs_strategic",
+    "starting_state_predictor_version": "v1.0.1",
+    "evaluation_predictor_version": "factorial_v0.8_vs_v1.0.1",
+    "decision_engine_version": "factorial_v0.8_vs_v1.0.1",
+    "strategic_solver_version": "v1.1-exact-reference",
+    "objective": "balanced",
+    "horizon": 5,
+    "constraints": {
+      "budget_tenths": 1000
+    },
+    "random_seed": 42,
+    "configuration_hash": "bcbdb171787413db",
+    "dataset_version": "historical-fpl-v1",
+    "fallback_used": false,
+    "fallback_reason": null,
+    "requested_engine": "factorial_v0.8_vs_v1.0.1",
+    "actual_engine": "factorial_v0.8_vs_v1.0.1",
+    "created_at": "2026-09-25T16:02:47.337687+00:00"
+  },
   "matrix": [
     {
       "starting_state": "Baseline Squad (Single-GW)",
+      "starting_state_policy": "baseline_single_gw",
       "is_strategic_state": false,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v0.8",
+      "evaluation_predictor": "v0.8",
       "decision_engine": "v0.8",
-      "net_points": 137,
-      "gross_points": 137,
+      "net_points": 531,
+      "gross_points": 531,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Baseline Squad (Single-GW)",
+      "starting_state_policy": "baseline_single_gw",
       "is_strategic_state": false,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v0.8",
+      "evaluation_predictor": "v0.8",
       "decision_engine": "v1.0.1",
-      "net_points": 137,
-      "gross_points": 137,
+      "net_points": 538,
+      "gross_points": 538,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Baseline Squad (Single-GW)",
+      "starting_state_policy": "baseline_single_gw",
       "is_strategic_state": false,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v1.0.1",
+      "evaluation_predictor": "v1.0.1",
       "decision_engine": "v0.8",
-      "net_points": 137,
-      "gross_points": 137,
+      "net_points": 527,
+      "gross_points": 527,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Baseline Squad (Single-GW)",
+      "starting_state_policy": "baseline_single_gw",
       "is_strategic_state": false,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v1.0.1",
+      "evaluation_predictor": "v1.0.1",
       "decision_engine": "v1.0.1",
-      "net_points": 139,
-      "gross_points": 139,
+      "net_points": 527,
+      "gross_points": 527,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Strategic Squad (Multi-GW)",
+      "starting_state_policy": "strategic_multi_gw",
       "is_strategic_state": true,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v0.8",
+      "evaluation_predictor": "v0.8",
       "decision_engine": "v0.8",
-      "net_points": 158,
-      "gross_points": 158,
+      "net_points": 584,
+      "gross_points": 584,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Strategic Squad (Multi-GW)",
+      "starting_state_policy": "strategic_multi_gw",
       "is_strategic_state": true,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v0.8",
+      "evaluation_predictor": "v0.8",
       "decision_engine": "v1.0.1",
-      "net_points": 158,
-      "gross_points": 158,
+      "net_points": 591,
+      "gross_points": 591,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Strategic Squad (Multi-GW)",
+      "starting_state_policy": "strategic_multi_gw",
       "is_strategic_state": true,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v1.0.1",
+      "evaluation_predictor": "v1.0.1",
       "decision_engine": "v0.8",
-      "net_points": 158,
-      "gross_points": 158,
+      "net_points": 524,
+      "gross_points": 524,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     },
     {
       "starting_state": "Strategic Squad (Multi-GW)",
+      "starting_state_policy": "strategic_multi_gw",
       "is_strategic_state": true,
+      "starting_state_construction_predictor": "v1.0.1",
       "predictor": "v1.0.1",
+      "evaluation_predictor": "v1.0.1",
       "decision_engine": "v1.0.1",
-      "net_points": 160,
-      "gross_points": 160,
+      "net_points": 522,
+      "gross_points": 522,
       "hits": 0,
-      "transfers": 2
+      "transfers": 10
     }
   ],
+  "requested_cells": [
+    "(-1, -1, -1)",
+    "(-1, -1, 1)",
+    "(-1, 1, -1)",
+    "(-1, 1, 1)",
+    "(1, -1, -1)",
+    "(1, -1, 1)",
+    "(1, 1, -1)",
+    "(1, 1, 1)"
+  ],
+  "completed_cells": [
+    "(-1, -1, -1)",
+    "(-1, -1, 1)",
+    "(-1, 1, -1)",
+    "(-1, 1, 1)",
+    "(1, -1, -1)",
+    "(1, -1, 1)",
+    "(1, 1, -1)",
+    "(1, 1, 1)"
+  ],
+  "missing_cells": [],
+  "cell_sample_counts": {
+    "(-1, -1, -1)": 1,
+    "(-1, -1, 1)": 1,
+    "(-1, 1, -1)": 1,
+    "(-1, 1, 1)": 1,
+    "(1, -1, -1)": 1,
+    "(1, -1, 1)": 1,
+    "(1, 1, -1)": 1,
+    "(1, 1, 1)": 1
+  },
+  "grand_mean": 543.0,
   "main_effects": {
-    "starting_state_effect": 21.0,
-    "predictor_effect": 1.0,
-    "decision_engine_effect": 1.0
+    "starting_state_effect": 24.5,
+    "predictor_effect": -36.0,
+    "decision_engine_effect": 3.0
+  },
+  "interactions": {
+    "state_x_predictor": -28.5,
+    "state_x_decision_engine": -0.5,
+    "predictor_x_decision_engine": -4.0,
+    "state_x_predictor_x_decision_engine": -0.5
+  },
+  "reconstruction_verification": {
+    "is_orthogonal": true,
+    "max_residual": 0.0
   }
 }

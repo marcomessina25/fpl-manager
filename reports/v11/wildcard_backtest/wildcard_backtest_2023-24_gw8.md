@@ -1,19 +1,19 @@
 # Historical Wildcard Backtest: Season 2023-24 at GW 8
 
-**Evaluation Window:** GW 8–11 (4 Gameweeks) | **Budget:** £100.2m
-**Strategic Horizon:** 3 GWs | **Predictor:** `v1.0.1`
+**Evaluation Window:** GW 8–13 (6 Gameweeks) | **Budget:** £100.2m
+**Strategic Horizon:** 5 GWs | **Predictor:** `v1.0.1`
 
 ## 1. Post-Wildcard Window Net Point Comparison
 
 | Wildcard Strategy | Net Points | Gross Points | Hits Taken | Gain over No-Wildcard | 0-Min Starters |
 |---|---:|---:|---:|---:|---:|
-| No-Wildcard Baseline | **254** | 254 | 0 | +0 pts | 3 |
-| Single-GW Wildcard Baseline | **267** | 267 | 0 | +13 pts | 1 |
-| Strategic Wildcard (Balanced) | **265** | 265 | 0 | +11 pts | 1 |
-| Strategic Wildcard (Max EV) | **249** | 249 | 0 | -5 pts | 1 |
-| Strategic Wildcard (High Floor) | **238** | 238 | 0 | -16 pts | 1 |
+| No-Wildcard Baseline | **369** | 369 | 0 | +0 pts | 6 |
+| Single-GW Wildcard Baseline | **391** | 391 | 0 | +22 pts | 2 |
+| Strategic Wildcard (Balanced) | **397** | 397 | 0 | +28 pts | 2 |
+| Strategic Wildcard (Max EV) | **391** | 391 | 0 | +22 pts | 2 |
+| Strategic Wildcard (High Floor) | **320** | 320 | 0 | -49 pts | 5 |
 
 ## 2. Strategic Conclusions
 
-- **Strategic Wildcard Gain:** +11 pts over carrying on without chip.
-- **Multi-GW vs Single-GW Wildcard Delta:** -2 pts.
+- **Strategic Wildcard Gain:** +28 pts over carrying on without chip.
+- **Multi-GW vs Single-GW Wildcard Delta:** +6 pts.
