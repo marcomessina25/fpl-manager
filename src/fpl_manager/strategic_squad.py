@@ -241,16 +241,16 @@ def compute_player_strategic_value(
     strat = strategy.lower().strip()
 
     # Detect if player already provides an explicit horizon aggregate
-    has_horizon_xp = getattr(player, "horizon_xp", 0.0) != 0.0
+    has_horizon_xp = float(getattr(player, "horizon_xp", 0.0) or 0.0) > 0.0
     if has_horizon_xp:
         base_xp = float(player.horizon_xp)
-        floor_val = float(getattr(player, "horizon_floor", getattr(player, "xp_floor", base_xp)))
-        ceil_val = float(getattr(player, "horizon_ceiling", getattr(player, "xp_ceiling", base_xp)))
+        floor_val = float(getattr(player, "horizon_floor", 0.0) or getattr(player, "xp_floor", 0.0) or base_xp)
+        ceil_val = float(getattr(player, "horizon_ceiling", 0.0) or getattr(player, "xp_ceiling", 0.0) or base_xp)
     else:
-        gw_xp = float(getattr(player, "gw_xp", getattr(player, "expected_points", 0.0)))
+        gw_xp = float(getattr(player, "gw_xp", 0.0) or getattr(player, "expected_points", 0.0))
         base_xp = gw_xp * horizon_len
-        floor_val = float(getattr(player, "xp_floor", gw_xp)) * horizon_len
-        ceil_val = float(getattr(player, "xp_ceiling", gw_xp)) * horizon_len
+        floor_val = float(getattr(player, "xp_floor", 0.0) or gw_xp) * horizon_len
+        ceil_val = float(getattr(player, "xp_ceiling", 0.0) or gw_xp) * horizon_len
 
     sd = getattr(player, "standard_deviation", 1.0)
     sel = getattr(player, "selected_by_percent", 10.0)

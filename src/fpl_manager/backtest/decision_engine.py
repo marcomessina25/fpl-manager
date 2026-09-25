@@ -839,6 +839,8 @@ class DecisionEngineV11(DecisionEngineV10):
                 proj = proj_map.get(p.player_id)
                 xp = proj.expected_points if proj else 0.0
                 xm = proj.expected_minutes if proj else 0.0
+                flr = proj.xp_floor if proj and proj.xp_floor > 0 else xp
+                ceil = proj.xp_ceiling if proj and proj.xp_ceiling > 0 else xp
                 p_info = PlayerInfo(
                     id=p.player_id,
                     name=p.web_name,
@@ -847,6 +849,12 @@ class DecisionEngineV11(DecisionEngineV10):
                     team_id=p.team_id,
                     price_tenths=p.price_tenths,
                     expected_points=xp,
+                    gw_xp=xp,
+                    horizon_xp=xp * self.initial_horizon,
+                    xp_floor=flr,
+                    xp_ceiling=ceil,
+                    horizon_floor=flr * self.initial_horizon,
+                    horizon_ceiling=ceil * self.initial_horizon,
                     expected_minutes=xm,
                     total_points=p.total_points,
                     status=p.status,
@@ -936,6 +944,8 @@ class DecisionEngineV115(DecisionEngineV11):
                 proj = proj_map.get(p.player_id)
                 xp = proj.expected_points if proj else 0.0
                 xm = proj.expected_minutes if proj else 0.0
+                flr = proj.xp_floor if proj and proj.xp_floor > 0 else xp
+                ceil = proj.xp_ceiling if proj and proj.xp_ceiling > 0 else xp
                 p_info = PlayerInfo(
                     id=p.player_id,
                     name=p.web_name,
@@ -944,6 +954,12 @@ class DecisionEngineV115(DecisionEngineV11):
                     team_id=p.team_id,
                     price_tenths=p.price_tenths,
                     expected_points=xp,
+                    gw_xp=xp,
+                    horizon_xp=xp * self.initial_horizon,
+                    xp_floor=flr,
+                    xp_ceiling=ceil,
+                    horizon_floor=flr * self.initial_horizon,
+                    horizon_ceiling=ceil * self.initial_horizon,
                     expected_minutes=xm,
                     total_points=p.total_points,
                     status=p.status,

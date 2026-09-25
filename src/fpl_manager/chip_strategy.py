@@ -657,11 +657,11 @@ class SeasonalChipPolicy:
 
     min_wc_deteriorated_players: int = 3
     early_wc_restricted_gws: tuple[int, ...] = (2, 3, 4)
-    min_tc_xp_single_fixture: float = 10.0
-    min_tc_xp_double_fixture: float = 12.0
+    min_tc_xp_single_fixture: float = 8.5
+    min_tc_xp_double_fixture: float = 11.0
     min_tc_start_probability: float = 0.85
-    min_bb_bench_xp: float = 12.0
-    min_bb_bench_play_prob: float = 0.70
+    min_bb_bench_xp: float = 10.0
+    min_bb_bench_play_prob: float = 0.65
     max_fh_active_players_threshold: int = 8
 
     def evaluate_gameweek_chip(
@@ -681,7 +681,7 @@ class SeasonalChipPolicy:
         proj_map = {getattr(p, "player_id", getattr(p, "id", None)): p for p in projections}
         squad_projs = [proj_map[pid] for pid in squad_ids if pid in proj_map]
 
-        # 1. Evaluate Free Hit for severe Blank Gameweeks
+        # 1. Evaluate Free Hit for severe Blank Gameweeks or end-of-window deficits
         if "free_hit" in available:
             playing_count = 0
             for p in squad_projs:
@@ -691,21 +691,23 @@ class SeasonalChipPolicy:
                     playing_count += 1
             if playing_count <= self.max_fh_active_players_threshold:
                 return "free_hit"
+            if gameweek in (18, 19, 37, 38) and playing_count <= 10:
+                return "free_hit"
 
-        # 2. Evaluate Triple Captain for DGW / elite captaincy opportunity
+        # 2. Evaluate Triple Captain for DGW, elite single fixture, or near-expiry
         if "triple_captain" in available:
             best_cap_cand = max(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), default=None)
             if best_cap_cand is not None:
                 cap_xp = getattr(best_cap_cand, "expected_points", 0.0)
                 start_prob = getattr(best_cap_cand, "start_probability", 1.0)
-                is_window_expiry = (gameweek == 19 or gameweek == 38)
+                is_near_expiry = gameweek in (17, 18, 19, 36, 37, 38)
                 if start_prob >= self.min_tc_start_probability:
-                    if cap_xp >= self.min_tc_xp_double_fixture:
+                    if cap_xp >= self.min_tc_xp_double_fixture or cap_xp >= self.min_tc_xp_single_fixture:
                         return "triple_captain"
-                    if is_window_expiry and cap_xp >= 8.0:
+                    if is_near_expiry and cap_xp >= 6.5:
                         return "triple_captain"
 
-        # 3. Evaluate Bench Boost for DGW / deep playing squad
+        # 3. Evaluate Bench Boost for DGW, deep playing squad, or near-expiry
         if "bench_boost" in available:
             sorted_projs = sorted(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), reverse=True)
             bench_projs = sorted_projs[11:] if len(sorted_projs) >= 15 else []
@@ -715,10 +717,10 @@ class SeasonalChipPolicy:
                 if bench_projs
                 else False
             )
-            is_window_expiry = (gameweek == 19 or gameweek == 38)
+            is_near_expiry = gameweek in (17, 18, 19, 36, 37, 38)
             if bench_projs and all_bench_likely and bench_xp >= self.min_bb_bench_xp:
                 return "bench_boost"
-            if is_window_expiry and bench_projs and bench_xp >= 8.0 and all_bench_likely:
+            if is_near_expiry and bench_projs and bench_xp >= 6.5 and all_bench_likely:
                 return "bench_boost"
 
         # 4. Evaluate Wildcard
