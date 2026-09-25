@@ -14,8 +14,56 @@ DATABASE_PATH = DATA_DIR / "fpl.sqlite3"
 
 
 @pytest.fixture
-def cli_test_team():
-    """Create and activate an isolated test team for CLI tests, cleaning up before and after."""
+def cli_test_team(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Create a hermetic SQLite database, isolate DATABASE_PATH, and activate a test team for CLI tests."""
+    db_path = tmp_path / "fpl.sqlite3"
+    store = SnapshotStore(db_path)
+    store.initialize()
+
+    teams = [
+        {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+        {"id": 2, "name": "Liverpool", "short_name": "LIV"},
+        {"id": 3, "name": "Manchester City", "short_name": "MCI"},
+        {"id": 4, "name": "Chelsea", "short_name": "CHE"},
+        {"id": 5, "name": "Tottenham", "short_name": "TOT"},
+        {"id": 6, "name": "Aston Villa", "short_name": "AVL"},
+    ]
+
+    elements = []
+    # 4 GKP (pos 1), 10 DEF (pos 2), 10 MID (pos 3), 6 FWD (pos 4) = 30 players
+    positions = [1] * 4 + [2] * 10 + [3] * 10 + [4] * 6
+    for idx, pos_id in enumerate(positions, 1):
+        team_id = ((idx - 1) % len(teams)) + 1
+        elements.append({
+            "id": idx,
+            "web_name": f"P{idx}_{pos_id}",
+            "team": team_id,
+            "element_type": pos_id,
+            "now_cost": 50,  # 5.0m each
+            "status": "a",
+            "total_points": 50 + idx,
+            "form": "4.5",
+            "ep_this": "5.0",
+            "ep_next": "5.0",
+        })
+
+    fixtures = [
+        {"id": 1, "event": 1, "team_h": 1, "team_a": 2, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-08-20T15:00:00Z", "finished": True},
+        {"id": 2, "event": 2, "team_h": 2, "team_a": 3, "team_h_difficulty": 2, "team_a_difficulty": 4, "kickoff_time": "2026-08-27T15:00:00Z", "finished": False},
+        {"id": 3, "event": 3, "team_h": 3, "team_a": 4, "team_h_difficulty": 3, "team_a_difficulty": 3, "kickoff_time": "2026-09-03T15:00:00Z", "finished": False},
+        {"id": 4, "event": 4, "team_h": 5, "team_a": 6, "team_h_difficulty": 2, "team_a_difficulty": 3, "kickoff_time": "2026-09-10T15:00:00Z", "finished": False},
+        {"id": 5, "event": 5, "team_h": 1, "team_a": 6, "team_h_difficulty": 2, "team_a_difficulty": 4, "kickoff_time": "2026-09-17T15:00:00Z", "finished": False},
+    ]
+
+    from fpl_manager.storage import utc_timestamp
+    bootstrap = {"teams": teams, "elements": elements}
+    store.save_snapshot(bootstrap, fixtures, utc_timestamp())
+
+    monkeypatch.setattr("fpl_manager.cli.DATABASE_PATH", db_path)
+    monkeypatch.setattr("fpl_manager.suggest_transfers.DATABASE_PATH", db_path)
+    monkeypatch.setattr("fpl_manager.decision_log.DATABASE_PATH", db_path)
+    monkeypatch.setattr("fpl_manager.fixtures.DATABASE_PATH", db_path)
+
     from fpl_manager.teams import delete_team
     try:
         delete_team("cli_strategic_test")
