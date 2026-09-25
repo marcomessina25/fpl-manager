@@ -1,14 +1,17 @@
 """Sequential manager simulation and backtest execution engine for FPL Manager (V1.0.1)."""
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
+from ..chip_strategy import SeasonalChipInventory, SeasonalChipPolicy
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
+from ..models import is_departed_from_premier_league
 from ..rules import validate_starting_lineup
 from .decision_engine import BaseDecisionEngine, DecisionEngineV08, DecisionEngineV09, resolve_decision_engine
 from .strategies import BacktestStrategy
@@ -52,6 +55,7 @@ class GameweekDecisionResult:
     captain_zero_mins: bool = False
     transfers_gross_gain: int = 0
     transfers_net_gain: int = 0
+    chip_used: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +87,14 @@ class SimulationResult:
     initial_squad_ids: tuple[int, ...] = ()
     initial_squad_cost_tenths: int = 1000
     initial_squad_bank_tenths: int = 0
+    chips_enabled: bool = False
+    chips_used: dict[str, int] = field(default_factory=dict)
+    experiment_id: str = ""
+    requested_decision_engine_version: str = ""
+    actual_decision_engine_version: str = ""
+    fallback_occurred: bool = False
+    fallback_reason: str | None = None
+    configuration_hash: str = ""
 
 
 
@@ -150,8 +162,37 @@ def simulate_autosubs_and_score(
     vice_captain_id: int,
     outcomes: dict[int, GameweekOutcome],
     player_positions: dict[int, Position],
+    chip_used: str | None = None,
 ) -> tuple[int, tuple[tuple[int, int], ...], bool]:
-    """Calculate matchday score incorporating formation-legal autosubs and captain promotion."""
+    """Calculate matchday score incorporating formation-legal autosubs, captain promotion, and active chips."""
+    # Captaincy evaluation
+    cap_outcome = outcomes.get(captain_id)
+    cap_mins = cap_outcome.minutes if cap_outcome else 0
+
+    vc_outcome = outcomes.get(vice_captain_id)
+    vc_mins = vc_outcome.minutes if vc_outcome else 0
+
+    captain_promoted = False
+    effective_cap = captain_id
+    if cap_mins == 0 and vc_mins > 0:
+        effective_cap = vice_captain_id
+        captain_promoted = True
+
+    cap_multiplier = 3 if chip_used in ("triple_captain", "triplecaptain") else 2
+
+    # Bench Boost evaluation: All 15 players score directly
+    if chip_used in ("bench_boost", "benchboost"):
+        gross_points = 0
+        all_15 = list(starting_ids) + list(bench_ids)
+        for p_id in all_15:
+            outcome = outcomes.get(p_id)
+            pts = outcome.total_points if outcome else 0
+            if p_id == effective_cap:
+                gross_points += pts * cap_multiplier
+            else:
+                gross_points += pts
+        return gross_points, (), captain_promoted
+
     active_starters = list(starting_ids)
     remaining_bench = list(bench_ids)
     autosubs: list[tuple[int, int]] = []
@@ -202,26 +243,13 @@ def simulate_autosubs_and_score(
             active_starters[idx] = sub_in_id
             autosubs.append((s_id, sub_in_id))
 
-    # Captaincy evaluation
-    cap_outcome = outcomes.get(captain_id)
-    cap_mins = cap_outcome.minutes if cap_outcome else 0
-
-    vc_outcome = outcomes.get(vice_captain_id)
-    vc_mins = vc_outcome.minutes if vc_outcome else 0
-
-    captain_promoted = False
-    effective_cap = captain_id
-    if cap_mins == 0 and vc_mins > 0:
-        effective_cap = vice_captain_id
-        captain_promoted = True
-
     # Gross points calculation
     gross_points = 0
     for s_id in active_starters:
         outcome = outcomes.get(s_id)
         pts = outcome.total_points if outcome else 0
         if s_id == effective_cap:
-            gross_points += pts * 2
+            gross_points += pts * cap_multiplier
         else:
             gross_points += pts
 
@@ -347,6 +375,10 @@ def run_sequential_simulation(
     decision_engine: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str | None = None,
     initial_horizon: int = 5,
+    use_chips: bool = False,
+    chip_policy: SeasonalChipPolicy | None = None,
+    experiment_id: str | None = None,
+    dead_capital_weight: float = 3.0,
 ) -> SimulationResult:
     """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
     chosen_initial_strategy = initial_strategy or (
@@ -364,6 +396,7 @@ def run_sequential_simulation(
         decision_engine,
         initial_strategy=chosen_initial_strategy,
         initial_horizon=chosen_initial_horizon,
+        dead_capital_weight=dead_capital_weight,
     )
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
@@ -373,7 +406,7 @@ def run_sequential_simulation(
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        if dec_engine.version == "v1.1" or initial_strategy is not None:
+        if dec_engine.version in ("v1.1", "v1.1.5") or initial_strategy is not None:
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -384,6 +417,10 @@ def run_sequential_simulation(
                     horizon=chosen_initial_horizon,
                     predictor_version=predictor_version,
                 )
+                if dec_engine.version == "v1.1.5":
+                    strat_players = [
+                        p for p in strat_players if not is_departed_from_premier_league(p, init_snap)
+                    ]
                 c = StrategicConstraints(
                     budget_tenths=1000,
                     target_gameweeks=tuple(range(start_gw, min(39, start_gw + chosen_initial_horizon))),
@@ -401,7 +438,7 @@ def run_sequential_simulation(
             except Exception as exc:
                 raise StrategicInitializationError(
                     f"V1.1 strategic initialization failed for season '{season_dir.name}', "
-                    f"strategy '{chosen_initial_strategy}', horizon {chosen_initial_horizon}: {exc}"
+                    f"engine '{dec_engine.version}', strategy '{chosen_initial_strategy}', horizon {chosen_initial_horizon}: {exc}"
                 ) from exc
         else:
             squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
@@ -421,6 +458,11 @@ def run_sequential_simulation(
     total_transfers = 0
     history: list[GameweekDecisionResult] = []
 
+    # Seasonal chip state (Pillar 2)
+    chip_inventory = SeasonalChipInventory() if use_chips else None
+    active_chip_policy = (chip_policy or SeasonalChipPolicy()) if use_chips else None
+    chips_used_tally: dict[str, int] = {}
+
     # 2. Sequential simulation loop
     for gw in range(start_gw, end_gw + 1):
         snapshot = build_historical_snapshot(season_dir, gw)
@@ -430,38 +472,84 @@ def run_sequential_simulation(
 
         squad_before = list(squad_ids)
 
-        # Strategy decides transfers
-        chosen_transfers = strategy.decide_transfers(
-            current_squad_ids=squad_ids,
-            purchase_prices=purchase_prices,
-            bank_tenths=bank,
-            free_transfers=free_transfers,
-            snapshot=snapshot,
-            projections=projections,
-        )
+        # Check chip deployment
+        current_chip = None
+        if use_chips and chip_inventory and active_chip_policy:
+            current_chip = active_chip_policy.evaluate_gameweek_chip(
+                gw, chip_inventory, squad_ids, snapshot, projections, starting_squad_ids_record
+            )
+            if current_chip:
+                chip_inventory.use_chip(gw, current_chip)
+                chips_used_tally[current_chip] = chips_used_tally.get(current_chip, 0) + 1
 
-        # Apply transfers
-        num_transfers = len(chosen_transfers)
-        hits = max(0, num_transfers - free_transfers) * 4
-        rem_ft = max(0, free_transfers - num_transfers)
-        free_transfers = min(5, rem_ft + 1)  # roll 1 free transfer for next week (max 5 in modern FPL rules)
+        saved_squad_ids = None
+        saved_purchase_prices = None
+        saved_bank = None
 
-        for out_id, in_id in chosen_transfers:
-            out_p = proj_map.get(out_id)
-            in_p = proj_map.get(in_id)
-            if out_p and in_p and out_id in squad_ids:
-                cur_out_price = out_p.price_tenths
-                bought_price = purchase_prices.get(out_id, cur_out_price)
-                sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
+        if current_chip in ("wildcard", "free_hit"):
+            if current_chip == "free_hit":
+                saved_squad_ids = list(squad_ids)
+                saved_purchase_prices = dict(purchase_prices)
+                saved_bank = bank
 
-                bank += sell_price
-                bank -= in_p.price_tenths
+            selling_prices = {
+                pid: purchase_prices.get(pid, 50)
+                + max(0, (proj_map[pid].price_tenths - purchase_prices.get(pid, 50)) // 2)
+                if pid in proj_map
+                else purchase_prices.get(pid, 50)
+                for pid in squad_ids
+            }
+            total_funds = bank + sum(selling_prices.values())
 
-                squad_ids.remove(out_id)
-                squad_ids.append(in_id)
-                purchase_prices[in_id] = in_p.price_tenths
-                if out_id in purchase_prices:
-                    del purchase_prices[out_id]
+            try:
+                new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
+                    snapshot, projections, budget_tenths=total_funds
+                )
+                old_set = set(squad_ids)
+                new_set = set(new_squad_ids)
+                out_list = sorted(list(old_set - new_set))
+                in_list = sorted(list(new_set - old_set))
+                chosen_transfers = list(zip(out_list, in_list))
+                squad_ids = new_squad_ids
+                purchase_prices = new_prices
+                bank = new_bank
+            except Exception:
+                chosen_transfers = []
+            hits = 0
+            num_transfers = len(chosen_transfers)
+        else:
+            # Strategy decides transfers
+            chosen_transfers = strategy.decide_transfers(
+                current_squad_ids=squad_ids,
+                purchase_prices=purchase_prices,
+                bank_tenths=bank,
+                free_transfers=free_transfers,
+                snapshot=snapshot,
+                projections=projections,
+            )
+
+            # Apply transfers
+            num_transfers = len(chosen_transfers)
+            hits = max(0, num_transfers - free_transfers) * 4
+            rem_ft = max(0, free_transfers - num_transfers)
+            free_transfers = min(5, rem_ft + 1)  # roll 1 free transfer for next week (max 5 in modern FPL rules)
+
+            for out_id, in_id in chosen_transfers:
+                out_p = proj_map.get(out_id)
+                in_p = proj_map.get(in_id)
+                if out_p and in_p and out_id in squad_ids:
+                    cur_out_price = out_p.price_tenths
+                    bought_price = purchase_prices.get(out_id, cur_out_price)
+                    sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
+
+                    bank += sell_price
+                    bank -= in_p.price_tenths
+
+                    squad_ids.remove(out_id)
+                    squad_ids.append(in_id)
+                    purchase_prices[in_id] = in_p.price_tenths
+                    if out_id in purchase_prices:
+                        del purchase_prices[out_id]
 
         total_transfers += num_transfers
         total_hits += hits
@@ -472,11 +560,16 @@ def run_sequential_simulation(
         # Matchday execution
         outcomes = load_gameweek_outcomes(season_dir, gw)
         gross_pts, autosubs, cap_promoted = simulate_autosubs_and_score(
-            starters, bench, cap_id, vc_id, outcomes, player_positions
+            starters, bench, cap_id, vc_id, outcomes, player_positions, chip_used=current_chip
         )
         net_pts = gross_pts - hits
         total_gross_points += gross_pts
         total_net_points += net_pts
+
+        if current_chip == "free_hit" and saved_squad_ids is not None:
+            squad_ids = saved_squad_ids
+            purchase_prices = saved_purchase_prices
+            bank = saved_bank
 
         # V0.9 Decision Metrics:
         zero_starters = tuple(s_id for s_id in starters if (outcomes.get(s_id) is None or outcomes[s_id].minutes == 0))
@@ -514,10 +607,11 @@ def run_sequential_simulation(
                 captain_zero_mins=cap_zero,
                 transfers_gross_gain=t_gross_gain,
                 transfers_net_gain=t_net_gain,
+                chip_used=current_chip,
             )
         )
 
-    # 3. Compile summary metrics
+    # 3. Compile summary metrics & provenance (Pillar 3)
     target_path_str: str | None = None
     if save_report:
         from .reporting import build_backtest_report_path
@@ -543,6 +637,14 @@ def run_sequential_simulation(
         risk_profile=getattr(strategy, "risk_profile", "neutral"),
         allow_hits=getattr(strategy, "allow_hits", False),
     )
+
+    prov_payload = (
+        f"{season_dir.name}:{start_gw}:{end_gw}:{predictor_version}:"
+        f"{str(decision_engine) if isinstance(decision_engine, str) else dec_engine.version}:"
+        f"{chosen_initial_strategy}:{chosen_initial_horizon}:{use_chips}:{dead_capital_weight}"
+    )
+    conf_hash = hashlib.sha256(prov_payload.encode("utf-8")).hexdigest()[:16]
+    exp_id = experiment_id or f"exp_{season_dir.name}_{dec_engine.version}_{'chips' if use_chips else 'nochips'}_{conf_hash[:8]}"
 
     result = SimulationResult(
         strategy_name=strategy.name,
@@ -571,6 +673,14 @@ def run_sequential_simulation(
         initial_squad_ids=starting_squad_ids_record,
         initial_squad_cost_tenths=starting_cost_tenths,
         initial_squad_bank_tenths=starting_bank_tenths,
+        chips_enabled=use_chips,
+        chips_used=chips_used_tally,
+        experiment_id=exp_id,
+        requested_decision_engine_version=str(decision_engine) if isinstance(decision_engine, str) else dec_engine.version,
+        actual_decision_engine_version=dec_engine.version,
+        fallback_occurred=getattr(dec_engine, "fallback_occurred", False),
+        fallback_reason=getattr(dec_engine, "fallback_reason", None),
+        configuration_hash=conf_hash,
     )
 
     if save_report and target_path_str is not None:
@@ -600,6 +710,10 @@ def run_decision_backtest(
     decision_engine: str | BaseDecisionEngine = "v1.1",
     initial_strategy: str | None = None,
     initial_horizon: int = 5,
+    use_chips: bool = False,
+    chip_policy: SeasonalChipPolicy | None = None,
+    experiment_id: str | None = None,
+    dead_capital_weight: float = 3.0,
 ) -> list[SimulationResult]:
     """Execute sequential manager decision simulations across one or more strategies.
 
@@ -613,13 +727,18 @@ def run_decision_backtest(
         save_report: Whether to save formatted Markdown decision report to reports/backtests/.
         output_path: Optional custom path for the saved Markdown report.
         predictor_version: Prediction model version to evaluate ("v1.1", "v1.0.1", "v0.9", "v0.8", or "v0.7").
-        decision_engine: Decision engine version to evaluate ("v1.1", "v1.0", "v0.9" or "v0.8").
+        decision_engine: Decision engine version to evaluate ("v1.1.5", "v1.1", "v1.0", "v0.9" or "v0.8").
         initial_strategy: Initial 15-player team selection strategy before GW1 (default: "balanced").
         initial_horizon: Initial selection planning horizon in gameweeks (default: 5).
+        use_chips: Whether to enable seasonal chip state and deployment (V1.1.5).
+        chip_policy: Calibrated seasonal chip policy.
+        experiment_id: Explicit experiment identifier for provenance.
+        dead_capital_weight: Priority weight for recovering dead capital from departed players.
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
     """
+    from dataclasses import replace
     from .reporting import build_backtest_report_path, format_decision_report, save_backtest_report
     from .strategies import NoTransferStrategy, OptimizerStrategy, SimpleXpStrategy
 
@@ -638,6 +757,7 @@ def run_decision_backtest(
         decision_engine,
         initial_strategy=chosen_init_strat,
         initial_horizon=chosen_init_horizon,
+        dead_capital_weight=dead_capital_weight,
     )
     strategies: list[BacktestStrategy] = []
     strategy_label = "all"
@@ -680,6 +800,10 @@ def run_decision_backtest(
             decision_engine=dec_engine,
             initial_strategy=chosen_init_strat,
             initial_horizon=chosen_init_horizon,
+            use_chips=use_chips,
+            chip_policy=chip_policy,
+            experiment_id=experiment_id,
+            dead_capital_weight=dead_capital_weight,
         )
         simulations.append(sim)
 
@@ -700,32 +824,7 @@ def run_decision_backtest(
         )
         save_backtest_report(report_text, target_path)
 
-        simulations = [
-            SimulationResult(
-                strategy_name=s.strategy_name,
-                season=s.season,
-                start_gw=s.start_gw,
-                end_gw=s.end_gw,
-                gameweeks_played=s.gameweeks_played,
-                total_net_points=s.total_net_points,
-                total_gross_points=s.total_gross_points,
-                total_hits=s.total_hits,
-                total_transfers=s.total_transfers,
-                final_bank_tenths=s.final_bank_tenths,
-                history=s.history,
-                saved_report_path=str(target_path),
-                total_zero_min_starters=s.total_zero_min_starters,
-                captain_zero_min_count=s.captain_zero_min_count,
-                total_bench_regret_points=s.total_bench_regret_points,
-                total_transfer_gross_gain=s.total_transfer_gross_gain,
-                total_transfer_net_gain=s.total_transfer_net_gain,
-                predictor_version=s.predictor_version,
-                decision_engine_version=s.decision_engine_version,
-                optimizer_implementation=s.optimizer_implementation,
-                optimizer_config=s.optimizer_config,
-            )
-            for s in simulations
-        ]
+        simulations = [replace(s, saved_report_path=str(target_path)) for s in simulations]
 
     return simulations
 

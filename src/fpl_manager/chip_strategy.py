@@ -6,6 +6,7 @@ and Double Gameweeks (DGW), evaluates squad readiness across half-season chip wi
 """
 
 from contextlib import closing
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from typing import Any
 from .expected_points import ExpectedPointsProjection, project_gameweek
 from .fixtures import get_current_gameweek
 from .lineup import select_starting_lineup
-from .models import Position
+from .models import Position, is_departed_from_premier_league
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
 
@@ -515,3 +516,238 @@ def recommend_chip_strategy(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return result
+
+
+@dataclass
+class SeasonalChipInventory:
+    """Explicit model of the two independent FPL chip windows (GW1–19 and GW20–38).
+
+    Rules:
+    - 4 chips in Window 1 (GW 1–19): Wildcard, Free Hit, Triple Captain, Bench Boost.
+    - 4 chips in Window 2 (GW 20–38): Wildcard, Free Hit, Triple Captain, Bench Boost.
+    - Unused Window 1 chips expire at the Gameweek 19 deadline and DO NOT roll over to Window 2.
+    """
+
+    wildcard_w1: bool = True
+    free_hit_w1: bool = True
+    triple_captain_w1: bool = True
+    bench_boost_w1: bool = True
+
+    wildcard_w2: bool = True
+    free_hit_w2: bool = True
+    triple_captain_w2: bool = True
+    bench_boost_w2: bool = True
+
+    def available_chips(self, gameweek: int) -> set[str]:
+        """Return the set of available canonical chip names for the given gameweek."""
+        if 1 <= gameweek <= 19:
+            chips = set()
+            if self.wildcard_w1:
+                chips.add("wildcard")
+            if self.free_hit_w1:
+                chips.add("free_hit")
+            if self.triple_captain_w1:
+                chips.add("triple_captain")
+            if self.bench_boost_w1:
+                chips.add("bench_boost")
+            return chips
+
+        if 20 <= gameweek <= 38:
+            chips = set()
+            if self.wildcard_w2:
+                chips.add("wildcard")
+            if self.free_hit_w2:
+                chips.add("free_hit")
+            if self.triple_captain_w2:
+                chips.add("triple_captain")
+            if self.bench_boost_w2:
+                chips.add("bench_boost")
+            return chips
+
+        return set()
+
+    def is_chip_available(self, gameweek: int, chip_name: str) -> bool:
+        """Check if a specific chip is legally available in the active window."""
+        norm = CHIP_ALIASES.get(chip_name.lower().replace("-", "_"), chip_name)
+        canonical_map = {
+            "wildcard": "wildcard",
+            "freehit": "free_hit",
+            "free_hit": "free_hit",
+            "triplecaptain": "triple_captain",
+            "triple_captain": "triple_captain",
+            "benchboost": "bench_boost",
+            "bench_boost": "bench_boost",
+        }
+        can_name = canonical_map.get(norm, chip_name)
+        return can_name in self.available_chips(gameweek)
+
+    def use_chip(self, gameweek: int, chip_name: str) -> None:
+        """Mark a chip as consumed in the active seasonal window.
+
+        Raises ValueError if the chip is not available or window is invalid.
+        """
+        norm = CHIP_ALIASES.get(chip_name.lower().replace("-", "_"), chip_name)
+        canonical_map = {
+            "wildcard": "wildcard",
+            "freehit": "free_hit",
+            "free_hit": "free_hit",
+            "triplecaptain": "triple_captain",
+            "triple_captain": "triple_captain",
+            "benchboost": "bench_boost",
+            "bench_boost": "bench_boost",
+        }
+        can_name = canonical_map.get(norm, chip_name)
+        if not self.is_chip_available(gameweek, can_name):
+            raise ValueError(f"Chip '{chip_name}' is not available at gameweek {gameweek}.")
+
+        if 1 <= gameweek <= 19:
+            if can_name == "wildcard":
+                self.wildcard_w1 = False
+            elif can_name == "free_hit":
+                self.free_hit_w1 = False
+            elif can_name == "triple_captain":
+                self.triple_captain_w1 = False
+            elif can_name == "bench_boost":
+                self.bench_boost_w1 = False
+        elif 20 <= gameweek <= 38:
+            if can_name == "wildcard":
+                self.wildcard_w2 = False
+            elif can_name == "free_hit":
+                self.free_hit_w2 = False
+            elif can_name == "triple_captain":
+                self.triple_captain_w2 = False
+            elif can_name == "bench_boost":
+                self.bench_boost_w2 = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "window_1": {
+                "wildcard": self.wildcard_w1,
+                "free_hit": self.free_hit_w1,
+                "triple_captain": self.triple_captain_w1,
+                "bench_boost": self.bench_boost_w1,
+            },
+            "window_2": {
+                "wildcard": self.wildcard_w2,
+                "free_hit": self.free_hit_w2,
+                "triple_captain": self.triple_captain_w2,
+                "bench_boost": self.bench_boost_w2,
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SeasonalChipInventory":
+        w1 = data.get("window_1", {})
+        w2 = data.get("window_2", {})
+        return cls(
+            wildcard_w1=w1.get("wildcard", True),
+            free_hit_w1=w1.get("free_hit", True),
+            triple_captain_w1=w1.get("triple_captain", True),
+            bench_boost_w1=w1.get("bench_boost", True),
+            wildcard_w2=w2.get("wildcard", True),
+            free_hit_w2=w2.get("free_hit", True),
+            triple_captain_w2=w2.get("triple_captain", True),
+            bench_boost_w2=w2.get("bench_boost", True),
+        )
+
+
+@dataclass
+class SeasonalChipPolicy:
+    """Historically calibrated seasonal chip policy with anti-pathology guardrails (V1.1.5)."""
+
+    min_wc_deteriorated_players: int = 3
+    early_wc_restricted_gws: tuple[int, ...] = (2, 3, 4)
+    min_tc_xp_single_fixture: float = 10.0
+    min_tc_xp_double_fixture: float = 12.0
+    min_tc_start_probability: float = 0.85
+    min_bb_bench_xp: float = 12.0
+    min_bb_bench_play_prob: float = 0.70
+    max_fh_active_players_threshold: int = 8
+
+    def evaluate_gameweek_chip(
+        self,
+        gameweek: int,
+        inventory: SeasonalChipInventory,
+        squad_ids: list[int],
+        snapshot: Any,
+        projections: list[Any],
+        initial_squad_ids: tuple[int, ...] | None = None,
+    ) -> str | None:
+        """Determine whether to deploy a chip for the upcoming gameweek based on calibrated policy hypotheses."""
+        available = inventory.available_chips(gameweek)
+        if not available:
+            return None
+
+        proj_map = {getattr(p, "player_id", getattr(p, "id", None)): p for p in projections}
+        squad_projs = [proj_map[pid] for pid in squad_ids if pid in proj_map]
+
+        # 1. Evaluate Free Hit for severe Blank Gameweeks
+        if "free_hit" in available:
+            playing_count = 0
+            for p in squad_projs:
+                xp = getattr(p, "expected_points", 0.0)
+                prob = getattr(p, "play_probability", 1.0)
+                if xp > 0.5 and prob >= 0.40 and not is_departed_from_premier_league(p, snapshot):
+                    playing_count += 1
+            if playing_count <= self.max_fh_active_players_threshold:
+                return "free_hit"
+
+        # 2. Evaluate Triple Captain for DGW / elite captaincy opportunity
+        if "triple_captain" in available:
+            best_cap_cand = max(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), default=None)
+            if best_cap_cand is not None:
+                cap_xp = getattr(best_cap_cand, "expected_points", 0.0)
+                start_prob = getattr(best_cap_cand, "start_probability", 1.0)
+                is_window_expiry = (gameweek == 19 or gameweek == 38)
+                if start_prob >= self.min_tc_start_probability:
+                    if cap_xp >= self.min_tc_xp_double_fixture:
+                        return "triple_captain"
+                    if is_window_expiry and cap_xp >= 8.0:
+                        return "triple_captain"
+
+        # 3. Evaluate Bench Boost for DGW / deep playing squad
+        if "bench_boost" in available:
+            sorted_projs = sorted(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), reverse=True)
+            bench_projs = sorted_projs[11:] if len(sorted_projs) >= 15 else []
+            bench_xp = sum(getattr(p, "expected_points", 0.0) for p in bench_projs)
+            all_bench_likely = (
+                all(getattr(p, "play_probability", 0.0) >= self.min_bb_bench_play_prob for p in bench_projs)
+                if bench_projs
+                else False
+            )
+            is_window_expiry = (gameweek == 19 or gameweek == 38)
+            if bench_projs and all_bench_likely and bench_xp >= self.min_bb_bench_xp:
+                return "bench_boost"
+            if is_window_expiry and bench_projs and bench_xp >= 8.0 and all_bench_likely:
+                return "bench_boost"
+
+        # 4. Evaluate Wildcard
+        if "wildcard" in available:
+            # Check early wildcard anti-pathology guardrail:
+            if gameweek in self.early_wc_restricted_gws:
+                collapsed_count = 0
+                for p in squad_projs:
+                    if is_departed_from_premier_league(p, snapshot):
+                        collapsed_count += 1
+                    elif getattr(p, "status", "a") in ("i", "u"):
+                        collapsed_count += 1
+                    elif getattr(p, "chance_of_playing_next_round", 100) == 0:
+                        collapsed_count += 1
+                if collapsed_count >= self.min_wc_deteriorated_players:
+                    return "wildcard"
+            else:
+                deteriorated_count = sum(
+                    1
+                    for p in squad_projs
+                    if is_departed_from_premier_league(p, snapshot)
+                    or getattr(p, "status", "a") in ("i", "u")
+                    or getattr(p, "play_probability", 1.0) < 0.25
+                )
+                if deteriorated_count >= self.min_wc_deteriorated_players:
+                    return "wildcard"
+                # Expiry deployment in GW 19 or GW 37
+                if gameweek == 19 or gameweek == 37:
+                    return "wildcard"
+
+        return None
+

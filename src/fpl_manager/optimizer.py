@@ -15,7 +15,7 @@ import itertools
 from pathlib import Path
 from typing import Any
 
-from .models import Player, Position
+from .models import Player, Position, is_departed_from_premier_league
 from .rules import validate_starting_lineup, validate_squad
 
 LEGAL_FORMATIONS = (
@@ -134,6 +134,7 @@ def solve_transfers(
     risk_profile: str = "neutral",
     max_results: int = 15,
     cand_limit: int | None = None,
+    dead_capital_weight: float = 0.0,
 ) -> tuple[list[dict[str, Any]], int]:
     """Find top multi-transfer moves using recursive branch-and-bound search.
 
@@ -142,6 +143,7 @@ def solve_transfers(
     - Eliminates permutation symmetry for multiple outgoing players of the same position.
     - Uses upper-bound pruning against a bounded min-heap of top candidates.
     - Prunes paths that exceed remaining budget or team quota limits.
+    - Supports priority offloading of dead capital from departed players (V1.1.5).
     """
     if num_transfers < 1:
         raise ValueError("num_transfers must be at least 1.")
@@ -162,12 +164,12 @@ def solve_transfers(
         """Exact per-candidate additive contribution to score before 2-decimal rounding (P1.5)."""
         return get_player_profile_value(p, risk_profile) - (0.1 * fdr_map.get(p.team_short, 3.0)) / num_transfers
 
-    # Group and sort eligible candidates (excluding unavailable and current squad players) monotonically by _eff_cand_val
+    # Group and sort eligible candidates (excluding unavailable, departed, and current squad players) monotonically by _eff_cand_val
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
     for p in candidate_pool:
         if p.id in squad_id_set:
             continue
-        if getattr(p, "status", "a") in ("i", "s", "u"):
+        if getattr(p, "status", "a") in ("i", "s", "u") or is_departed_from_premier_league(p):
             continue
         by_pos[p.position].append(p)
 
@@ -271,7 +273,16 @@ def solve_transfers(
                 else:
                     rank_metric = xp_delta - hit_penalty_pts
 
-                score = round(rank_metric + 0.1 * fdr_delta, 2)
+                dead_capital_bonus = (
+                    sum(
+                        round(dead_capital_weight * (p.price_tenths / 10.0), 2)
+                        for p in sorted_out_combo
+                        if is_departed_from_premier_league(p)
+                    )
+                    if dead_capital_weight > 0.0
+                    else 0.0
+                )
+                score = round(rank_metric + 0.1 * fdr_delta + dead_capital_bonus, 2)
                 bank_after = max_budget - curr_price
                 canonical_ids = (
                     tuple(-p.id for p in sorted(sorted_out_combo, key=lambda x: x.id))
@@ -291,6 +302,8 @@ def solve_transfers(
                             "floor": p.xp_floor,
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
+                            "is_departed": is_departed_from_premier_league(p),
+                            "status": getattr(p, "status", "a"),
                         }
                         for p in sorted_out_combo
                     ],
@@ -312,6 +325,10 @@ def solve_transfers(
                     ],
                     "bank_after_fmt": f"£{bank_after / 10:.1f}m",
                     "bank_after_tenths": bank_after,
+                    "dead_capital_bonus": round(dead_capital_bonus, 2),
+                    "dead_capital_recovered_tenths": sum(
+                        p.price_tenths for p in sorted_out_combo if is_departed_from_premier_league(p)
+                    ),
                     "xp_delta": xp_delta,
                     "floor_delta": floor_delta,
                     "ceiling_delta": ceil_delta,
@@ -389,6 +406,7 @@ def solve_transfers_exact_reference(
     risk_profile: str = "neutral",
     candidate_out_pool: list[Any] | None = None,
     max_evaluations: int = MAX_REFERENCE_EVALUATIONS,
+    dead_capital_weight: float = 0.0,
 ) -> dict[str, Any] | None:
     """Independent brute-force verification oracle for 1-5 transfer optimization (P0.1).
 
@@ -401,6 +419,7 @@ def solve_transfers_exact_reference(
     4. Independently validates squad legality (`validate_squad`), position preservation,
        club limits (<=3), availability, and budget constraints.
     5. Independently evaluates the transfer objective and returns the exact global optimum.
+    6. Filters departed players from incoming candidates and supports priority dead capital recovery.
     """
     import math
 
@@ -413,8 +432,14 @@ def solve_transfers_exact_reference(
     if any(p.id not in squad_by_id for p in out_pool):
         raise ValueError("All players in candidate_out_pool must belong to squad_players.")
 
-    # Filter out current squad members from incoming candidate pool (cannot buy player already owned)
-    in_pool = [p for p in candidate_pool if p.id not in squad_by_id]
+    # Filter out current squad members and departed players from incoming candidate pool
+    in_pool = [
+        p
+        for p in candidate_pool
+        if p.id not in squad_by_id
+        and getattr(p, "status", "a") not in ("i", "s", "u")
+        and not is_departed_from_premier_league(p)
+    ]
 
     if len(out_pool) < num_transfers or len(in_pool) < num_transfers:
         return None
@@ -450,8 +475,11 @@ def solve_transfers_exact_reference(
         for in_combo in itertools.combinations(in_pool, num_transfers):
             evaluated_combinations += 1
 
-            # 1. Availability check: unavailable players ('i', 's', 'u') cannot be transferred in
-            if any(getattr(p, "status", "a") in ("i", "s", "u") for p in in_combo):
+            # 1. Availability check: unavailable players ('i', 's', 'u') or departed cannot be transferred in
+            if any(
+                getattr(p, "status", "a") in ("i", "s", "u") or is_departed_from_premier_league(p)
+                for p in in_combo
+            ):
                 continue
 
             # 2. Budget check
@@ -502,7 +530,16 @@ def solve_transfers_exact_reference(
             else:
                 rank_metric = xp_delta - hit_penalty_pts
 
-            score = round(rank_metric + 0.1 * fdr_delta, 2)
+            dead_capital_bonus = (
+                sum(
+                    round(dead_capital_weight * (p.price_tenths / 10.0), 2)
+                    for p in out_combo
+                    if is_departed_from_premier_league(p)
+                )
+                if dead_capital_weight > 0.0
+                else 0.0
+            )
+            score = round(rank_metric + 0.1 * fdr_delta + dead_capital_bonus, 2)
             bank_after = max_budget - in_cost
 
             sorted_out = sorted(out_combo, key=lambda p: (p.position.value, p.id))
@@ -528,6 +565,8 @@ def solve_transfers_exact_reference(
                             "floor": p.xp_floor,
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
+                            "is_departed": is_departed_from_premier_league(p),
+                            "status": getattr(p, "status", "a"),
                         }
                         for p in sorted_out
                     ],
@@ -549,6 +588,10 @@ def solve_transfers_exact_reference(
                     ],
                     "bank_after_fmt": f"£{bank_after / 10:.1f}m",
                     "bank_after_tenths": bank_after,
+                    "dead_capital_bonus": round(dead_capital_bonus, 2),
+                    "dead_capital_recovered_tenths": sum(
+                        p.price_tenths for p in sorted_out if is_departed_from_premier_league(p)
+                    ),
                     "xp_delta": xp_delta,
                     "floor_delta": floor_delta,
                     "ceiling_delta": ceil_delta,
@@ -592,7 +635,13 @@ def solve_wildcard(
     4. Optimal Starting XI & Lineup: Evaluates the 8 legal FPL formations to select the 11 starters,
        captain, vice-captain, and ordered bench.
     """
-    active_players = [p for p in candidate_pool if p.status in ("a", "d")]
+    active_players = [
+        p
+        for p in candidate_pool
+        if getattr(p, "status", "a") in ("a", "d")
+        and getattr(p, "status", "a") != "u"
+        and not is_departed_from_premier_league(p)
+    ]
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
     for p in active_players:
         by_pos[p.position].append(p)

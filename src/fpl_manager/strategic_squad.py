@@ -22,7 +22,7 @@ import itertools
 import math
 from typing import Any
 
-from .models import Position
+from .models import Position, is_departed_from_premier_league
 from .optimizer import LEGAL_FORMATIONS, PlayerOptInfo, get_player_profile_value, validate_risk_profile
 from .rules import Player, validate_squad, validate_starting_lineup
 
@@ -76,6 +76,18 @@ class StrategicConstraints:
         missing_locked = [pid for pid in self.locked_player_ids if pid not in pool_by_id]
         if missing_locked:
             errors.append(f"Locked player IDs not found in candidate pool: {missing_locked}")
+
+        departed_locked = [
+            pid
+            for pid in self.locked_player_ids
+            if pid in pool_by_id
+            and (
+                getattr(pool_by_id[pid], "status", "a") == "u"
+                or is_departed_from_premier_league(pool_by_id[pid])
+            )
+        ]
+        if departed_locked:
+            errors.append(f"Departed player IDs cannot be locked: {departed_locked}")
 
         locked_players = [pool_by_id[pid] for pid in self.locked_player_ids if pid in pool_by_id]
 
@@ -481,7 +493,10 @@ def solve_strategic_squad_exact_reference(
     eligible_pool = [
         p
         for p in candidate_pool
-        if p.id not in excluded_set and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
+        if p.id not in excluded_set
+        and getattr(p, "status", "a") != "u"
+        and not is_departed_from_premier_league(p)
+        and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
     # Partition by position
@@ -681,7 +696,10 @@ def solve_strategic_squad(
     eligible_pool = [
         p
         for p in candidate_pool
-        if p.id not in excluded_set and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
+        if p.id not in excluded_set
+        and getattr(p, "status", "a") != "u"
+        and not is_departed_from_premier_league(p)
+        and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
