@@ -106,6 +106,11 @@ Strategic squad construction
 + Full GUI integration
 + Full ML / end-to-end evaluation
         ↓
+V1.1.5
+Premier League departure handling
++ Historically calibrated seasonal chip strategy
++ Multi-version benchmark (v0.9 vs v1.0 vs v1.1 vs v1.1.5)
+        ↓
 V1.2
 Multi-provider expansion
 + Extended LLM model research
@@ -134,7 +139,8 @@ Automated learning loops
 | V0.8 | Participation/rank/context | Completed |
 | V0.9 | Learned participation/closed-loop/hardening | Completed |
 | V1.0 | Stable production platform | Release candidate / PR-ready |
-| **V1.1** | **Strategic squad + GUI + full ML analysis** | **Completed / Validated** |
+| V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
+| **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Active development (branch `v115`)** |
 | V1.2 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
@@ -1530,11 +1536,34 @@ It succeeds if the end-to-end experiment establishes **where strategic squad con
 
 ---
 
-# 19. V1.2 — Multi-Provider Expansion & Extended LLM Model Research
+# 19. V1.1.5 — Premier League Departure Handling, Historically Calibrated Chip Strategy & Multi-Version Benchmark
 
-**Status: planned after V1.1.**
+**Status: active development on branch `v115`.**  
+**Specification:** `docs/v1.1.5/v115.md`  
 
-V1.2 is the previously planned V1.1 scope, deliberately moved one release later so that the strategic quantitative engine and its evaluation framework exist first.
+### Purpose
+Eliminate dead capital from players transferred out of the Premier League, prevent phantom buy recommendations, calibrate the 8 seasonal FPL chips (GW 1–19 and GW 20–38 quotas) against historical evidence, and deliver an audited multi-season benchmark across V0.9, V1.0, V1.1, and V1.1.5.
+
+### Core Architectural Pillars
+1. **Departure Lifecycle & Dead Capital Offloading:**
+   - Detect departures via status `'u'`, 0% availability with transfer/loan news, or zero remaining fixtures.
+   - Assign priority offload weight so recovering tied-up budget from departed players takes precedence over active underperformers.
+   - Enforce strict buy-side candidate exclusion.
+2. **Historically Calibrated Seasonal Chip Engine:**
+   - Track independent chip quotas: $1\times$ Wildcard, Free Hit, Triple Captain, Bench Boost in GW 1–19, and $1\times$ each in GW 20–38.
+   - Anti-pathology constraints: prohibit GW 2–4 Wildcard following initial strategic squad selection unless catastrophic squad collapse occurs ($\ge 3$ departures/injuries).
+   - DGW/BGW timing heuristics: reserve Triple Captain and Bench Boost for high-density Double Gameweeks; target Free Hit at severe Blank Gameweeks.
+3. **Multi-Version Benchmark Ledger:**
+   - 5-season historical audit comparing `v0.9` vs `v1.0` vs `v1.1` vs `v1.1.5`.
+   - Dual-track reporting: points scored *without chips* (pure transfer engine) vs *with chips* (seasonal chip orchestration).
+
+---
+
+# 20. V1.2 — Multi-Provider Expansion & Extended LLM Model Research
+
+**Status: planned after V1.1.5.**
+
+V1.2 is the previously planned multi-provider scope, placed after the strategic engine, departure handling, and chip optimization framework are fully benchmarked.
 
 The central question becomes:
 
@@ -1542,7 +1571,7 @@ The central question becomes:
 
 ---
 
-## 19.1 Multi-provider infrastructure
+## 20.1 Multi-provider infrastructure
 
 Investigate and support, where justified:
 
@@ -1559,7 +1588,7 @@ The core application must work without an external LLM.
 
 ---
 
-## 19.2 Provider benchmark
+## 20.2 Provider benchmark
 
 Measure:
 
@@ -1576,7 +1605,7 @@ Do not evaluate providers only by subjective response quality.
 
 ---
 
-## 19.3 Extended model research
+## 20.3 Extended model research
 
 Test multiple model families and sizes.
 
@@ -1591,7 +1620,7 @@ Questions:
 
 ---
 
-## 19.4 Human-in-the-loop experimentation
+## 20.4 Human-in-the-loop experimentation
 
 V1.2 should support structured experiments where:
 
@@ -1619,7 +1648,7 @@ The system should distinguish:
 
 ---
 
-## 19.5 LLM role architecture
+## 20.5 LLM role architecture
 
 Potential roles:
 
@@ -1635,7 +1664,7 @@ The LLM remains subordinate to deterministic rules and quantitative validation.
 
 ---
 
-## 19.6 Closed-loop LLM evaluation
+## 20.6 Closed-loop LLM evaluation
 
 Compare:
 
@@ -1654,7 +1683,7 @@ The goal is to measure whether it is useful.
 
 ---
 
-# 20. Long-Term Research Tracks
+# 21. Long-Term Research Tracks
 
 These remain available after V1.2 and should be promoted into releases only when there is sufficient evidence.
 
