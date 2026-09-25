@@ -1,0 +1,67 @@
+{
+  "season": "2021-22",
+  "horizon": 5,
+  "end_gw": 10,
+  "profiles": {
+    "maximum_ev": {
+      "objective_score": 968.3,
+      "horizon_xp": 960.15,
+      "flexibility_score": 64.0,
+      "risk_score": 0.0,
+      "bench_value_millions": 20.0,
+      "realized_horizon_points": 248,
+      "downstream_net_points": 556,
+      "downstream_gross_points": 556,
+      "downstream_hits": 0,
+      "formation": "3---4"
+    },
+    "balanced": {
+      "objective_score": 989.04,
+      "horizon_xp": 959.95,
+      "flexibility_score": 64.0,
+      "risk_score": 0.0,
+      "bench_value_millions": 20.0,
+      "realized_horizon_points": 266,
+      "downstream_net_points": 544,
+      "downstream_gross_points": 544,
+      "downstream_hits": 0,
+      "formation": "3---5"
+    },
+    "floor": {
+      "objective_score": 375.05,
+      "horizon_xp": 935.2,
+      "flexibility_score": 68.0,
+      "risk_score": 0.0,
+      "bench_value_millions": 22.0,
+      "realized_horizon_points": 257,
+      "downstream_net_points": 504,
+      "downstream_gross_points": 504,
+      "downstream_hits": 0,
+      "formation": "3---4"
+    },
+    "ceiling": {
+      "objective_score": 1331.34,
+      "horizon_xp": 960.15,
+      "flexibility_score": 64.0,
+      "risk_score": 0.0,
+      "bench_value_millions": 20.0,
+      "realized_horizon_points": 248,
+      "downstream_net_points": 541,
+      "downstream_gross_points": 541,
+      "downstream_hits": 0,
+      "formation": "3---4"
+    },
+    "flexibility": {
+      "objective_score": 848.6,
+      "horizon_xp": 959.95,
+      "flexibility_score": 64.0,
+      "risk_score": 0.0,
+      "bench_value_millions": 20.0,
+      "realized_horizon_points": 266,
+      "downstream_net_points": 544,
+      "downstream_gross_points": 544,
+      "downstream_hits": 0,
+      "formation": "3---5"
+    }
+  }
+}

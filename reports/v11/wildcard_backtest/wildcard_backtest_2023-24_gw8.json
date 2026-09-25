@@ -1,0 +1,46 @@
+{
+  "season": "2023-24",
+  "wildcard_gw": 8,
+  "window_gameweeks": "GW8–GW13",
+  "horizon": 5,
+  "predictor_version": "v1.0.1",
+  "decision_engine_version": "v1.0.1",
+  "budget_millions": 100.2,
+  "outcomes": {
+    "No-Wildcard Baseline": {
+      "net_points": 369,
+      "gross_points": 369,
+      "hits": 0,
+      "gain_over_no_wildcard": 0,
+      "zero_min_starters": 6
+    },
+    "Single-GW Wildcard Baseline": {
+      "net_points": 391,
+      "gross_points": 391,
+      "hits": 0,
+      "gain_over_no_wildcard": 22,
+      "zero_min_starters": 2
+    },
+    "Strategic Wildcard (Balanced)": {
+      "net_points": 397,
+      "gross_points": 397,
+      "hits": 0,
+      "gain_over_no_wildcard": 28,
+      "zero_min_starters": 2
+    },
+    "Strategic Wildcard (Max EV)": {
+      "net_points": 391,
+      "gross_points": 391,
+      "hits": 0,
+      "gain_over_no_wildcard": 22,
+      "zero_min_starters": 2
+    },
+    "Strategic Wildcard (High Floor)": {
+      "net_points": 320,
+      "gross_points": 320,
+      "hits": 0,
+      "gain_over_no_wildcard": -49,
+      "zero_min_starters": 5
+    }
+  }
+}

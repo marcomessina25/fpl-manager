@@ -1,3 +1,3 @@
-"""Local-first, deterministic Fantasy Premier League decision-support platform (V1.0.1)."""
+"""Local-first, deterministic Fantasy Premier League decision-support platform (V1.1.0)."""
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"

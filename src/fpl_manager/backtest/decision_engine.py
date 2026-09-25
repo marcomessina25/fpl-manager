@@ -786,7 +786,94 @@ class DecisionEngineV10(DecisionEngineV09):
         return f"V1.0 Production Decision Engine (w={self.lineup_penalty_weight:.2f})"
 
 
-def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -> BaseDecisionEngine:
+class DecisionEngineV11(DecisionEngineV10):
+    """V1.1 Strategic Decision Engine with multi-objective squad initialization.
+
+    Features:
+    - Multi-objective strategic starting squad construction (Initial Squad before GW1).
+    - Configurable strategic profile: 'balanced', 'maximum_ev', 'ceiling', 'floor', 'flexibility', etc.
+    - Multi-gameweek horizon optimization (default: 5 gameweeks).
+    - Full budget feasibility enforcement (strictly <= £100.0m, legal formations, position quotas).
+    - Preserves calibrated xP, participation safeguards, and optimal transfer solving.
+    """
+
+    def __init__(
+        self,
+        initial_strategy: str = "balanced",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+    ) -> None:
+        super().__init__(lineup_penalty_weight=lineup_penalty_weight)
+        self.initial_strategy = initial_strategy
+        self.initial_horizon = initial_horizon
+
+    @property
+    def version(self) -> str:
+        return "v1.1"
+
+    @property
+    def name(self) -> str:
+        return f"V1.1 Strategic Decision Engine ({self.initial_strategy}, horizon={self.initial_horizon} GWs)"
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.1"
+
+    def initialize_squad(
+        self,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+        budget_tenths: int = 1000,
+    ) -> tuple[list[int], dict[int, int], int]:
+        """Select ideal initial 15-player squad using V1.1 Strategic Squad Optimizer."""
+        from ..strategic_squad import StrategicConstraints, solve_strategic_squad
+        from ..suggest_transfers import PlayerInfo
+
+        try:
+            proj_map = {p.player_id: p for p in projections}
+            candidate_pool = []
+            for p in snapshot.players:
+                proj = proj_map.get(p.player_id)
+                xp = proj.expected_points if proj else 0.0
+                xm = proj.expected_minutes if proj else 0.0
+                p_info = PlayerInfo(
+                    id=p.player_id,
+                    name=p.web_name,
+                    position=p.position,
+                    team_short=next((t.get("short_name", f"T{p.team_id}") for t in snapshot.teams if t["team_id"] == p.team_id), f"T{p.team_id}"),
+                    team_id=p.team_id,
+                    price_tenths=p.price_tenths,
+                    expected_points=xp,
+                    expected_minutes=xm,
+                    total_points=p.total_points,
+                    status=p.status,
+                )
+                candidate_pool.append(p_info)
+
+            constraints = StrategicConstraints(
+                budget_tenths=budget_tenths,
+                target_gameweeks=tuple(range(snapshot.gameweek, snapshot.gameweek + self.initial_horizon)),
+            )
+            cand = solve_strategic_squad(
+                candidate_pool=candidate_pool,
+                constraints=constraints,
+                strategy=self.initial_strategy,
+                mode="initial",
+                horizon=self.initial_horizon,
+            )
+            squad_ids = list(cand.player_ids)
+            purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
+            bank = max(0, budget_tenths - sum(purchase_prices.values()))
+            return squad_ids, purchase_prices, bank
+        except Exception:
+            return super().initialize_squad(snapshot, projections, budget_tenths=budget_tenths)
+
+
+def resolve_decision_engine(
+    engine_version: str | BaseDecisionEngine = "v0.9",
+    initial_strategy: str = "balanced",
+    initial_horizon: int = 5,
+) -> BaseDecisionEngine:
     """Instantiate and return the appropriate DecisionEngine implementation."""
     if isinstance(engine_version, BaseDecisionEngine):
         return engine_version
@@ -798,6 +885,11 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
         return DecisionEngineV09()
     elif clean in ("v1.0", "v10", "v1.0.0", "v1.0.1", "v101", "v0.9.1", "v091"):
         return DecisionEngineV10()
+    elif clean in ("v1.1", "v11", "v1.1.0", "strategic"):
+        return DecisionEngineV11(initial_strategy=initial_strategy, initial_horizon=initial_horizon)
+    elif clean.startswith("v1.1_"):
+        strat = clean.replace("v1.1_", "")
+        return DecisionEngineV11(initial_strategy=strat, initial_horizon=initial_horizon)
     elif "_w" in clean:
         parts = clean.split("_w")
         base = parts[0].replace(".", "")
@@ -807,9 +899,11 @@ def resolve_decision_engine(engine_version: str | BaseDecisionEngine = "v0.9") -
                 return DecisionEngineV09(lineup_penalty_weight=w_val)
             if base == "v10":
                 return DecisionEngineV10(lineup_penalty_weight=w_val)
+            if base == "v11":
+                return DecisionEngineV11(initial_strategy=initial_strategy, initial_horizon=initial_horizon, lineup_penalty_weight=w_val)
         except ValueError:
             pass
     raise ValueError(
-        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v0.9_w<float>'"
+        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v0.9_w<float>'"
     )
 

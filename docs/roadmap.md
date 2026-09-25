@@ -1,29 +1,32 @@
-# FPL Manager roadmap
+# FPL Manager Roadmap
 
-> **Living document.** This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
->
-> **Current planning baseline:** **Release V1.0.1 (`v1.0.1`)** is complete and released (`296` passing hermetic and full-system E2E tests). V1.0 (`docs/v10/v10.md`, `docs/v10/items_left_for_v10.md`) delivered the canonical model registry (`v1.0-canonical` / `v0.9.1-frozen`), 7-category point-in-time leakage enforcement (`PIT_LEAKAGE_VERIFICATION_SCOPE`), independent exact verification oracles (`solve_transfers_exact_reference`, `plan_multi_gw_exact_reference`), neutral strategy alignment (`lineup_penalty_weight = 0.0`), persistent LLM evaluation auditing (`llm_evaluations`), and mutually exclusive additive regret decomposition (`additive_regret_decomposition`). V1.0.1 (`v101`) completes the repository-wide documentation, module docstring, and CLI alignment audit. The next feature milestone is **V1.1** (multi-provider LLM expansion & OpenRouter dynamic model discovery).
->
-> See `docs/architecture.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`, and `docs/v10/v10.md` for architecture, mathematical optimizers, and projection-model design.
+> Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
+
+**Current baseline:** V1.0.0 is the current release target, with V1.0 release hardening completed on `version_10` / PR #12 work. V1.1 is the next major milestone and is deliberately centered on **strategic squad construction, full GUI integration, and end-to-end ML analysis**. The previously planned multi-provider / extended-LLM work moves to V1.2.
 
 ---
 
-## 0. Executive roadmap
+# 0. Executive Roadmap
 
-The project is evolving from a deterministic FPL calculation engine into a complete **FPL decision-support and experimentation platform**.
+FPL Manager is evolving from a deterministic FPL calculation engine into a complete **decision-support, strategic squad-construction, and experimentation platform**.
 
-The long-term objective is not simply to produce player rankings. The system should answer:
+The long-term system should answer:
 
 - What should I do this Gameweek?
 - What are the best legal alternatives?
 - How much expected value does each action provide?
 - What is the risk of each action?
-- How does ownership/Effective Ownership affect rank exposure?
-- What is the best 3–6 GW strategy rather than the best isolated GW?
-- When should chips be deployed?
+- How does ownership / Effective Ownership affect rank exposure?
+- What is the best multi-Gameweek strategy?
+- What squad should I start the season with?
+- What squad should I construct when using a Wildcard?
+- How do my own preferences and constraints change the optimal strategic candidates?
+- What happens if I lock a player the optimizer did not initially select?
+- Which strategic starting states produce better downstream decisions?
 - How did the recommendation perform?
-- Was the model actually better than the human decision?
+- Was the model better than the human decision?
 - Which parts of the model are systematically wrong?
+- Does a better starting squad improve the entire downstream decision process?
 - Can historical evidence be used to improve the next version?
 
 The core design principle remains:
@@ -36,6 +39,8 @@ Local point-in-time snapshots
 Deterministic rules / state
         ↓
 Quantitative projections
+        ↓
+Strategic squad construction
         ↓
 Optimizers / planners
         ↓
@@ -55,964 +60,1603 @@ Actual outcome
         ↓
 Evaluation / backtesting
         ↓
-Model improvement
-```
-
-### Release progression
-
-```text
-v0.6 -> v0.65 -> v0.7 (completed)
-        ├── historical backtesting, calibration, and initial minutes model
-        │
-        ↓
-v0.8 (completed on 2026-09-12)
-        ├── predictive participation model (P(start), P(play), conditional xM)
-        ├── rotation-aware and turnaround congestion features
-        ├── empirical participation error diagnostics & decomposition
-        ├── rank-aware optimization (neutral, floor, ceiling, defend_lead, chase)
-        ├── structured football context layer (FACT, INFERENCE, RUMOUR)
-        └── LLM candidate strategy critique dossier
-        │
-        ↓
-v0.9 & v0.9.1 (completed on 2026-09-14 / 2026-09-21)
-        ├── residual error taxonomy (9 error classes)
-        ├── hierarchical learned participation architecture (P(start), P(sub|not start))
-        ├── dynamic role transition regimes & player turnaround fingerprints
-        ├── probability calibration (Platt scaling & Isotonic regression with PAVA)
-        ├── chip lifecycle hardening (Wildcard/Free Hit 0-hit enforcement)
-        ├── multi-year risk penalty calibration (w = 0.0 neutral alignment)
-        └── production hardening (CI workflow, FPLError hierarchy, security review)
-        │
-        ↓
-v1.0.0 & v1.0.1 (completed on 2026-09-22 — CURRENT RELEASE)
-        ├── canonical model registry (v1.0.1 / v0.9.1-frozen) & deterministic PIT reconstruction
-        ├── 7-category PIT leakage enforcement (intrinsic invariants + reference-comparative checks)
-        ├── independent exact transfer oracle (solve_transfers_exact_reference) & DP planner oracle (plan_multi_gw_exact_reference)
-        ├── strict lineup model_quantities vs decision_quantities separation
-        ├── persistent llm_evaluations SQLite table & mutually exclusive additive regret decomposition
-        └── full documentation, docstring, and CLI alignment (296 passing tests)
-        │
-        ↓
-v1.1 (next planned milestone)
-        ├── multi-provider expansion (Groq, Cerebras, direct APIs)
-        └── extended OpenRouter model validation & dynamic routing
+Model / strategy improvement
 ```
 
 ---
 
-# Delivery phases
+# 1. Release Sequence
+
+```text
+V0.1
+Trustworthy FPL data and rules
+        ↓
+V0.2
+Decision-support basics
+        ↓
+V0.3
+Projections and optimization
+        ↓
+V0.4
+Evaluation, research and strategic risk
+        ↓
+V0.5
+GUI and multi-team management
+        ↓
+V0.6
+Analytical briefing, live matchday, optional LLM
+        ↓
+V0.65
+Stabilization and release hardening
+        ↓
+V0.7
+Historical backtesting and predictive validation
+        ↓
+V0.8
+Participation, rank-aware decisions and football context
+        ↓
+V0.9
+Learned participation model, closed-loop evaluation and hardening
+        ↓
+V1.0
+Stable, reproducible decision-support platform
+        ↓
+V1.1
+Strategic squad construction
++ Full GUI integration
++ Full ML / end-to-end evaluation
+        ↓
+V1.2
+Multi-provider expansion
++ Extended LLM model research
++ Human-in-the-loop AI experimentation
+        ↓
+Future
+Automated learning loops
++ richer scenario planning
++ deeper strategic modelling
+```
+
+---
+
+# 2. Release Status
+
+| Version | Scope | Status |
+|---|---|---|
+| V0.1 | Data/rules foundation | Released |
+| V0.2 | Decision-support basics | Released |
+| V0.3 | Projections and optimization | Released |
+| V0.4 | Evaluation/research/risk | Released |
+| V0.5 | GUI/multi-team | Released |
+| V0.6 | Briefing/live/LLM | Released through subsequent stabilization |
+| V0.65 | Stabilization | Completed through later hardening |
+| V0.7 | Historical prediction/backtesting | Completed |
+| V0.8 | Participation/rank/context | Completed |
+| V0.9 | Learned participation/closed-loop/hardening | Completed |
+| V1.0 | Stable production platform | Release candidate / PR-ready |
+| **V1.1** | **Strategic squad + GUI + full ML analysis** | **Completed / Validated** |
+| V1.2 | Multi-provider + extended LLM research | Planned |
+| Future | Automated learning / advanced strategy | Research |
+
+---
+
+# 3. V0.1–V0.9 Historical Record
+
+The V0.x roadmap established the foundations for V1.0.
 
 ## V0.1 — Trustworthy FPL data and rules foundation
 
-**Status: completed on 2026-09-03.**
+**Status: completed.**
 
-### Scope
+Delivered:
 
-- Download official FPL `bootstrap-static` and `fixtures` data.
-- Preserve timestamped raw payloads.
-- Normalize data into local SQLite snapshots.
-- Represent players and validate a complete 15-player squad.
-- Validate a legal 11-player starting lineup and formation.
-- Generate machine-readable snapshot summaries.
-- Establish deterministic transfer validation.
-- Keep private squad configuration out of Git.
-
-### Completed
-
-- Python package scaffold using Python 3.12.
-- `fpl update` and `fpl report`.
-- Local SQLite snapshot store.
-- Raw-data archive.
-- Deterministic squad and starting-lineup validation.
-- Initial rule tests.
-- Private Git-ignored current-squad JSON format and example template.
-- Deterministic transfer validation covering position, bank, club-limit, and transfer-hit checks.
-- CLI transfer validation with integer IDs and name resolution.
-- SQLite persistence tests.
-- Squad import utility and `fpl import-squad`.
-- Live/private squad transfer-validation smoke testing.
-
-### Exit criteria
-
-- No known correctness issue in basic squad/lineup/transfer rules.
-- Snapshot data can be reproduced locally.
-- Tests cover the fundamental invariants.
+- official FPL `bootstrap-static` and `fixtures` ingestion;
+- timestamped raw payloads;
+- local SQLite snapshots;
+- player representation;
+- 15-player squad validation;
+- legal starting-XI validation;
+- formation validation;
+- deterministic transfer validation;
+- machine-readable reports;
+- private squad configuration;
+- SQLite persistence tests;
+- squad import.
 
 ---
 
 ## V0.2 — Decision-support basics
 
-**Status: completed on 2026-09-03.**
+**Status: completed.**
 
-### Delivered
+Delivered:
 
-- Detailed current-squad reporting.
-- Player purchase/current/selling prices.
-- Team breakdown.
-- Bank and team value.
-- Free transfers.
-- Remaining chips.
-- Hard squad-rule validation.
-- Fixture analysis.
-- Transparent FDR difficulty rankings.
-- Multi-gameweek fixture ticker.
-- `--squad-only` filtering.
-- Automated legal transfer candidate generation.
-- 1-, 2-, and 3-transfer recommendations.
-- xP baseline model.
-- Availability discounting.
-- Position-aware FDR adjustments.
-- Home/away multiplier.
-- Starting-XI optimizer.
-- Captain and vice-captain selection.
-- Bench ordering.
-- Independent lineup legality verification.
+- detailed squad reporting;
+- prices;
+- team breakdown;
+- bank/team value;
+- free transfers;
+- chips;
+- fixture analysis;
+- FDR;
+- fixture ticker;
+- legal transfer candidate generation;
+- 1–3 transfer recommendations;
+- xP baseline;
+- availability adjustment;
+- starting-XI optimizer;
+- captain/vice-captain;
+- bench ordering;
 - JSON reports.
 
-### Historical note
+---
 
-Four-transfer brute-force search was initially too slow; this limitation was subsequently addressed in V0.3 through a faster branch-and-bound transfer solver.
+## V0.3 — Projections and optimization
+
+**Status: completed.**
+
+Delivered:
+
+- expanded player metrics;
+- expected minutes;
+- probability of starting;
+- 60+ probability;
+- substitute probability;
+- component-based xP;
+- floor/ceiling/variance;
+- risk profiles;
+- recursive branch-and-bound transfer search;
+- heuristic Wildcard / Free Hit optimizer;
+- multi-GW beam-search planner.
+
+Important permanent terminology:
+
+> The production Wildcard / Free Hit optimizer is heuristic/local-search unless a future implementation explicitly proves global optimality.
 
 ---
 
-## V0.3 — Projections and optimisation
+## V0.4 — Evaluation, research and strategic risk
 
-**Status: completed on 2026-09-04.**
+**Status: completed.**
 
-### Delivered
+Delivered:
 
-#### Expanded data and storage
-
-Added:
-
-- expected goals
-- expected assists
-- expected goal involvements
-- expected goals conceded
-- per-90 metrics
-- minutes
-- starts
-- BPS
-- ICT index
-- news
-- Gameweek event/deadline information
-
-SQLite schema migrations were introduced so the application can evolve without destroying existing local data.
-
-#### Component-based xP / xM
-
-Introduced:
-
-- expected minutes (`xM`)
-- probability of starting
-- probability of 60+ minutes
-- substitute-appearance probability
-- appearance points
-- attacking contribution
-- defensive contribution
-- clean-sheet expectation
-- goals-conceded penalties
-- bonus expectation
-- disciplinary deductions
-- floor
-- ceiling
-- variance / standard deviation
-
-Risk profiles:
-
-- `neutral`
-- `floor`
-- `ceiling`
-
-#### Transfer optimizer
-
-Introduced recursive branch-and-bound search for 1–5 transfers with:
-
-- symmetry breaking
-- budget pruning
-- upper-bound pruning
-- club-limit constraints
-- transfer-hit accounting
-
-#### Wildcard / Free Hit optimizer
-
-Introduced:
-
-- feasible greedy initialization
-- 1-opt local improvement
-- 2-opt cross-position improvement
-- legal squad construction
-- starting-XI optimization
-
-**Important terminology:** this is a heuristic/local-search optimizer, not a proof of global optimality. Future documentation and UI wording should preserve that distinction unless an exact solver is introduced.
-
-#### Multi-Gameweek planner
-
-Introduced beam search over 3–6 Gameweeks with:
-
-- roll decisions
-- free-transfer banking
-- 1-transfer actions
-- 2-transfer actions
-- optional hits
-- risk profiles
-- weekly timelines
-- cumulative projected net xP
-
----
-
-## V0.4 — Evaluation, research, and strategic risk
-
-**Status: completed on 2026-09-04.**
-
-### Delivered
-
-#### Decision logging and audit trail
-
-- Persistent pre-deadline decisions.
-- Gameweek-linked squad state.
-- Historical Gameweek logging.
-- Explicit 15-player squad input.
-- Starting XI.
-- Bench order.
-- Captain / vice-captain.
-- Executed transfers.
-- Transfer-hit calculation.
-- Point-in-time model recommendations.
-- Human-vs-model divergence tracking.
-- Actual-points recording.
-- Deterministic legality checks before persistence.
-
-#### Live score ingestion
-
-- Official FPL live scores.
-- Local SQLite score cache.
-- Raw timestamped score payloads.
-- Granular minutes/goals/assists/clean-sheet/bonus/BPS data.
-- Offline/future/incomplete-GW handling.
-
-#### Evaluation
-
-- Point-in-time xP vs actual-point backtesting.
-- MAE.
-- RMSE.
-- Spearman rank correlation.
-- Tied-rank handling.
-- Uncertainty interval coverage.
-- Captaincy regret.
-- Bench regret.
-- Human-vs-model lineup comparison.
-- Multi-GW/season aggregation.
-- Systematic over-/under-prediction tracking.
-
-#### Ownership and strategic risk
-
-- Estimated ownership.
-- Estimated captaincy share.
-- Effective Ownership.
-- `SHIELD`.
-- `SWORD`.
-- `CORE`.
-- Net rank exposure.
-
-#### Chip strategy
-
-- GW1–19 and GW20–38 segmentation.
-- Chip reset between halves.
-- Used-chip detection from decision logs.
-- Blank detection.
-- Double detection.
-- Blank-and-double detection.
-- Squad impact analysis.
-- Empirical chip valuation.
-- Conflict-free deployment schedules.
+- persistent decision logging;
+- point-in-time recommendations;
+- human-vs-model divergence;
+- actual-points recording;
+- live-score ingestion;
+- MAE/RMSE/rank correlation;
+- captain regret;
+- bench regret;
+- multi-GW/season aggregation;
+- ownership;
+- Effective Ownership;
+- Shield/Sword/Core concepts;
+- chip valuation and scheduling.
 
 ---
 
 ## V0.5 — GUI and multi-team management
 
-**Status: completed on 2026-09-04.**
-
-### Delivered
-
-#### Multi-team management
-
-- Multiple isolated team workspaces.
-- Per-team `squad.json`.
-- Per-team metadata.
-- Team names.
-- Manager names.
-- Optional FPL team IDs.
-- Active-team pointer.
-- Backwards compatibility with the legacy default squad.
-- Team creation.
-- Team cloning.
-- Team switching.
-- Team-specific historical decision/evaluation data.
-
-#### GUI
-
-Delivered a local browser-based dashboard containing:
-
-- team switcher
-- team creator
-- dashboard
-- visual football pitch
-- formation display
-- player cards
-- FDR
-- xP
-- ownership role
-- captain/vice-captain
-- financial HUD
-- interactive decision logging
-- transfer builder
-- transfer recommendations
-- wildcard/free-hit studio
-- multi-GW planner
-- chip strategy
-- evaluation hub
-
----
-
-# V0.6 — Analytical briefing, live matchday, and optional LLM
-
-**Status: functionally implemented on `v6`, but NOT PR-ready.**
-
-The current v6 branch contains the V0.6 feature set, but release status must remain **candidate / stabilization required** until the OpenRouter issue is resolved by removal from the release candidate and the remaining regression audit is completed.
-
-### Delivered
-
-#### Analytical briefing
-
-- Structured manager dossier.
-- Human-readable manager briefing.
-- Squad health.
-- Starting XI.
-- Captaincy.
-- Injury/status information.
-- News.
-- Ownership risks.
-- Transfer recommendations.
-- Chip schedules.
-
-#### Live matchday tracker
-
-- Live gross points.
-- Net points.
-- Transfer hits.
-- Captain multiplier.
-- Triple Captain.
-- Bench Boost.
-- Dynamic autosub simulation.
-- Formation legality during autosubs.
-- Live player statistics.
-- Effective-ownership leverage.
-- Rank-acceleration indicators.
-
-#### LLM advisor
-
-- Gemini provider.
-- OpenAI provider.
-- OpenRouter provider in the current branch.
-- Offline heuristic fallback.
-- Devil's Advocate persona.
-- Tactical Analyst persona.
-- Strategic Planner persona.
-- Structured response parsing.
-- Deterministic captaincy validation.
-- Deterministic transfer validation.
-- Explicit legality errors.
-
-#### GUI
-
-- Live Matchday panel.
-- AI Advisor panel.
-- Briefing/dossier display.
-- Provider selection.
-- Persona selection.
-- Key visibility controls.
-- Apply actions workflow.
-
-### V0.6 release policy
-
-**Do not merge the current OpenRouter implementation into the V0.6 PR.**
-
-The V0.6 PR should contain the feature set with OpenRouter removed or disabled from the public release path.
-
-Gemini, OpenAI, and the offline heuristic engine may remain according to the release design, but the project must not require a paid provider for basic operation.
-
-The offline heuristic advisor remains the guaranteed zero-cost fallback.
-
-### OpenRouter follow-up
-
-OpenRouter should not be treated as permanently rejected.
-
-The current implementation can be reintroduced only after:
-
-1. confirming the API endpoint and authentication behavior against current OpenRouter documentation;
-2. selecting a currently available model explicitly;
-3. testing a real key against the exact request made by the application;
-4. testing invalid-key behavior;
-5. testing rate-limit behavior;
-6. testing model-unavailable behavior;
-7. testing response parsing;
-8. testing GUI-to-server key handling;
-9. confirming that no key is logged or persisted accidentally;
-10. adding provider-specific automated tests.
-
-OpenRouter currently exposes an OpenAI-compatible `/api/v1/chat/completions` API and free model variants/router, but free-model availability and rate limits can change. Therefore the application should not hard-code an assumption that a particular model remains free or available indefinitely.
-
----
-
-# V0.65 — Stabilization, bug audit, and release hardening
-
-**Status: V0.65 implemented and validated on the `v065` branch; pending merge.**
-
-See `docs/v065/v065_potential_bugs.md`.
-
-V0.65 is intentionally smaller than a feature release.
-
-The goal is:
-
-> **Make V0.6 trustworthy before adding major new intelligence.** Delivered comprehensive stabilization; the complete automated test suite passes in CI.
-
-### Priority A — release-blocking correctness
-
-- Remove OpenRouter from the V0.6 PR candidate.
-- Verify all remaining LLM providers.
-- Verify heuristic fallback.
-- Verify `auto` routing when providers are unavailable.
-- Verify malformed LLM JSON.
-- Verify illegal LLM transfers.
-- Verify illegal captain/vice-captain recommendations.
-- Verify API failures never corrupt squad state.
-- Verify transfer execution is atomic from the user's perspective.
-- Verify undo restores the exact previous state.
-- Verify purchase prices survive transfer/undo sequences.
-- Verify free-transfer counts across sequential operations.
-- Verify transfer-hit calculations.
-- Verify chip interactions.
-- Verify current-GW vs historical-GW decision logging.
-- Verify team isolation.
-- Verify active-team switching.
-- Verify lineup legality after transfer execution.
-- Verify autosub formation legality.
-- Verify captain auto-promotion.
-- Verify Triple Captain and Bench Boost.
-- Verify live-score ingestion and stale/incomplete data handling.
-
-### Priority B — quantitative correctness audit
-
-- Verify availability is applied exactly once where intended.
-- Add explicit tests for 100%, 75%, 50%, and 0% availability.
-- Verify expected minutes never exceed legal bounds.
-- Verify start/sub probabilities remain internally consistent.
-- Verify appearance probabilities sum logically.
-- Verify component xP and baseline xP do not unintentionally apply the same adjustment twice.
-- Verify clean-sheet probabilities are bounded.
-- Verify negative point components behave correctly.
-- Verify FDR multipliers.
-- Verify venue multipliers.
-- Verify position-specific scoring.
-- Verify goalkeeper treatment.
-- Verify bonus estimates.
-- Verify floor/ceiling/sigma semantics.
-- Document that current uncertainty outputs are heuristic estimates, not empirically calibrated percentiles.
-
-### Priority C — optimizer correctness
-
-- Compare branch-and-bound transfer results against exhaustive enumeration on small synthetic pools.
-- Verify 1–5 transfer search.
-- Verify cross-position multi-transfer alignment.
-- Verify club limits after every transfer.
-- Verify bank/selling-price handling.
-- Verify hit counts are applied exactly once.
-- Verify wildcard/free-hit solutions are legal.
-- Verify wildcard/free-hit optimizer does not claim global optimality.
-- Add deterministic regression fixtures.
-
-### Priority D — integration tests
-
-Create complete end-to-end scenarios:
-
-1. update → squad → lineup → decision log;
-2. decision → transfer → lineup → decision;
-3. multiple transfers → bank/FT/hit verification;
-4. transfer → undo → exact state restoration;
-5. team switch → independent state;
-6. historical GW logging without changing current squad;
-7. live scores → autosubs → captain → net score;
-8. LLM recommendation → deterministic validation;
-9. provider failure → heuristic fallback;
-10. chip usage → chip availability and strategy state.
-
-### Priority E — GUI/API hardening
-
-- State-changing endpoints must fail safely.
-- Avoid exposing secrets through logs/errors.
-- Confirm API keys are never persisted.
-- Review CORS behavior.
-- Review localhost/network exposure.
-- Ensure long-running advisor calls do not hang the GUI.
-- Add request timeout behavior.
-- Add clear provider error messages.
-- Ensure partial failures do not leave stale UI state.
-- Verify all "Apply" buttons have deterministic success/failure feedback.
-
-### V0.65 validated OpenRouter track
-
-OpenRouter was restored in V0.65 following live endpoint verification. The active model selector in V0.65 was pruned to expose only verified, working models:
-- **Llama 3.3 70B (`meta-llama/llama-3.3-70b-instruct`)** — default recommended, fully verified;
-- **DeepSeek V3 (`deepseek/deepseek-chat`)** — fully verified;
-- **GPT-4o Mini (`openai/gpt-4o-mini`)** — fully verified;
-- **DeepSeek R1 (`deepseek/deepseek-r1`)** — verified with paid credits (marked with `*`).
-
-Endpoints that failed with OpenRouter HTTP 404 (`No endpoints found for <model>`), including Claude 3.5 Sonnet, Gemini Flash Free, and Mistral Large, have been removed from the active options in V0.65. Deeper investigation of these endpoints and alternative providers is formally queued for **V1.1**.
-
----
-
-# V0.7 — Historical backtesting and predictive-engine validation
-
-**Status: completed on 2026-09-11.**
-
-This is the first major research milestone.
-
-The project transitioned from:
-
-> "The model looks sensible."
-
-to:
-
-> "The model demonstrably predicts better than simple baselines."
-
-### Delivered:
-- **Multiple Historical Seasons Ingested:** Complete datasets for 2021-22, 2022-23, 2023-24, 2024-25, and 2025-26 with official FPL origin structures normalized into `data/historical/`.
-- **Zero Future-Leakage Snapshots & Temporal Audit:** Point-in-time snapshot reconstruction guaranteeing pre-deadline isolation. Field-by-field audit completed; eliminated future GW-N matchday minutes reference in inferred availability, verified by automated temporal isolation tests (`tests/test_backtest_no_leakage.py`).
-- **Prediction Backtesting:** Rigorous out-of-sample evaluation of $xP$ ($\rho \approx 0.52 - 0.60$), minutes ($xM$ MAE 19.1 mins), and availability models across historical player-gameweeks.
-- **Sequential Manager Replay Simulation:** Full season replay engine tracking bank, purchase/selling prices, free transfers, transfer hits, starting lineup legality, formation-legal autosubs, and captain promotion.
-- **Deterministic Baselines & Optimizer Superiority:** Validated that the production branch-and-bound optimizer decisively outperforms both No-Transfer and Simple $xP$ baselines ($+17$ to $+59$ net points).
-- **LLM A/B Evaluation Framework:** Controlled audit trail and strict deterministic validation layer preventing illegal recommendations.
-- **Cross-Season Robustness & V0.8 Decision Gate:** Documented empirical results and architectural actions in `docs/v07/v07_results.md`.
-- **CLI Commands & Ingestion Utility:** Added `scripts/download_historical.py` (and `fpl download-historical`) for on-demand historical season ingestion, as well as `fpl backtest-predictions` and `fpl backtest-decisions` for reproducible command-line backtesting.
-- **201 Automated Tests:** 100% pass rate across unit, regression, CLI, GUI, backtest, and temporal isolation test suites.
-
-### 0.7.1 Point-in-time dataset (Completed on 2026-09-11)
-
-Built historical datasets across 5 seasons (2021-22, 2022-23, 2023-24, 2024-25, 2025-26) containing, for each Gameweek:
-
-- [x] players available before deadline;
-- [x] prices at the decision point;
-- [x] ownership;
-- [x] FPL status;
-- [x] chance of playing;
-- [x] cumulative minutes (strictly GW 1..N-1);
-- [x] cumulative starts (strictly GW 1..N-1);
-- [x] xG/xA and related metrics available at that point;
-- [x] scheduled fixtures and FDR;
-- [x] team strength;
-- [x] ground truth match outcomes;
-- [x] sequential manager decision replay trail.
-
-#### Critical rule: no future leakage (Verified & Audited)
-
-For a GW N prediction, the model may only use information available before the GW N deadline. Field-by-field audit completed on 2026-09-11; removed forward-looking GW-N matchday minutes from availability status inference, and verified zero-leakage invariants through `tests/test_backtest_no_leakage.py`.
-
-### 0.7.2 Baselines (Completed on 2026-09-11)
-
-Compared the full model against simple baselines across multiple complete seasons:
-
-- [x] previous PPG / season PPG;
-- [x] form;
-- [x] price;
-- [x] xG90 / xA90 / xGI90;
-- [x] simple FDR-adjusted xP;
-- [x] simple minutes-adjusted xP;
-- [x] No-Transfer baseline (null policy);
-- [x] Simple $xP$ greed baseline.
-
-Empirical finding: The production branch-and-bound optimizer outperforms greedy single-transfer moves by $+17$ to $+59$ net points across 38 gameweeks.
-
-### 0.7.3 Calibration & Backtesting (Completed on 2026-09-11)
-
-Automated prediction backtesting engine implemented (`fpl backtest-predictions`):
-
-- [x] xP MAE and RMSE;
-- [x] rank correlation ($\rho \approx 0.52 - 0.60$);
-- [x] prediction bias and calibration across deciles;
-- [x] calibration by position and FDR;
-- [x] top-tier precision and captaincy pick accuracy;
-- [x] persistent backtest reporting in `reports/backtests/`.
-
-### 0.7.4 – 0.7.7 Transition to V0.8
-
-Empirical backtesting in V0.7 demonstrated that expected minutes ($xM$) and rotation uncertainty are the primary drivers of $xP$ error. Consequently, standalone participation modeling, two-stage minutes regression, and empirical uncertainty have been formally promoted to the **Core V0.8 Research Programme (P1–P4)** in [`docs/v08/v08.md`](v08/v08.md).
-
----
-
-# V0.8 — Predictive Participation, Rank-Aware Decisions & Football Context
-
-> **Living milestone plan:** [`docs/v08/v08.md`](v08/v08.md)  
-> **Status:** Completed on 2026-09-12. Core predictive participation, decision-level A/B backtesting, rank-aware optimization, football context layer, and LLM critique dossier delivered and verified.
-
-### Quick summary of V0.8
-
-V0.8 uses the historical measurement framework established in V0.7 to improve the predictive model based on empirically measured failure modes.
-
-- **Primary objective:** Improve player participation prediction ($P(\text{start})$, $P(\text{play})$, $xM$) — identified in V0.7 as the primary bottleneck of expected points ($xP$) error, especially in the 30–70 minute rotation region — and measure whether that improvement translates into better FPL decisions.
-- **Core strategy:** Preserve the proven deterministic decision and optimizer architecture while upgrading its weakest predictive component, then layering rank-aware utility objectives and structured football context.
-
-### V0.8 Workstreams & Delivery Status
-
-| Priority | Workstream | Description | Status |
-|---|---|---|---|
-| **P0** | **Phase 0 — Leakage Audit & Snapshot Freeze** | Verify point-in-time contract field-by-field, eliminate future-GW outcome references, freeze historical baseline. | **[x] Completed** |
-| **P1** | **Participation-Error Analysis** | Quantify where minutes errors cause bad transfer/lineup decisions; identify the rotation cohort (`fpl backtest-participation`). | **[x] Completed** |
-| **P2** | **Dedicated $P(\text{start})$ / $P(\text{play})$ Model** | Replace coarse FPL status with probabilistic classifier trained on historical appearances. | **[x] Completed** |
-| **P3** | **Improved Expected-Minutes Model** | Two-stage conditional minutes model given start/sub probability ($xM$ MAE reduced from 23.88 to 19.88 mins). | **[x] Completed** |
-| **P4** | **Decision-Level Impact Evaluation** | Sequential backtest verifying if improved participation modeling yields higher net manager points (+9 net pts on optimizer). | **[x] Completed** |
-| **P5** | **Congestion & Rotation Features** | Days since last match, turnaround congestion thresholds, 7d/14d match frequency. | **[x] Completed** |
-| **P6** | **Player-Role & Manager Patterns** | Consecutive zero-minute role-loss decay penalty, bench appearance priors. | **[x] Completed** |
-| **P7** | **Rank-Aware Decision Optimisation** | Expected rank gain, downside protection, chasing vs. defending lead utility profiles (`neutral`, `floor`, `ceiling`, `defend_lead`, `chase`). | **[x] Completed** |
-| **P8** | **Effective Ownership (EO) Refinement** | Tiered EO estimation, template shields, and differential swords integrated into risk profiles. | **[x] Completed** |
-| **P9** | **Structured Football Information Layer** | Distinguish FACT / INFERENCE / RUMOUR / MODEL_ASSUMPTION with confidence, provenance, and expiry (`fpl_manager.football_context`). | **[x] Completed** |
-| **P10** | **Qualitative LLM Strategic Analyst** | Use LLM to critique top optimizer strategies against active football context without allowing numerical vetoes (`generate_strategy_dossier_critique`). | **[x] Completed** |
-| **P11** | **Broader $xP$ Component Calibration** | Calibrate Opta xG/xA conversion ratios and defensive clean-sheet probabilities. | Deferred to V0.9 |
-| **P12** | **UI / Presentation Enhancements** | Visual participation indicators, risk-adjusted ranking toggles. | Deferred to V0.9 |
-
----
-
-## 0.8.1 Rank-aware optimisation
-
-Move beyond pure expected points.
-
-Candidate objectives:
-
-```text
-Expected points
-Expected rank gain
-Expected rank loss
-Probability of beating benchmark
-Probability of top-k finish
-Downside percentile
-Risk-adjusted utility
-```
-
-Possible generic utility:
-
-```text
-U =
-    expected_points
-  + α × rank_leverage
-  - β × downside_risk
-  - γ × transfer_cost
-```
-
-The coefficients should be configurable by strategy.
-
-### Risk profiles
-
-#### Neutral
-
-Maximize expected outcome.
-
-#### Floor
-
-Protect rank and minimize downside.
-
-#### Ceiling
-
-Accept variance for upside.
-
-#### Defend lead
-
-Prioritize minimizing catastrophic rank loss.
-
-#### Chase
-
-Prioritize probability of large rank gain.
-
-## 0.8.2 Effective Ownership
-
-Improve the ownership model from broad estimates toward:
-
-- actual available EO data where obtainable;
-- benchmark population definition;
-- captaincy distribution;
-- ownership uncertainty;
-- rank-sensitive leverage.
-
-Avoid presenting inferred EO as exact league data.
-
-## 0.8.3 Football information layer
-
-Add structured external information:
-
-- press conferences;
-- injury reports;
-- expected lineups;
-- suspension news;
-- manager comments;
-- tactical changes;
-- set-piece responsibilities;
-- penalty responsibilities;
-- rotation risk;
-- fixture congestion.
-
-The information pipeline should distinguish:
-
-```text
-FACT
-INFERENCE
-RUMOUR
-MODEL ASSUMPTION
-```
-
-Every external observation should carry:
-
-- source;
-- timestamp;
-- confidence;
-- affected player/team;
-- expiry/relevance window.
-
-## 0.8.4 LLM as qualitative analyst
-
-The LLM should not become the numerical optimizer.
-
-Preferred flow:
-
-```text
-Deterministic engine
-       ↓
-5–20 viable strategies
-       ↓
-structured comparison
-       ↓
-LLM critique
-       ↓
-qualitative evidence
-       ↓
-deterministic validation
-       ↓
-human decision
-```
-
-The LLM should explain:
-
-- tactical context;
-- injury uncertainty;
-- rotation risk;
-- set pieces;
-- fixture-specific factors;
-- hidden assumptions;
-- potential traps.
-
----
-
-# V0.9 — Closed-loop experimentation and production hardening
-
-## 0.9.1 Model-vs-human experiments
-
-For every decision, record:
-
-- model recommendation;
-- human recommendation;
-- final decision;
-- alternatives considered;
-- projected xP;
-- actual points;
-- rank impact.
-
-Measure over time:
-
-- human score;
-- model score;
-- hybrid score;
-- difference;
-- regret;
-- decision confidence.
-
-## 0.9.2 Counterfactual analysis
-
-For each GW:
-
-- what the model recommended;
-- what the human chose;
-- what would have happened under each;
-- what the best legal decision was after the fact.
-
-Important:
-
-Counterfactual analysis must clearly label hindsight results as hindsight.
-
-## 0.9.3 Transfer ROI
-
-Track:
-
-```text
-gross gain
-hit cost
-net gain
-one-GW ROI
-three-GW ROI
-five-GW ROI
-```
-
-Also distinguish:
-
-- transfer itself;
+**Status: completed.**
+
+Delivered:
+
+- isolated team workspaces;
+- team creation/cloning/switching;
+- browser GUI;
+- visual pitch;
+- player cards;
+- FDR/xP/ownership;
 - captaincy;
+- financial HUD;
+- transfer builder;
+- transfer recommendations;
+- Wildcard/Free Hit studio;
+- multi-GW planner;
+- chip strategy;
+- evaluation hub.
+
+---
+
+## V0.6 — Analytical briefing, live matchday and optional LLM
+
+**Status: completed through subsequent stabilization.**
+
+Delivered:
+
+- manager dossier;
+- squad health;
+- starting XI;
+- captaincy;
+- injury/news context;
+- ownership risk;
+- transfer recommendations;
+- live matchday;
+- autosub simulation;
+- live statistics;
+- Effective Ownership leverage;
+- LLM advisor;
+- multiple personas;
+- structured responses;
+- deterministic legality guardrails;
+- GUI advisor workflow.
+
+Provider integrations remain optional and must never be a prerequisite for core operation.
+
+---
+
+## V0.65 — Stabilization and hardening
+
+**Status: completed through subsequent hardening work.**
+
+The stabilization work established:
+
+- state-transition correctness;
+- quantitative xP/xM validation;
+- optimizer legality;
+- GUI/API safety;
+- provider failure handling;
+- deterministic guardrails;
+- regression tests;
+- integration tests;
+- secure secret handling.
+
+---
+
+## V0.7 — Historical backtesting and predictive validation
+
+**Status: completed.**
+
+The first serious research release established:
+
+- point-in-time historical snapshots;
+- strict no-future-leakage semantics;
+- baseline comparisons;
+- prediction calibration;
+- xP/xM evaluation;
+- minutes modelling;
+- probabilistic event modelling;
+- uncertainty analysis;
+- versioned model metadata;
+- decision-level backtesting.
+
+---
+
+## V0.8 — Participation, rank-aware decisions and football context
+
+**Status: completed.**
+
+Delivered:
+
+- probabilistic participation engine;
+- rotation/congestion features;
+- rank-aware risk profiles;
+- structured football context;
+- provenance/confidence/expiry for external observations;
+- LLM strategy critique;
+- A/B predictive backtesting.
+
+---
+
+## V0.9 — Learned participation, closed-loop evaluation and hardening
+
+**Status: completed.**
+
+The V0.9 work introduced:
+
+- learned/calibrated temporal participation modelling;
+- participation regimes;
+- calibration;
+- decision-weighted error attribution;
+- production hardening;
+- security;
+- multi-season analysis;
+- predictor/decision-engine factorial analysis.
+
+A key finding was that the learned V0.9 predictor improved results materially, while an additional lineup participation penalty interacted negatively with already participation-aware xP.
+
+Subsequent V0.9.1 hardening established a neutral default lineup penalty of zero and validated the choice over multiple seasons.
+
+---
+
+# 4. V1.0 — Stable FPL Decision-Support Platform
+
+**Status: release candidate / PR-ready.**
+
+V1.0 is not intended to contain every future feature.
+
+It establishes a trustworthy quantitative and software foundation for the strategic work in V1.1.
+
+## V1.0 goals
+
+- stable production architecture;
+- reproducible historical evaluation;
+- frozen quantitative core;
+- independent exact reference algorithms for bounded synthetic validation;
+- explicit heuristic/exact characterization;
+- strict point-in-time semantics;
+- model provenance;
+- decision provenance;
+- regression suite;
+- secure provider handling;
+- auditable LLM evaluations.
+
+## V1.0 optimizer discipline
+
+Production components must explicitly state:
+
+- algorithm;
+- exact/heuristic status;
+- optimality guarantee;
+- search bounds;
+- objective;
+- provenance.
+
+Independent exact reference solvers are validation oracles on bounded synthetic problems, not a requirement to brute-force the real FPL search space.
+
+## V1.0 completion standard
+
+V1.0 is successful when the existing platform is:
+
+> stable, reproducible, tested, measurable, and honestly characterized.
+
+---
+
+# 5. V1.1 — Strategic Squad Construction, Full GUI Integration & Full ML Analysis
+
+**Status: planned.**
+
+This is the next major milestone.
+
+V1.1 has exactly three major pillars:
+
+```text
+Pillar 1 — ENGINE
+Strategic squad construction
+
+Pillar 2 — GUI
+Full interactive integration
+
+Pillar 3 — ML
+Full end-to-end historical analysis
+```
+
+The central product question becomes:
+
+> **Can FPL Manager construct a strategically strong starting state, let the human refine that state through explicit constraints and preferences, and demonstrate through leakage-free historical replay what effect that starting state has on downstream decisions?**
+
+---
+
+## 5.1 Why V1.1 is different from V1.0
+
+The existing engine primarily answers:
+
+> Given my current squad, what should I do next?
+
+V1.1 adds:
+
+> What squad should I start from?
+
+This creates three distinct optimization problems.
+
+### Initial squad
+
+Starting from the season-start budget:
+
+> Construct a squad that is strategically strong over an initial horizon and preserves future flexibility.
+
+### Wildcard
+
+Starting from the current squad:
+
+> Construct a strategically strong new squad over a future horizon.
+
+### Free Hit
+
+Starting from the current squad but with a temporary reset:
+
+> Construct the best one-GW squad under the Free Hit rules.
+
+These should share infrastructure but have different objectives and state semantics.
+
+---
+
+# 6. V1.1 Pillar 1 — Engine
+
+## 6.1 Generalized squad-construction framework
+
+Create a reusable strategic squad optimizer supporting:
+
+- Initial;
+- Wildcard;
+- Free Hit;
+- future strategic squad modes.
+
+Inputs:
+
+- current squad/state;
+- budget;
+- available players;
+- point-in-time projections;
+- fixtures;
+- horizon;
+- strategy;
+- constraints;
+- preferences.
+
+Outputs:
+
+- multiple candidate squads;
+- objective values;
+- strategic metrics;
+- provenance;
+- exact/heuristic status.
+
+---
+
+## 6.2 Hard constraints
+
+Support:
+
+- budget;
+- squad size;
+- position quotas;
+- club limits;
+- locked players;
+- excluded players;
+- chip-specific legality.
+
+Hard constraints must never be silently violated.
+
+---
+
+## 6.3 Soft preferences
+
+Support:
+
+- preferred players;
+- preferred clubs;
+- preferred positions;
+- desired budget reserve;
+- fixture preferences;
+- future-flexibility preferences;
+- differential preference;
+- risk preference.
+
+Soft preferences must be represented separately from hard constraints.
+
+---
+
+## 6.4 Multiple strategic candidates
+
+Do not model the result as a single universal `optimal_team`.
+
+Support candidates such as:
+
+- Maximum EV;
+- Balanced;
+- High Floor;
+- High Ceiling;
+- Future Flexibility;
+- Defend;
+- Chase.
+
+Also support multiple near-optimal solutions where the objective is close enough that structural diversity is meaningful.
+
+---
+
+## 6.5 Strategic objective
+
+The strategic objective may include:
+
+```text
+expected_points_over_horizon
++ future_transfer_flexibility
++ fixture_value
++ captaincy_option_value
++ bench_value
++ strategy_adjustments
+- expected_transfer_cost
+- structural_risk
+```
+
+The exact formulation must be empirical.
+
+Every component must be:
+
+- measurable;
+- backtestable;
+- ablatable;
+- removable if it does not improve decision quality.
+
+---
+
+## 6.6 Initial squad optimizer
+
+Support configurable horizons such as:
+
+- 1 GW;
+- 3 GW;
+- 5 GW;
+- 6 GW;
+- 8 GW.
+
+The important distinction is that the strategic optimizer must not merely maximize GW1 xP.
+
+It should evaluate the value of the state created for future decisions.
+
+---
+
+## 6.7 Wildcard optimizer
+
+The Wildcard optimizer should consider:
+
+- future fixture runs;
+- expected points;
+- expected minutes;
+- future transfers;
+- squad structure;
+- bench;
+- captaincy;
+- flexibility;
+- strategy/risk;
+- current squad state.
+
+It must be genuinely multi-GW rather than a one-GW Free Hit with a different label.
+
+---
+
+## 6.8 Free Hit generalization
+
+Generalize the existing Free Hit optimizer into the shared squad-construction framework.
+
+Example semantics:
+
+```text
+Free Hit:
+    horizon = 1 GW
+    temporary squad
+
+Wildcard:
+    horizon = N GWs
+    persistent squad
+
+Initial:
+    horizon = N GWs
+    no prior squad
+```
+
+---
+
+## 6.9 Constraint-driven re-optimization
+
+The following must be possible:
+
+```text
+Optimizer proposes squad
+        ↓
+Human locks Haaland
+        ↓
+Re-optimize
+        ↓
+Human also locks Donnarumma
+        ↓
+Re-optimize
+        ↓
+Human excludes Player X
+        ↓
+Re-optimize
+```
+
+The constraints become part of the optimization problem rather than manual post-processing.
+
+---
+
+## 6.10 Constraint impact analysis
+
+Show:
+
+- previous objective;
+- new objective;
+- objective delta;
+- changed players;
+- strategic opportunity cost;
+- changes to future flexibility.
+
+Example:
+
+```text
+LOCK Haaland
+
+Previous objective: 412.3
+New objective:      409.8
+Opportunity cost:    -2.5
+
+Changed:
+Player A → Player B
+Player C → Player D
+```
+
+---
+
+# 7. V1.1 Pillar 2 — Full GUI Integration
+
+## 7.1 Strategic Squad Studio
+
+Add first-class GUI workflows:
+
+- Initial Squad;
+- Wildcard;
+- Free Hit.
+
+They should use the generalized engine.
+
+---
+
+## 7.2 Strategic objective selector
+
+Expose:
+
+- Balanced;
+- Maximum EV;
+- High Floor;
+- High Ceiling;
+- Defend;
+- Chase;
+- Future Flexibility.
+
+The UI must explain what each objective means.
+
+---
+
+## 7.3 Horizon selector
+
+Support:
+
+- 1;
+- 3;
+- 5;
+- 6;
+- 8;
+- custom Gameweeks.
+
+---
+
+## 7.4 Constraint controls
+
+Support:
+
+### Must Have
+
+Hard lock.
+
+### Must Avoid
+
+Hard exclusion.
+
+### Prefer
+
+Soft preference.
+
+### Structural constraints
+
+Examples:
+
+- club exposure;
+- budget reserve;
+- premium count;
+- bench strength.
+
+---
+
+## 7.5 Candidate comparison
+
+Show multiple candidates side-by-side.
+
+Possible metrics:
+
+| Metric | Candidate A | Candidate B | Candidate C |
+|---|---:|---:|---:|
+| Horizon xP | | | |
+| GW1 xP | | | |
+| Future flexibility | | | |
+| Bench value | | | |
+| Captaincy options | | | |
+| Risk | | | |
+| Objective | | | |
+
+Do not imply that different strategies have a universal winner.
+
+---
+
+## 7.6 Interactive player controls
+
+Every candidate player should support:
+
+- Lock;
+- Unlock;
+- Exclude;
+- Prefer;
+- Remove preference.
+
+Constraint state must be visually obvious.
+
+---
+
+## 7.7 Optimizer ↔ human loop
+
+The intended workflow:
+
+```text
+Optimizer proposes
+        ↓
+Human inspects
+        ↓
+Human constrains
+        ↓
+Optimizer re-solves
+        ↓
+System explains changes
+        ↓
+Human accepts / iterates
+```
+
+This is a core V1.1 product feature.
+
+---
+
+## 7.8 Human-first workflow
+
+The user must also be able to begin with constraints:
+
+```text
+Wildcard
+Horizon: 6 GWs
+
+Must Have:
+    Haaland
+    Donnarumma
+
+Strategy:
+    Balanced
+```
+
+Then request the strategic squad.
+
+---
+
+## 7.9 GUI provenance
+
+Every generated strategic squad should expose:
+
+- historical/current snapshot;
+- Gameweek;
+- model version;
+- optimizer version;
+- strategy;
+- horizon;
+- constraints;
+- objective;
+- algorithm;
+- search configuration;
+- exact/heuristic status;
+- generation timestamp.
+
+---
+
+## 7.10 Integration with existing GUI
+
+Strategic squad construction must connect to:
+
+- transfer builder;
+- `suggest-transfers`;
+- Wildcard;
+- Free Hit;
+- multi-GW planner;
 - lineup;
-- chip.
+- captaincy;
+- decision history;
+- evaluation;
+- backtesting.
 
-## 0.9.4 Chip ROI
-
-Evaluate actual chip usage against:
-
-- rolling;
-- alternative GW;
-- best hindsight GW;
-- model recommendation.
-
-## 0.9.5 Software hardening
-
-- configuration abstraction;
-- provider interface;
-- typed API models;
-- improved logging;
-- structured errors;
-- transaction-like state updates;
-- better concurrency handling;
-- migration tests;
-- reproducible environment;
-- CI;
-- linting/type checks;
-- regression fixtures.
-
-## 0.9.6 Security
-
-- local-only default;
-- explicit bind address;
-- safe CORS defaults;
-- secret redaction;
-- no API-key persistence;
-- no API-key logging;
-- provider-specific secret handling;
-- clear trust boundary documentation.
+The strategic squad must become a valid downstream starting state, not a disconnected report.
 
 ---
 
-# V1.0 — Stable FPL decision-support platform
+# 8. V1.1 Pillar 3 — Full ML Analysis
 
-> **Detailed V1.0 Roadmap & Release Verification:** [`docs/v10/v10.md`](v10/v10.md)  
-> **Canonical Quantitative Model Report:** [`reports/v10_canonical_model_report.md`](../reports/v10_canonical_model_report.md)  
-> **Status: Completed on 2026-09-22 (`v1.0.0`).**
+The ML/research work is intentionally a major pillar, not a small validation step.
 
-V1.0 does not mean "every possible feature exists."
-
-It means:
-
-> **The existing feature set is stable, reproducible, tested, measurable, and demonstrably useful.**
-
-### V1.0 acceptance criteria (Verified & Completed)
-
-#### Data
-- [x] Reliable FPL ingestion.
-- [x] Point-in-time snapshots enforced across all 7 leakage categories (`validate_no_future_leakage`).
-- [x] Historical reproducibility (`reconstruct_historical_prediction`).
-- [x] Safe migrations (`SnapshotStore` schema versioning & idempotent upgrades).
-
-#### Rules
-- [x] Complete squad legality.
-- [x] Starting XI legality.
-- [x] Transfer legality.
-- [x] Hit accounting.
-- [x] Chip accounting.
-- [x] Autosub rules.
-
-#### Quantitative model
-- [x] Backtested across multiple historical seasons (`2021-22` to `2025-26`).
-- [x] Baseline-comparison results documented (`reports/v10_canonical_model_report.md`).
-- [x] Calibration measured across deciles, positions, and regimes (`single`, `dgw`, `bgw`).
-- [x] Model versioning implemented (`src/fpl_manager/model_registry.py`, `v1.0-canonical`).
-- [x] Known limitations documented.
-
-#### Optimisation
-- [x] Transfer optimizer verified (`solve_transfers` verified against the independent Cartesian brute-force oracle `solve_transfers_exact_reference` for 1–5 transfers and adversarial FDR-inversion bounds).
-- [x] Wildcard optimizer correctly described as heuristic local search (`solve_wildcard` `optimization_metadata`).
-- [x] Multi-GW beam planner (`generate_multi_gameweek_plan`, `is_exact_global_optimum = False`) verified on bounded synthetic horizons against the independent Bellman DP reference oracle (`plan_multi_gw_exact_reference`).
-- [x] Risk profiles tested (`conservative`, `safe`, `neutral`, `differential`, `upside`).
-- [x] Neutral risk profile defaults to `lineup_penalty_weight = 0.0` in `DecisionEngineV10` and `select_starting_lineup` (while supporting custom penalty weights for experimentation), and `lineup.py` strictly separates `model_quantities` from `decision_quantities`.
-
-#### LLM
-- [x] Provider abstraction (`gemini`, `openai`, `openrouter`, `heuristic`).
-- [x] At least one reliable external provider + transparent fallback chain.
-- [x] Guaranteed heuristic fallback (`heuristic (auto-fallback)`).
-- [x] Deterministic guardrails (`validate_llm_proposal`).
-- [x] No direct uncontrolled squad mutation.
-- [x] Persistent `llm_evaluations` SQLite table tracking advisory validity and manager action status.
-- [x] Clear source/context boundary (`FACT` / `INFERENCE` / `RUMOUR` / `MODEL_ASSUMPTION`).
-
-#### GUI
-- [x] No known state corruption.
-- [x] Complete manager workflow.
-- [x] Clear errors.
-- [x] Responsive long-running operations.
-- [x] Team isolation across active teams.
-
-#### Evaluation
-- [x] Every decision can be evaluated with mutually exclusive additive regret decomposition (`additive_regret_decomposition`: `total_decision_regret = lineup_regret + captaincy_regret + transfer_regret + chip_regret + hit_cost`) and labeled counterfactual diagnostics (`decision_loss_diagnostics`).
-- [x] Decision-weighted error metric (`calculate_decision_weighted_error`) implemented (`2.0` captain, `1.5` transfer target, `1.0` starter, `0.35` bench).
-- [x] Explicit distinction between `observed_outcome` and `hindsight_counterfactual`.
-- [x] All 296 automated tests passing (`tests/test_v10_release.py` and `tests/test_v10_end_to_end.py`).
+The V0.7–V0.9 methodology must be extended to evaluate **starting-state quality**.
 
 ---
 
-## V1.0.1 — Documentation, Docstring & CLI Alignment
+## 8.1 Historical initial-squad backtest
 
-**Status: completed on 2026-09-22.**
+For every historical season:
 
-- Audited and aligned all living Markdown documentation (`README.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`) to `v1.0.1`, preserving all historical milestone specification files (`v065` through `v10`) intact.
-- Updated legacy module docstrings (`V0.1`–`V0.9`) across all 51 Python modules in `src/fpl_manager/` to accurately reflect `V1.0.1` behavior and provenance.
-- Unified risk-profile validation in `suggest_transfers.py` (`validate_risk_profile`) and expanded CLI `--risk`, `--predictor`, and `--decision-engine` choices in `cli.py` to support `v1.0.1`, `v1.0`, and `v0.9.1`.
-
----
-
-# V1.1 — Multi-provider expansion & extended LLM model research
-
-**Status: Planned post-V1.0.**
-
-Following the stabilization of the V1.0 decision-support platform, V1.1 focuses on expanding the LLM provider matrix and investigating additional models.
-
-### Motivation
-
-During V0.65 live testing of OpenRouter, several models (e.g. `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-exp:free`, and `mistralai/mistral-large-2411`) failed with OpenRouter HTTP 404: `"No endpoints found for <model>"`. To preserve a clean, zero-error user experience, these were pruned from the V0.65 selector in favor of confirmed working endpoints (Llama 3.3 70B, DeepSeek V3, GPT-4o Mini, and DeepSeek R1 with paid credits `*`).
-
-V1.1 will systematically investigate model availability, endpoint routing, and alternative providers.
-
-### V1.1 Scope & Objectives
-
-#### 1. OpenRouter model roster investigation & dynamic discovery
-- Investigate OpenRouter routing configurations and availability prerequisites (account tier requirements, routing flags, slug updates) for Anthropic Claude (3.5 / 3.7 Sonnet), Google Gemini (2.0 Flash / Pro), and Mistral Large endpoints.
-- Address root causes of OpenRouter 404 `"No endpoints found"` errors.
-- Query OpenRouter's `/api/v1/models` endpoint dynamically to discover active, operational endpoints at runtime rather than relying solely on static hardcoded lists.
-- Differentiate clearly in the UI between free-tier, low-cost, and premium-credit models (e.g., DeepSeek R1).
-
-#### 2. Multi-provider expansion
-- Evaluate and integrate additional direct and OpenAI-compatible providers:
-  - **Groq Free Tier:** OpenAI-compatible API with high inference speed and explicit free-tier quotas.
-  - **Cerebras:** Ultra-fast inference for open-weight models.
-  - **DeepSeek Direct API:** Native integration for DeepSeek V3 and R1, bypassing third-party routing hops.
-  - **Mistral AI Direct API:** Native integration for Mistral Large and Codestral models.
-  - **Hugging Face Inference:** Alternative zero-cost / open endpoint candidate.
-- Ensure all new providers adhere strictly to the deterministic validation pipeline, transparent fallback logging, and offline heuristic engine fallback.
+1. reconstruct pre-GW1 information;
+2. generate predictions using only available information;
+3. construct strategic candidate squads;
+4. record strategy/objective/constraints;
+5. replay forward;
+6. run weekly decision-making;
+7. record actual outcomes;
+8. attribute errors.
 
 ---
 
-# Long-term research tracks
+## 8.2 Historical Wildcard backtest
 
-These are intentionally not tied to a specific version.
+For historical Wildcard opportunities:
+
+1. reconstruct the squad;
+2. reconstruct the point-in-time information state;
+3. run the strategic Wildcard optimizer;
+4. generate multiple candidates;
+5. record objective values;
+6. replay future Gameweeks;
+7. run the weekly decision engine;
+8. compare realized outcomes.
+
+Repeat across multiple seasons and Wildcard contexts.
+
+---
+
+## 8.3 Starting-state baselines
+
+At minimum compare:
+
+### A — Historical/actual squad
+
+Where data is available.
+
+### B — Short-horizon optimizer
+
+Existing one-GW style construction.
+
+### C — V1.1 strategic optimizer
+
+Multi-GW strategic construction.
+
+### D — Alternative strategic profiles
+
+Compare different objectives.
+
+The purpose is characterization and causal decomposition, not declaring one strategy universally best.
+
+---
+
+## 8.4 Extend the V0.7–V0.9 analytical chain
+
+Existing:
+
+```text
+features
+→ prediction
+→ participation state
+→ xP / xM
+→ optimizer score
+→ decision
+→ actual outcome
+```
+
+V1.1:
+
+```text
+historical state
+→ strategic squad construction
+→ starting state
+→ prediction
+→ weekly decision
+→ actual outcome
+```
+
+---
+
+## 8.5 Starting-state quality metrics
+
+Measure:
+
+- horizon xP;
+- realized horizon points;
+- expected-vs-realized delta;
+- squad value;
+- bench value;
+- captaincy opportunity;
+- fixture coverage;
+- future transfer flexibility;
+- corrective transfers required;
+- structural weaknesses.
+
+---
+
+## 8.6 End-to-end decision metrics
+
+### Prediction
+
+- xP MAE;
+- xM MAE;
+- RMSE;
+- rank correlation;
+- calibration;
+- participation classification.
+
+### Squad construction
+
+- objective;
+- realized points;
+- regret;
+- constraint cost;
+- flexibility.
+
+### Weekly decisions
+
+- transfer gain;
+- transfer hits;
+- lineup regret;
+- bench regret;
+- captain regret;
+- zero-minute starters;
+- chip outcomes.
+
+### End-to-end
+
+- cumulative points;
+- net points;
+- transfer count;
+- transfer hits;
+- rank trajectory where available;
+- strategic regret.
+
+---
+
+## 8.7 Multi-season walk-forward
+
+Do not rely on one season.
+
+For each historical experiment:
+
+```text
+historical information
+        ↓
+point-in-time prediction
+        ↓
+strategic construction
+        ↓
+future evaluation
+        ↓
+advance time
+```
+
+Report:
+
+- per-season results;
+- aggregate results;
+- variance;
+- failure cases;
+- strategy sensitivity;
+- horizon sensitivity.
+
+---
+
+## 8.8 Starting State × Predictor × Decision Engine
+
+Extend the V0.9 factorial methodology.
+
+Potential factors:
+
+- baseline vs strategic starting squad;
+- baseline vs V1.0 predictor;
+- baseline vs current decision engine;
+- strategic profile;
+- horizon.
+
+The experiment should decompose:
+
+```text
+starting-state main effect
+prediction main effect
+decision-engine main effect
+interaction effects
+```
+
+The question is:
+
+> Does strategic squad construction produce a downstream benefit independently of weekly prediction quality?
+
+---
+
+## 8.9 Starting-state error attribution
+
+Add explicit categories:
+
+```text
+STARTING_STATE_ERROR
+PREDICTION_ERROR
+DECISION_ERROR
+INTERACTION
+HARMLESS
+```
+
+Examples:
+
+- structural weakness created by the initial squad;
+- player omitted because of incorrect strategic valuation;
+- correct player available but predicted incorrectly;
+- prediction correct but decision engine selected incorrectly.
+
+---
+
+## 8.10 Strategic regret
+
+Use hindsight only as an evaluation reference.
+
+Conceptually:
+
+```text
+Strategic regret =
+    hindsight reference outcome
+    -
+    selected candidate outcome
+```
+
+Reports must distinguish:
+
+- decision-time information;
+- production candidate;
+- hindsight oracle.
+
+The production optimizer must never receive hindsight information.
+
+---
+
+## 8.11 Solution multiplicity
+
+Measure:
+
+- number of optimal solutions where exact;
+- near-optimal candidate count;
+- objective spread;
+- structural diversity;
+- common players;
+- strategy-specific differences.
+
+This prevents a different but nearly equivalent squad from being incorrectly classified as an optimizer failure.
+
+---
+
+## 8.12 Constraint sensitivity
+
+Run controlled experiments:
+
+```text
+baseline
++ lock Haaland
++ lock Donnarumma
++ exclude player X
++ prefer player Y
++ reserve £0.5m
++ change horizon
++ change strategy
+```
+
+Measure:
+
+- objective change;
+- squad composition change;
+- flexibility;
+- historical outcome.
+
+---
+
+## 8.13 Horizon sensitivity
+
+Evaluate:
+
+```text
+1 GW
+3 GW
+5 GW
+6 GW
+8 GW
+```
+
+Determine:
+
+- composition changes;
+- realized outcome changes;
+- future transfer pressure;
+- possible overfitting;
+- point at which longer-horizon planning becomes useful.
+
+Longer horizon must not be assumed to be better.
+
+---
+
+## 8.14 Strategy sensitivity
+
+Evaluate:
+
+- neutral;
+- floor;
+- ceiling;
+- defend;
+- chase;
+- flexibility.
+
+Report:
+
+- objective;
+- composition;
+- downstream outcomes;
+- variance;
+- robustness.
+
+No universal strategy ranking is required.
+
+---
+
+## 8.15 Full predictive error analysis
+
+Reuse:
+
+- confusion matrices;
+- false positives;
+- false negatives;
+- high-value cohorts;
+- error concentration;
+- decision-weighted error ledger;
+- root-cause analysis.
+
+Add:
+
+- starting-state errors;
+- structural errors;
+- strategic horizon errors;
+- constraint opportunity costs.
+
+---
+
+# 9. V1.1 ML Research Track
+
+V1.1 may test new models in:
+
+## Participation
+
+- NO_PLAY / SUB / START;
+- state-specific minutes;
+- position-specific distributions;
+- manager-specific rotation;
+- congestion.
+
+## Expected points
+
+- calibration;
+- residual analysis;
+- fixture interaction;
+- role changes.
+
+## Strategic modelling
+
+- future transfer probability;
+- future squad flexibility;
+- transfer-cost expectation;
+- fixture-swing anticipation;
+- captaincy option value.
+
+An experimental model must not replace the production model merely because it improves one predictive metric.
+
+Promotion requires decision-level and walk-forward evidence.
+
+---
+
+# 10. V1.1 Model Promotion Gate
+
+Every production ML change must pass:
+
+1. unit tests;
+2. leakage tests;
+3. point-in-time validation;
+4. out-of-sample prediction evaluation;
+5. decision-level backtest;
+6. multi-season validation;
+7. comparison with V1.0;
+8. reproducibility.
+
+A model that improves MAE but does not improve downstream decisions may remain experimental.
+
+---
+
+# 11. V1.1 Required Reports
+
+Generate reproducible reports under:
+
+```text
+reports/
+    v11/
+        initial_squad_backtest/
+        wildcard_backtest/
+        strategic_profiles/
+        horizon_sensitivity/
+        constraint_sensitivity/
+        starting_state_ablation/
+        prediction_decision_ablation/
+        error_attribution/
+        multi_season_summary/
+```
+
+Each report must include:
+
+- dataset;
+- snapshot semantics;
+- historical window;
+- model version;
+- optimizer version;
+- strategy;
+- horizon;
+- constraints;
+- metrics;
+- uncertainty where applicable;
+- limitations.
+
+---
+
+# 12. V1.1 Engine Acceptance Criteria
+
+- [ ] Generalized squad-construction interface supports Initial / Wildcard / Free Hit.
+- [ ] Strategic horizon is configurable.
+- [ ] Multiple strategic candidates can be returned.
+- [ ] Hard constraints are deterministic.
+- [ ] Locked players are enforced.
+- [ ] Excluded players are enforced.
+- [ ] Soft preferences are separate from hard constraints.
+- [ ] Existing Free Hit behavior remains regression-safe.
+- [ ] Wildcard uses a multi-GW strategic objective.
+- [ ] Initial selection uses a multi-GW strategic objective.
+- [ ] Optimizer metadata exposes algorithm and optimality status.
+- [ ] Small synthetic cases have independent exact-reference tests.
+- [ ] Constraint changes trigger deterministic re-optimization.
+- [ ] Outputs preserve provenance.
+
+---
+
+# 13. V1.1 GUI Acceptance Criteria
+
+- [ ] Initial Squad workflow.
+- [ ] Wildcard workflow.
+- [ ] Free Hit workflow using generalized engine.
+- [ ] Multiple candidate display.
+- [ ] Lock player.
+- [ ] Unlock player.
+- [ ] Exclude player.
+- [ ] Prefer player.
+- [ ] Horizon selection.
+- [ ] Strategy selection.
+- [ ] Interactive re-optimization.
+- [ ] Changed-player explanation.
+- [ ] Objective/opportunity-cost display.
+- [ ] Provenance display.
+- [ ] Commit candidate into normal decision workflow.
+- [ ] Decision history records constraints and optimizer state.
+
+---
+
+# 14. V1.1 ML Acceptance Criteria
+
+- [ ] Historical initial squads reconstructed without future leakage.
+- [ ] Historical Wildcards reconstructed without future leakage.
+- [ ] Multiple strategic profiles backtested.
+- [ ] Multiple horizons evaluated.
+- [ ] V0.7–V0.9 predictive metrics retained.
+- [ ] Starting-state metrics implemented.
+- [ ] Weekly decision metrics implemented.
+- [ ] End-to-end season metrics implemented.
+- [ ] Multi-season walk-forward evaluation implemented.
+- [ ] Starting-state × predictor × decision-engine ablation implemented.
+- [ ] Starting-state error attribution implemented.
+- [ ] Constraint sensitivity implemented.
+- [ ] Strategy sensitivity implemented.
+- [ ] Hindsight/oracle results separated from production information.
+- [ ] Reproducible reports generated.
+- [ ] Production-time candidate generation remains leakage-free.
+
+---
+
+# 15. V1.1 Testing Strategy
+
+Maintain the V1.0 testing standard.
+
+## Unit
+
+Test:
+
+- constraints;
+- objectives;
+- strategic scoring;
+- candidate generation;
+- horizon handling;
+- state transitions.
+
+## Property/invariant
+
+Examples:
+
+- budget never exceeded;
+- position quotas always legal;
+- club limits always legal;
+- locked players always retained;
+- excluded players never selected.
+
+## Integration
+
+Test:
+
+- optimizer → GUI;
+- GUI → optimizer;
+- optimizer → planner;
+- historical snapshot → optimizer;
+- optimizer → backtest;
+- strategic squad → weekly decision engine.
+
+## Exact-reference
+
+Use small synthetic problems only.
+
+## Leakage
+
+Test that future information cannot enter:
+
+- features;
+- predictions;
+- strategic scoring;
+- squad construction;
+- candidate generation.
+
+## Regression
+
+Existing V1.0 workflows must remain stable unless intentionally changed.
+
+---
+
+# 16. V1.1 Performance Requirements
+
+Strategic optimization may be substantially more expensive than one-GW optimization.
+
+Use:
+
+- bounded search;
+- caching;
+- reusable prediction calculations;
+- fixture/horizon caching;
+- candidate limits;
+- explicit search configuration.
+
+The GUI must remain responsive enough for interactive constraint changes.
+
+Do not attempt unrestricted brute force over the real FPL universe simply to claim exactness.
+
+---
+
+# 17. V1.1 Definition of Done
+
+A complete initial-squad workflow:
+
+```text
+START OF SEASON
+      ↓
+Strategic Initial Squad Optimizer
+      ↓
+Multiple strategic candidates
+      ↓
+Human locks / excludes / prefers
+      ↓
+Re-optimization
+      ↓
+Final starting squad
+      ↓
+Weekly decision engine
+      ↓
+GW-by-GW decisions
+      ↓
+Evaluation
+```
+
+A complete Wildcard workflow:
+
+```text
+CURRENT SQUAD
+      ↓
+Strategic Wildcard Optimizer
+      ↓
+Multiple strategic candidates
+      ↓
+Human constraints
+      ↓
+Re-optimization
+      ↓
+Final Wildcard Squad
+      ↓
+Multi-GW planner
+      ↓
+Evaluation
+```
+
+A complete research workflow:
+
+```text
+Historical snapshot
+      ↓
+Strategic squad construction
+      ↓
+Candidate starting states
+      ↓
+V1.0 prediction engine
+      ↓
+Weekly decision engine
+      ↓
+Actual outcomes
+      ↓
+V0.7–V0.9 analytical framework
+      ↓
+Starting-state × prediction × decision analysis
+      ↓
+Multi-season conclusions
+```
+
+---
+
+# 18. V1.1 Success Questions
+
+### Engine
+
+> Can FPL Manager construct strategically meaningful initial and Wildcard squads rather than merely maximizing one Gameweek?
+
+### Product
+
+> Can a human guide that optimization through explicit constraints and preferences without leaving the GUI?
+
+### Science
+
+> Does starting from a strategically constructed squad measurably improve downstream decision quality under strict point-in-time historical evaluation?
+
+The third question is the most important.
+
+V1.1 should not be considered successful merely because the generated squads look more sophisticated.
+
+It succeeds if the end-to-end experiment establishes **where strategic squad construction helps, where it does not, and under which horizons, strategies and constraints the differences matter**.
+
+---
+
+# 19. V1.2 — Multi-Provider Expansion & Extended LLM Model Research
+
+**Status: planned after V1.1.**
+
+V1.2 is the previously planned V1.1 scope, deliberately moved one release later so that the strategic quantitative engine and its evaluation framework exist first.
+
+The central question becomes:
+
+> **Can multiple AI models/providers improve human decision-making when placed around a trustworthy deterministic strategic engine?**
+
+---
+
+## 19.1 Multi-provider infrastructure
+
+Investigate and support, where justified:
+
+- OpenAI;
+- Gemini;
+- OpenRouter;
+- Groq;
+- other viable providers;
+- local/open models where practical.
+
+Provider support must remain optional.
+
+The core application must work without an external LLM.
+
+---
+
+## 19.2 Provider benchmark
+
+Measure:
+
+- quality;
+- consistency;
+- latency;
+- cost;
+- rate limits;
+- context handling;
+- structured-output reliability;
+- failure behavior.
+
+Do not evaluate providers only by subjective response quality.
+
+---
+
+## 19.3 Extended model research
+
+Test multiple model families and sizes.
+
+Questions:
+
+- Which models understand FPL context?
+- Which models are best at qualitative tactical analysis?
+- Which are best at challenging optimizer assumptions?
+- Which are best at explaining trade-offs?
+- Which are best at human-facing synthesis?
+- Does a larger model materially improve decisions?
+
+---
+
+## 19.4 Human-in-the-loop experimentation
+
+V1.2 should support structured experiments where:
+
+```text
+AI agent executes task
+        ↓
+Human is asked a targeted question
+        ↓
+Human answers
+        ↓
+AI continues
+        ↓
+Result is recorded
+```
+
+Human interactions must become part of the experiment record.
+
+The system should distinguish:
+
+- AI-generated decision;
+- human constraint;
+- human correction;
+- final decision;
+- outcome.
+
+---
+
+## 19.5 LLM role architecture
+
+Potential roles:
+
+- Strategic Analyst;
+- Devil's Advocate;
+- Tactical Analyst;
+- News Synthesizer;
+- Decision Reviewer;
+- Post-GW Analyst;
+- Research Agent.
+
+The LLM remains subordinate to deterministic rules and quantitative validation.
+
+---
+
+## 19.6 Closed-loop LLM evaluation
+
+Compare:
+
+```text
+quantitative only
+quantitative + human
+quantitative + LLM
+quantitative + LLM + human
+```
+
+Evaluate actual downstream decision quality.
+
+The goal is not to prove that an LLM is useful.
+
+The goal is to measure whether it is useful.
+
+---
+
+# 20. Long-Term Research Tracks
+
+These remain available after V1.2 and should be promoted into releases only when there is sufficient evidence.
 
 ## Track A — Better player modelling
 
@@ -1030,16 +1674,18 @@ Potential features:
 - team attacking strength;
 - opponent defensive strength;
 - player share of team xG/xA;
-- role/position changes.
+- role changes.
 
 Only add a feature if historical testing demonstrates incremental value.
+
+---
 
 ## Track B — Better minutes modelling
 
 Potential sources:
 
 - historical lineups;
-- substitution patterns;
+- substitutions;
 - fixture congestion;
 - manager rotation;
 - injuries;
@@ -1048,11 +1694,13 @@ Potential sources:
 - tactical role;
 - recent starts.
 
-This should probably receive more research time than adding dozens of attacking metrics.
+Minutes modelling remains a high-value research area.
+
+---
 
 ## Track C — Better fixture modelling
 
-Replace coarse FDR with:
+Move beyond coarse FDR toward:
 
 ```text
 team_attack_strength
@@ -1062,11 +1710,13 @@ opponent_defense_strength
 home_advantage
 ```
 
-and derive:
+Derive:
 
 - expected team goals;
 - expected goals conceded;
 - clean-sheet probability.
+
+---
 
 ## Track D — Better rank strategy
 
@@ -1085,23 +1735,33 @@ Then calculate:
 - expected rank gain;
 - expected rank loss.
 
+---
+
 ## Track E — Squad construction
 
-For Wildcard:
+Track E is now promoted into V1.1.
 
-- exact mixed-integer optimisation if worthwhile;
+The long-term research direction includes:
+
+- strategic initial squads;
+- strategic Wildcards;
+- exact mixed-integer optimization if worthwhile;
 - future transfer flexibility;
 - team structure;
 - price-change risk;
 - fixture runs;
 - bench strength;
-- future chip strategy.
+- future chip strategy;
+- multiple strategic objectives;
+- constrained candidate generation.
 
-The objective should eventually be more than one-GW xP.
+The objective should be more than one-GW xP.
+
+---
 
 ## Track F — Multi-GW planning
 
-Potential improvements:
+Future improvements:
 
 - dynamic re-projection;
 - price-change uncertainty;
@@ -1110,10 +1770,14 @@ Potential improvements:
 - fixture swings;
 - blank/double events;
 - chip interactions;
-- multiple objective functions;
+- multiple objectives;
 - scenario trees.
 
+---
+
 ## Track G — LLM strategy layer
+
+Promoted into V1.2.
 
 Potential roles:
 
@@ -1124,35 +1788,37 @@ Potential roles:
 - Decision Reviewer;
 - Post-GW Analyst.
 
-The LLM should remain subordinate to deterministic facts and legality.
-
-## Track H — Automated learning loop
-
-Eventually:
-
-```text
-prediction
-   ↓
-decision
-   ↓
-outcome
-   ↓
-error
-   ↓
-feature/model diagnosis
-   ↓
-new model candidate
-   ↓
-backtest
-   ↓
-accept/reject
-```
-
-Never automatically deploy a new model merely because it performed better on the latest few Gameweeks.
+The LLM remains subordinate to deterministic facts and legality.
 
 ---
 
-# Engineering principles
+## Track H — Automated learning loop
+
+Long-term architecture:
+
+```text
+prediction
+    ↓
+decision
+    ↓
+outcome
+    ↓
+error
+    ↓
+feature/model diagnosis
+    ↓
+new model candidate
+    ↓
+backtest
+    ↓
+accept/reject
+```
+
+Never automatically deploy a model merely because it performed better over the latest few Gameweeks.
+
+---
+
+# 21. Engineering Principles
 
 ## 1. Deterministic truth first
 
@@ -1167,15 +1833,15 @@ The application owns:
 - chips;
 - recorded decisions.
 
-The LLM never overrides these.
+LLMs never override these.
 
 ## 2. No future leakage
 
-Historical predictions must use only information available at the prediction timestamp.
+Historical predictions and strategic optimizers use only information available at the historical decision point.
 
 ## 3. Every important number should be explainable
 
-A player xP should be decomposable into components.
+xP, strategic value and optimizer objectives should be decomposable.
 
 ## 4. Every decision should be reproducible
 
@@ -1183,7 +1849,10 @@ A decision record should identify:
 
 - snapshot;
 - model version;
+- optimizer version;
 - input state;
+- strategy;
+- constraints;
 - recommendation;
 - human choice;
 - eventual outcome.
@@ -1194,7 +1863,7 @@ Do not add complexity without demonstrating benefit.
 
 ## 6. Keep the offline path functional
 
-The core engine must work without an LLM API.
+The quantitative core must work without an LLM API.
 
 ## 7. Provider integrations are optional
 
@@ -1202,21 +1871,29 @@ No provider should be a single point of failure.
 
 ## 8. External information must have provenance
 
-News should carry source/time/confidence.
+News and contextual observations should carry source, timestamp and confidence.
 
 ## 9. UI must never be the source of truth
 
 The GUI calls domain functions; it does not duplicate business rules.
 
-## 10. Release small, research deeply
+## 10. Separate optimization from evaluation
 
-A small V0.65 bug-fix release is preferable to another feature-heavy branch if correctness is uncertain.
+Production-time optimizers must not receive hindsight information.
+
+## 11. Exact reference ≠ production brute force
+
+Use bounded exact references to validate heuristic/optimized production components.
+
+## 12. Release small, research deeply
+
+A smaller validated release is preferable to a feature-heavy branch with uncertain correctness.
 
 ---
 
-# Testing strategy
+# 22. Testing Strategy
 
-Testing should operate at four levels.
+Testing operates at four primary levels.
 
 ## Unit
 
@@ -1228,20 +1905,23 @@ Pure functions:
 - xM;
 - xP;
 - ownership;
-- fixture calculations;
+- fixtures;
+- strategic objectives;
+- constraints;
 - hit calculation.
 
-## Property/invariant tests
+## Property/invariant
 
 Examples:
 
 - squad always has 15 unique players;
-- squad never exceeds three players from one club;
+- squad never exceeds club limits;
 - lineup always has 11 players;
-- lineup always has at least 1 GKP / 3 DEF / 2 MID / 1 FWD;
-- bank never becomes negative after a validated transfer;
-- transfer hits equal `max(0, transfers - free_transfers)`;
-- undo restores the prior state.
+- lineup formation is legal;
+- bank never becomes negative after validated transfer;
+- locked players remain present;
+- excluded players never appear;
+- undo restores prior state.
 
 ## Integration
 
@@ -1251,17 +1931,19 @@ Full workflows:
 - squad;
 - transfers;
 - lineup;
+- strategic squad;
 - logging;
 - scoring;
-- evaluation.
+- evaluation;
+- backtesting.
 
 ## Historical regression
 
-A fixed set of historical Gameweeks should be used as a permanent regression dataset.
+A fixed historical Gameweek set should remain a permanent regression dataset.
 
 ---
 
-# Release discipline
+# 23. Release Discipline
 
 Every release should have:
 
@@ -1270,106 +1952,113 @@ Every release should have:
 3. fixed bugs;
 4. tests added;
 5. tests passed;
-6. data/schema migration notes;
+6. schema/migration notes;
 7. compatibility notes;
 8. model changes;
-9. provider changes;
-10. known limitations.
+9. optimizer changes;
+10. provider changes;
+11. known limitations;
+12. reproducibility instructions.
 
-A branch should not be described as "complete" merely because its feature code exists.
+A branch should not be described as complete merely because feature code exists.
 
-Use:
+Use distinct states:
 
-- `implemented`
-- `tested`
-- `validated`
-- `PR-ready`
-- `released`
-
-as distinct states.
-
----
-
-# Immediate work queue
-
-## Next (Post-V1.0.1 -> V1.1)
-
-### 1. Create `v11` branch from `master` after `V1.0.1` merge
-- Base `v11` on the merged `V1.0.1` release commit.
-
-### 2. Execute V1.1 Multi-Provider Expansion & OpenRouter Dynamic Discovery
-- Implement OpenRouter `/api/v1/models` dynamic model discovery and tier classification (free-tier vs credit-required endpoints).
-- Integrate and validate Groq Free Tier, Cerebras, DeepSeek Direct API, and Mistral Direct API under the `ProviderAdapter` envelope (`src/fpl_manager/providers.py`).
-- Verify all new providers through the full deterministic validation and `llm_evaluations` audit pipeline.
+- `implemented`;
+- `tested`;
+- `validated`;
+- `PR-ready`;
+- `released`.
 
 ---
 
-# Free LLM provider strategy
+# 24. Immediate Work Queue
 
-The project needs at least one **actually usable zero-cost API option** for development and personal use.
+## Now — V1.0 release
 
-The provider-selection strategy should be:
+- [ ] Complete final V1.0 review.
+- [ ] Confirm PR #12 release-hardening changes.
+- [ ] Run full regression suite.
+- [ ] Confirm exact-reference transfer oracle.
+- [ ] Confirm exact-reference multi-GW oracle.
+- [ ] Confirm lineup quantity separation.
+- [ ] Confirm model metadata validation.
+- [ ] Confirm historical timestamp determinism.
+- [ ] Confirm PIT wording.
+- [ ] Confirm optimizer exact/heuristic documentation.
+- [ ] Confirm release reports and known limitations.
+- [ ] Merge/release V1.0.
 
-### Candidate 1 — OpenRouter free models
+## Next — V1.1
 
-Keep as a candidate because OpenRouter exposes open/free models and multi-model routing.
-- **Empirically verified in V0.65:** Llama 3.3 70B (`meta-llama/llama-3.3-70b-instruct`), DeepSeek V3 (`deepseek/deepseek-chat`), and GPT-4o Mini (`openai/gpt-4o-mini`) function reliably. DeepSeek R1 (`deepseek/deepseek-r1`) functions with paid account credits (marked with `*`).
-- **Pruned in V0.65:** Endpoints returning 404 No Endpoints Found (`anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-exp:free`, `mistralai/mistral-large-2411`) were removed from the UI.
-- **V1.1 Investigation:** Deep investigation of routing configurations, API tiers, and dynamic model discovery (`/api/v1/models`) will occur in V1.1.
+### Engine
 
-### Candidate 2 — Google Gemini free tier
+- [x] Generalize squad-construction framework.
+- [x] Define strategic objective interface.
+- [x] Add Initial Squad mode.
+- [x] Add strategic Wildcard mode.
+- [x] Generalize Free Hit.
+- [x] Add hard constraints.
+- [x] Add soft preferences.
+- [x] Add lock/exclude/prefer model.
+- [x] Add multiple candidate solutions.
+- [x] Add configurable horizons.
+- [x] Add constraint impact analysis.
+- [x] Integrate with multi-GW planner.
 
-Useful as a provider candidate, but it should not be treated as universally free forever or for every model.
+### GUI
 
-### Candidate 3 — Groq free tier
+- [x] Build Strategic Squad Studio.
+- [x] Add Initial Squad workflow.
+- [x] Add Wildcard workflow.
+- [x] Generalize Free Hit workflow.
+- [x] Add candidate comparison.
+- [x] Add player lock/unlock.
+- [x] Add exclude/prefer.
+- [x] Add strategy selection.
+- [x] Add horizon selection.
+- [x] Add re-optimization.
+- [x] Add opportunity-cost explanation.
+- [x] Add provenance.
+- [x] Connect output to normal decision workflow.
 
-Strong candidate for experimentation because its API is OpenAI-compatible and has explicit free-plan rate limits. Scheduled for integration in **V1.1**.
+### ML
 
-### Candidate 4 — other providers
+- [x] Historical initial-squad reconstruction.
+- [x] Historical Wildcard reconstruction.
+- [x] Multi-strategy backtest.
+- [x] Multi-horizon backtest.
+- [x] Starting-state metrics.
+- [x] End-to-end season replay.
+- [x] Starting-state × predictor × decision-engine ablation.
+- [x] Strategic regret.
+- [x] Solution multiplicity.
+- [x] Constraint sensitivity.
+- [x] Horizon sensitivity.
+- [x] Strategy sensitivity.
+- [x] Starting-state error attribution.
+- [x] Multi-season walk-forward reports.
 
-Periodically investigate (scheduled for **V1.1**):
+## After V1.1 — V1.2
 
-- DeepSeek Direct API;
-- Mistral AI Direct API;
-- Cerebras ultra-fast inference;
-- Hugging Face inference;
-- other free/open-model inference APIs.
-
-The acceptance criterion is not "the website says free."
-
-It is:
-
-```text
-Can create key
-      ↓
-Can authenticate
-      ↓
-Can send our exact prompt
-      ↓
-Can receive valid response
-      ↓
-Can parse response
-      ↓
-Can survive errors/rate limits
-      ↓
-Can run through GUI
-      ↓
-Can validate suggested actions
-```
-
-The provider must pass that complete test.
+- [ ] Multi-provider benchmark.
+- [ ] Extended model benchmark.
+- [ ] Human-in-the-loop framework.
+- [ ] LLM role experiments.
+- [ ] Closed-loop AI evaluation.
+- [ ] AI-assisted strategic reasoning.
 
 ---
 
-# Definition of "good enough"
+# 25. Definition of "Good Enough"
 
-The project should eventually optimize for **decision quality**, not technical sophistication.
+The project should optimize for **decision quality**, not technical sophistication.
 
 The key question for every future feature is:
 
 > Does this help us make better FPL decisions, or does it merely make the application more complicated?
 
-Priority should therefore generally be:
+Priority remains:
 
 ```text
 Correctness
@@ -1380,6 +2069,8 @@ Prediction quality
     >
 Decision quality
     >
+Strategic starting-state quality
+    >
 Evaluation
     >
 UX
@@ -1387,14 +2078,45 @@ UX
 Feature count
 ```
 
+The strategic optimizer should therefore not be considered successful merely because it produces a higher projected score.
+
+The important evidence is whether its decisions survive:
+
+- point-in-time validation;
+- out-of-sample evaluation;
+- multi-season replay;
+- downstream decision analysis;
+- human constraint interaction.
+
 ---
 
-# Current strategic priority
+# 26. Final Strategic Direction
 
-**The next breakthrough should come from the predictive engine and the closed-loop evaluation system, not from adding more UI or more LLM features.**
+The project has now passed through three major phases:
 
-The repository already has enough infrastructure to support serious experimentation.
+```text
+V0.x
+Build the engine
+        ↓
+V0.7–V0.9
+Make the engine measurable
+        ↓
+V1.0
+Make the engine trustworthy
+        ↓
+V1.1
+Make squad construction strategic
+and prove its downstream value
+        ↓
+V1.2
+Determine whether AI/LLMs improve
+the human + quantitative system
+```
 
-The goal for the next stages is therefore:
+The long-term product is therefore not simply:
 
-> **Make the system scientifically measurable, improve the predictive model using historical point-in-time data, and then use that improved model to drive rank-aware optimisation and LLM-assisted strategic reasoning.**
+> "An FPL optimizer."
+
+It is:
+
+> **A reproducible decision-support system that constructs strategic options, lets a human express preferences and constraints, explains the consequences, records decisions, and continuously evaluates whether the system actually improves FPL decision quality.**

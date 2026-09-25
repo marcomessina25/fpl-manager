@@ -1,0 +1,41 @@
+{
+  "season": "2023-24",
+  "horizon": 5,
+  "scenarios": {
+    "Baseline (Unconstrained)": {
+      "objective": 210.78,
+      "opportunity_cost": 0.0,
+      "players_changed": 0,
+      "net_points_gw10": 522,
+      "delta_points": 0
+    },
+    "Lock 'Erling Haaland'": {
+      "objective": 213.55,
+      "opportunity_cost": 0.0,
+      "players_changed": 4,
+      "net_points_gw10": 634,
+      "delta_points": 112
+    },
+    "Exclude 'Erling Haaland'": {
+      "objective": 211.99,
+      "opportunity_cost": 0.0,
+      "players_changed": 4,
+      "net_points_gw10": 586,
+      "delta_points": 64
+    },
+    "Prefer 'Harry Kane'": {
+      "objective": 212.78,
+      "opportunity_cost": 0.0,
+      "players_changed": 0,
+      "net_points_gw10": 522,
+      "delta_points": 0
+    },
+    "Reserve £1.0m Bank": {
+      "objective": 207.99,
+      "opportunity_cost": 2.79,
+      "players_changed": 4,
+      "net_points_gw10": 588,
+      "delta_points": 66
+    }
+  }
+}

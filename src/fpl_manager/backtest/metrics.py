@@ -166,16 +166,69 @@ def run_prediction_backtest(
     end_gw: int = 38,
     save_report: bool = False,
     output_path: Path | None = None,
-    predictor_version: str = "v0.8",
+    predictor_version: str = "v1.0.1",
+    initial_strategy: str | None = None,
+    initial_horizon: int = 5,
+    filter_to_squad: bool = False,
 ) -> tuple[dict[str, Any], list[PredictionEvaluationRecord]]:
     """Run point-in-time prediction backtesting across a range of gameweeks.
     
     Guarantees:
     - Zero future leakage: only data available prior to GW deadline is used for predictions.
     - Ground truth outcomes are only used for comparison metrics.
+    - Version 1.1 allows selecting the ideal 15-player team before Matchday 1 using the strategic framework.
     """
     from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
     from ..historical.reconstruction import reconstruct_features_and_project
+
+    ideal_squad_info: dict[str, Any] | None = None
+    ideal_squad_ids: set[int] = set()
+
+    if predictor_version == "v1.1" or initial_strategy is not None:
+        chosen_strat = initial_strategy or "balanced"
+        try:
+            from ..strategic_squad import StrategicConstraints, solve_strategic_squad
+            from .strategic_analysis import load_historical_strategic_players
+
+            strat_players, _ = load_historical_strategic_players(
+                season_dir,
+                gameweek=start_gw,
+                horizon=initial_horizon,
+                predictor_version=predictor_version,
+            )
+            c = StrategicConstraints(
+                budget_tenths=1000,
+                target_gameweeks=tuple(range(start_gw, min(39, start_gw + initial_horizon))),
+            )
+            cand = solve_strategic_squad(
+                candidate_pool=strat_players,
+                constraints=c,
+                strategy=chosen_strat,
+                mode="initial",
+                horizon=initial_horizon,
+            )
+            ideal_squad_ids = set(cand.player_ids)
+            ideal_squad_info = {
+                "candidate_id": cand.candidate_id,
+                "strategy": chosen_strat,
+                "horizon": initial_horizon,
+                "total_cost_tenths": cand.total_cost_tenths,
+                "bank_remaining_tenths": cand.bank_remaining_tenths,
+                "total_cost_fmt": cand.total_cost_fmt,
+                "bank_remaining_fmt": cand.bank_remaining_fmt,
+                "formation": cand.formation,
+                "starters": cand.starters,
+                "bench": cand.bench,
+                "squad_ids": list(cand.player_ids),
+                "squad_player_ids": list(cand.player_ids),
+                "horizon_xp": cand.horizon_xp,
+                "start_gw_lineup_xp": cand.start_gw_lineup_xp,
+            }
+        except Exception as exc:
+            from .engine import StrategicInitializationError
+            raise StrategicInitializationError(
+                f"V1.1 strategic initialization failed in prediction backtest for season '{season_dir.name}': {exc}"
+            ) from exc
 
     all_records: list[PredictionEvaluationRecord] = []
 
@@ -186,6 +239,9 @@ def run_prediction_backtest(
 
         proj_map = {p.player_id: p for p in projections}
         for pid, outcome in outcomes.items():
+            if filter_to_squad and ideal_squad_ids and pid not in ideal_squad_ids:
+                continue
+
             proj = proj_map.get(pid)
             if proj is None:
                 continue
@@ -209,6 +265,13 @@ def run_prediction_backtest(
 
     results = evaluate_predictions(all_records)
     results["predictor_version"] = predictor_version
+    results["filter_to_squad"] = filter_to_squad
+
+    if ideal_squad_info is not None:
+        results["ideal_initial_squad"] = ideal_squad_info
+        squad_records = [r for r in all_records if r.player_id in ideal_squad_ids]
+        results["ideal_squad_metrics"] = evaluate_predictions(squad_records)
+
     if save_report:
         from .reporting import build_backtest_report_path, format_prediction_report, save_backtest_report
 

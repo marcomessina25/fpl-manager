@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-ball">⚽</span>
         <span class="logo-text">FPL <strong>MANAGER</strong></span>
-        <span class="badge-version" id="app-version-badge">v1.0.1</span>
+        <span class="badge-version" id="app-version-badge">v1.1.0</span>
       </div>
 
       <!-- Team Switcher Bar -->
@@ -24,6 +24,7 @@
           <option value="" disabled selected>Loading teams...</option>
         </select>
         <button id="btn-open-create-team" class="btn btn-secondary btn-sm" title="Create a new fantasy team">+ New Team</button>
+        <button id="btn-rename-team" class="btn btn-secondary btn-sm" title="Rename active team">✏️ Rename</button>
         <button id="btn-delete-team" class="btn btn-outline-danger btn-sm" title="Delete current team">🗑️</button>
       </div>
     </div>
@@ -60,6 +61,7 @@
   <!-- Navigation Tabs Bar -->
   <nav class="tabs-nav">
     <button class="tab-btn active" data-tab="pitch">🏟️ Pitch & Lineup</button>
+    <button class="tab-btn" data-tab="strategic">🏗️ Strategic Studio (V1.1)</button>
     <button class="tab-btn" data-tab="live">⚡ Live Matchday</button>
     <button class="tab-btn" data-tab="advisor">🤖 AI Advisor & Briefing</button>
     <button class="tab-btn" data-tab="decisions">📝 Decision Logger</button>
@@ -228,6 +230,191 @@
           </div>
         </div>
       </aside>
+    </section>
+
+    <!-- TAB: STRATEGIC SQUAD STUDIO (V1.1) -->
+    <section id="tab-strategic" class="tab-pane">
+      <div class="strategic-studio-header" style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div class="studio-title-block">
+          <h2>Strategic Squad Studio</h2>
+          <p class="text-muted">Construct, compare, and refine multi-Gameweek starting states under hard constraints and explicit strategic objectives.</p>
+        </div>
+        <div class="studio-meta-badges" style="display: flex; gap: 0.5rem;">
+          <span class="badge badge-primary" id="strategic-status-badge">Mode: Initial Squad</span>
+          <span class="badge badge-secondary" id="strategic-horizon-badge">Horizon: 5 GWs</span>
+        </div>
+      </div>
+
+      <!-- Controls & Constraints Toolbar -->
+      <div class="panel card" style="margin-bottom: 1.5rem;">
+        <div class="panel-header">
+          <h3>1. Strategy & Problem Formulation</h3>
+          <span class="badge badge-info">Pure Combinatorial Solver</span>
+        </div>
+        <div class="panel-body">
+          <div class="toolbar-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div class="tool-group">
+              <label for="strategic-mode-select">Construction Mode:</label>
+              <select id="strategic-mode-select" class="form-control">
+                <option value="initial" selected>Initial Squad (Season Start £100.0m)</option>
+                <option value="wildcard">Strategic Wildcard (Squad Reset)</option>
+                <option value="free_hit">Free Hit (1-GW Rental)</option>
+              </select>
+            </div>
+            <div class="tool-group">
+              <label for="strategic-horizon-select">Planning Horizon:</label>
+              <select id="strategic-horizon-select" class="form-control">
+                <option value="1">1 Gameweek (Short)</option>
+                <option value="3">3 Gameweeks</option>
+                <option value="4">4 Gameweeks</option>
+                <option value="5" selected>5 Gameweeks (Recommended)</option>
+                <option value="6">6 Gameweeks</option>
+                <option value="8">8 Gameweeks (Extended)</option>
+              </select>
+            </div>
+            <div class="tool-group">
+              <label for="strategic-strategy-select">Primary Objective Profile:</label>
+              <select id="strategic-strategy-select" class="form-control">
+                <option value="balanced" selected>Balanced (Points + Flexibility + Fixtures)</option>
+                <option value="maximum_ev">Maximum Expected Value (EV)</option>
+                <option value="floor">High Floor (Safe Starters, Clean Sheets)</option>
+                <option value="ceiling">High Ceiling (Explosive Differentials)</option>
+                <option value="flexibility">Future Transfer Flexibility (Price Tiers)</option>
+                <option value="defend_lead">Defend Lead (Shield Template EO)</option>
+                <option value="chase">Chase Rank (Differential Haul Leverage)</option>
+              </select>
+            </div>
+            <div class="tool-group">
+              <label for="strategic-budget-input">Budget Limit (£m):</label>
+              <input type="number" id="strategic-budget-input" step="0.5" value="100.0" class="form-control" style="width: 100px;">
+            </div>
+          </div>
+
+          <!-- Interactive Constraints Builder: Locks, Excludes, Preferences -->
+          <div class="constraints-builder" style="margin-top: 1.2rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+            <div style="font-weight: 600; margin-bottom: 0.5rem; display: flex; justify-content: space-between; flex-wrap: wrap;">
+              <span>Interactive Player Constraints (Hard Locks & Exclusions, Soft Preferences):</span>
+              <span class="text-muted" style="font-size: 0.8rem;">Changes trigger deterministic re-optimization with opportunity cost diff</span>
+            </div>
+            <div class="form-row" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <input type="text" id="strategic-player-search" list="strategic-players-datalist" class="form-control" placeholder="Search player to lock, exclude, or prefer (e.g. Haaland, Saka, Palmer)..." style="flex: 2; min-width: 250px;">
+              <datalist id="strategic-players-datalist"></datalist>
+              <button id="btn-add-lock" type="button" class="btn btn-secondary btn-sm" title="Force player into squad">🔒 Lock Must-Have</button>
+              <button id="btn-add-exclude" type="button" class="btn btn-outline-danger btn-sm" title="Strictly avoid player">🚫 Exclude</button>
+              <button id="btn-add-prefer" type="button" class="btn btn-outline btn-sm" title="Soft preference bonus">⭐ Prefer</button>
+            </div>
+
+            <!-- Active constraint pills container -->
+            <div id="active-constraints-container" class="active-constraints-box" style="margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 32px; align-items: center;">
+              <span class="text-muted" id="no-constraints-text" style="font-size: 0.85rem;">No active player constraints. Optimizer has full search freedom.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1.2rem; flex-wrap: wrap;">
+            <button id="btn-generate-strategic" class="btn btn-primary">⚡ Generate Strategic Candidates</button>
+            <button id="btn-reoptimize-strategic" class="btn btn-secondary" disabled>🔄 Re-Optimize Under Constraints</button>
+            <button id="btn-clear-constraints" class="btn btn-outline btn-sm">Clear Constraints</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Opportunity Cost & Constraint Impact Banner -->
+      <div id="constraint-impact-banner" class="constraint-impact-banner hidden" style="background: rgba(30, 41, 59, 0.95); border: 1px solid var(--accent-purple); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+        <div class="impact-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <span class="impact-icon" style="font-size: 1.25rem;">⚖️</span>
+          <span class="impact-title" id="impact-summary-text" style="font-weight: 700; color: var(--text-primary);">Constraint impact analysis</span>
+        </div>
+        <div class="impact-metrics-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 0.5rem;">
+          <div class="impact-metric" style="background: var(--bg-primary); padding: 0.5rem; border-radius: 4px;">
+            <span class="label text-muted" style="font-size: 0.75rem; display: block;">Opportunity Cost</span>
+            <span class="value" id="impact-opp-cost" style="font-weight: 700; color: var(--accent-red);">0.0 pts</span>
+          </div>
+          <div class="impact-metric" style="background: var(--bg-primary); padding: 0.5rem; border-radius: 4px;">
+            <span class="label text-muted" style="font-size: 0.75rem; display: block;">Horizon xP Delta</span>
+            <span class="value" id="impact-xp-delta" style="font-weight: 700;">0.0 pts</span>
+          </div>
+          <div class="impact-metric" style="background: var(--bg-primary); padding: 0.5rem; border-radius: 4px;">
+            <span class="label text-muted" style="font-size: 0.75rem; display: block;">Bank Delta</span>
+            <span class="value" id="impact-bank-delta" style="font-weight: 700;">£0.0m</span>
+          </div>
+          <div class="impact-metric" style="background: var(--bg-primary); padding: 0.5rem; border-radius: 4px;">
+            <span class="label text-muted" style="font-size: 0.75rem; display: block;">Flexibility Delta</span>
+            <span class="value" id="impact-flex-delta" style="font-weight: 700;">0.0</span>
+          </div>
+        </div>
+        <div id="impact-players-diff" class="impact-players-diff" style="font-size: 0.85rem; color: var(--text-secondary);"></div>
+      </div>
+
+      <!-- Strategic Candidates Switcher & Matrix -->
+      <div id="strategic-results-panel" class="hidden">
+        <div class="panel card" style="margin-bottom: 1.5rem;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>2. Strategic Candidate Comparison Matrix</h3>
+            <span class="text-muted" style="font-size: 0.82rem;">Select candidate to inspect lineup and apply</span>
+          </div>
+          <div class="panel-body">
+            <!-- Candidate Switcher Tabs -->
+            <div id="candidate-selector-tabs" class="candidate-tabs-row" style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;"></div>
+
+            <!-- Comparison Table -->
+            <div class="table-responsive">
+              <table class="table-strategic-comparison" style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                    <th style="padding: 0.6rem;">Strategic Metric</th>
+                    <th style="padding: 0.6rem;">Maximum EV</th>
+                    <th style="padding: 0.6rem;">Balanced</th>
+                    <th style="padding: 0.6rem;">High Floor</th>
+                    <th style="padding: 0.6rem;">High Ceiling</th>
+                    <th style="padding: 0.6rem;">Flexibility</th>
+                  </tr>
+                </thead>
+                <tbody id="strategic-matrix-tbody">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Candidate Squad Layout -->
+        <div class="strategic-detail-layout" style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+          <!-- Left: Pitch / Lineup View of Selected Candidate -->
+          <div class="panel card">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 id="selected-candidate-title">Selected Strategic Squad</h3>
+                <span id="selected-candidate-formation" class="text-muted" style="font-size: 0.85rem;">Formation: 3-4-3</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button id="btn-apply-strategic-squad" class="btn btn-primary btn-sm">💾 Apply Squad to Team</button>
+                <button id="btn-seed-planner-strategic" class="btn btn-secondary btn-sm">📅 Seed Multi-GW Planner</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div id="strategic-pitch-container" class="strategic-pitch-container">
+                <!-- Starting XI and Bench rendered dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Candidate Dossier & Audit Provenance -->
+          <div class="panel card">
+            <div class="panel-header">
+              <h3>Strategic Dossier & Provenance</h3>
+            </div>
+            <div class="panel-body">
+              <div id="strategic-dossier-content" class="dossier-content-block">
+                <!-- Dynamic breakdown -->
+              </div>
+              <div class="provenance-box" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px; font-size: 0.78rem; color: var(--text-secondary);">
+                <div style="font-weight: 600; margin-bottom: 0.3rem;">Provenance & Verification:</div>
+                <div id="strategic-provenance-info">Solver: Heuristic 1-opt/2-opt local search | Exact: False | Clean leakage-free snapshot.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- TAB 2: DECISION LOGGER -->
@@ -582,6 +769,28 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" id="btn-cancel-modal">Cancel</button>
             <button type="submit" class="btn btn-primary">Create Team</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RENAME TEAM -->
+  <div id="modal-rename-team" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Rename Fantasy Team</h3>
+        <button class="modal-close" id="btn-close-rename-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-rename-team">
+          <div class="form-group">
+            <label for="edit-team-name">New Team Name *</label>
+            <input type="text" id="edit-team-name" required placeholder="Enter team name" class="form-control">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="btn-cancel-rename-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Name</button>
           </div>
         </form>
       </div>

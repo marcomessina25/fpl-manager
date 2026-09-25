@@ -18,6 +18,11 @@ from .models import Position
 from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
+from .strategic_squad import (
+    StrategicConstraints,
+    generate_strategic_candidates,
+    solve_strategic_squad,
+)
 from .transfers import selling_price
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +31,8 @@ DATABASE_PATH = DATA_DIRECTORY / "fpl.sqlite3"
 DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
 TRANSFERS_REPORT_PATH = PROJECT_ROOT / "reports" / "transfer_suggestions.json"
 WILDCARD_REPORT_PATH = PROJECT_ROOT / "reports" / "wildcard_squad.json"
+INITIAL_SQUAD_REPORT_PATH = PROJECT_ROOT / "reports" / "initial_squad.json"
+STRATEGIC_SQUAD_REPORT_PATH = PROJECT_ROOT / "reports" / "strategic_squad.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +50,10 @@ class PlayerInfo:
     xp_floor: float = 0.0
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
+    gw_xp: float = 0.0
+    horizon_xp: float = 0.0
+    horizon_floor: float = 0.0
+    horizon_ceiling: float = 0.0
 
 
 def load_all_players_meta(
@@ -77,23 +88,36 @@ def load_all_players_meta(
         t_short = team_map.get(t_id, f"T{t_id}")
         prof = profiles_map.get(p_id) if profiles_map else None
         if isinstance(prof, MultiGameweekProfile):
-            p_xp = prof.expected_points
-            p_xm = prof.expected_minutes
-            p_floor = prof.xp_floor
-            p_ceil = prof.xp_ceiling
+            p_horizon_xp = float(prof.expected_points)
+            f_count = max(1, prof.fixtures_count)
+            p_gw_xp = round(p_horizon_xp / f_count, 2)
+            p_xp = p_gw_xp
+            p_xm = round(prof.expected_minutes / f_count, 1)
+            p_floor = round(prof.xp_floor / f_count, 2)
+            p_ceil = round(prof.xp_ceiling / f_count, 2)
             p_std = prof.standard_deviation
+            p_horizon_floor = float(prof.xp_floor)
+            p_horizon_ceil = float(prof.xp_ceiling)
         elif isinstance(prof, (int, float)):
             p_xp = float(prof)
+            p_gw_xp = p_xp
+            p_horizon_xp = p_xp * 5.0
             p_xm = 0.0
             p_floor = 0.0
             p_ceil = 0.0
             p_std = 0.0
+            p_horizon_floor = 0.0
+            p_horizon_ceil = 0.0
         else:
             p_xp = 0.0
+            p_gw_xp = 0.0
+            p_horizon_xp = 0.0
             p_xm = 0.0
             p_floor = 0.0
             p_ceil = 0.0
             p_std = 0.0
+            p_horizon_floor = 0.0
+            p_horizon_ceil = 0.0
 
         players_map[p_id] = PlayerInfo(
             id=p_id,
@@ -109,6 +133,10 @@ def load_all_players_meta(
             xp_floor=p_floor,
             xp_ceiling=p_ceil,
             standard_deviation=p_std,
+            gw_xp=p_gw_xp,
+            horizon_xp=p_horizon_xp,
+            horizon_floor=p_horizon_floor,
+            horizon_ceiling=p_horizon_ceil,
         )
 
     return players_map, team_map
@@ -123,6 +151,7 @@ def suggest_transfers(
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
+    gameweek: int | None = None,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad using branch-and-bound optimization."""
     if num_transfers < 1 or num_transfers > 5:
@@ -134,7 +163,12 @@ def suggest_transfers(
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
-    start_gw = get_current_gameweek(store)
+    if gameweek is not None:
+        start_gw = gameweek
+    elif state.gameweek is not None:
+        start_gw = state.gameweek
+    else:
+        start_gw = get_current_gameweek(store)
     target_gws = list(range(start_gw, start_gw + num_gameweeks))
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)
@@ -189,9 +223,27 @@ def suggest_wildcard(
     database_path: Path = DATABASE_PATH,
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
+    locked_player_ids: list[int] | set[int] | None = None,
+    excluded_player_ids: list[int] | set[int] | None = None,
+    preferred_player_ids: list[int] | set[int] | None = None,
+    strategic_engine: bool = False,
     report_path: Path = WILDCARD_REPORT_PATH,
 ) -> dict[str, Any]:
-    """Generate heuristic local-search 15-player squad (Wildcard / Free-Hit) under budget and club limits."""
+    """Generate 15-player squad (Wildcard) under budget and club limits with V1.1 strategic support."""
+    if strategic_engine or locked_player_ids or excluded_player_ids or preferred_player_ids:
+        return suggest_strategic_squad(
+            mode="wildcard",
+            budget_millions=budget_millions,
+            squad_path=squad_path,
+            database_path=database_path,
+            num_gameweeks=num_gameweeks,
+            strategy=risk_profile if risk_profile in ("maximum_ev", "balanced", "floor", "ceiling", "flexibility", "defend_lead", "chase") else "balanced",
+            locked_player_ids=locked_player_ids,
+            excluded_player_ids=excluded_player_ids,
+            preferred_player_ids=preferred_player_ids,
+            report_path=report_path,
+        )
+
     risk_profile = validate_risk_profile(risk_profile)
 
     state = load_current_squad(squad_path)
@@ -226,6 +278,186 @@ def suggest_wildcard(
         report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return result
+
+
+def suggest_strategic_squad(
+    mode: str = "initial",
+    budget_millions: float | None = None,
+    squad_path: Path = DEFAULT_SQUAD_PATH,
+    database_path: Path = DATABASE_PATH,
+    num_gameweeks: int = 5,
+    strategy: str = "balanced",
+    constraints: StrategicConstraints | None = None,
+    locked_player_ids: list[int] | set[int] | None = None,
+    excluded_player_ids: list[int] | set[int] | None = None,
+    preferred_player_ids: list[int] | set[int] | None = None,
+    previous_result: dict[str, Any] | None = None,
+    generate_all_candidates: bool = True,
+    report_path: Path | None = None,
+) -> dict[str, Any]:
+    """Generate strategic squad solution(s) under explicit constraints and strategic objectives (V1.1)."""
+    store = SnapshotStore(database_path)
+    start_gw = get_current_gameweek(store)
+    if mode == "free_hit":
+        h_len = 1
+    else:
+        h_len = max(1, min(8, num_gameweeks))
+
+    target_gws = list(range(start_gw, start_gw + h_len))
+    profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
+    players_map, team_map = load_all_players_meta(store, profiles_map)
+
+    # Calculate budget
+    if budget_millions is not None:
+        budget_tenths = int(round(budget_millions * 10))
+    elif constraints is not None and constraints.budget_tenths:
+        budget_tenths = constraints.budget_tenths
+    elif mode == "initial":
+        budget_tenths = 1000  # Default £100.0m for season start
+    else:
+        try:
+            state = load_current_squad(squad_path)
+            squad_selling_value = sum(
+                selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+                for p_id in state.player_ids
+                if p_id in players_map
+            )
+            budget_tenths = state.bank_tenths + squad_selling_value
+        except Exception:
+            budget_tenths = 1000
+
+    if constraints is not None:
+        effective_constraints = StrategicConstraints(
+            budget_tenths=budget_tenths,
+            locked_player_ids=set(constraints.locked_player_ids) | set(locked_player_ids or ()),
+            excluded_player_ids=set(constraints.excluded_player_ids) | set(excluded_player_ids or ()),
+            preferred_player_ids=set(constraints.preferred_player_ids) | set(preferred_player_ids or ()),
+            max_players_per_club=constraints.max_players_per_club,
+            position_quotas=constraints.position_quotas,
+            min_bank_tenths=constraints.min_bank_tenths,
+            soft_preference_weight=constraints.soft_preference_weight,
+            target_gameweeks=tuple(target_gws),
+        )
+    else:
+        effective_constraints = StrategicConstraints(
+            budget_tenths=budget_tenths,
+            locked_player_ids=set(locked_player_ids or ()),
+            excluded_player_ids=set(excluded_player_ids or ()),
+            preferred_player_ids=set(preferred_player_ids or ()),
+            target_gameweeks=tuple(target_gws),
+        )
+
+    candidate_pool = list(players_map.values())
+    primary_candidate = solve_strategic_squad(
+        candidate_pool=candidate_pool,
+        constraints=effective_constraints,
+        strategy=strategy,
+        mode=mode,
+        horizon=h_len,
+    )
+    res = primary_candidate.to_dict()
+    res["selected_candidate"] = primary_candidate.to_dict()
+    res["mode"] = mode
+    res["strategy"] = strategy
+    res["horizon"] = h_len
+    res["budget_millions"] = budget_tenths / 10.0
+    res["bank_remaining_tenths"] = primary_candidate.bank_remaining_tenths
+
+    if generate_all_candidates:
+        failed_profiles_map: dict[str, str] = {}
+        all_cands = generate_strategic_candidates(
+            candidate_pool=candidate_pool,
+            constraints=effective_constraints,
+            mode=mode,
+            horizon=h_len,
+            failed_profiles=failed_profiles_map,
+        )
+        res["requested_profiles"] = getattr(all_cands, "requested_profiles", list(all_cands.keys()))
+        res["successful_profiles"] = getattr(all_cands, "successful_profiles", list(all_cands.keys()))
+        res["failed_profiles"] = failed_profiles_map
+        res["strategic_candidates"] = {
+            strat: cand.to_dict() for strat, cand in all_cands.items()
+        }
+        res["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+    else:
+        res["requested_profiles"] = [strategy]
+        res["successful_profiles"] = [strategy]
+        res["failed_profiles"] = {}
+        res["candidates"] = [primary_candidate.to_dict()]
+
+    if previous_result:
+        from .strategic_squad import analyze_constraint_impact
+        prev_cand_dict = previous_result.get("selected_candidate") or previous_result
+        try:
+            res["constraint_impact"] = analyze_constraint_impact(prev_cand_dict, primary_candidate)
+        except Exception:
+            res["constraint_impact"] = None
+    else:
+        res["constraint_impact"] = None
+
+    out_path = report_path or (
+        INITIAL_SQUAD_REPORT_PATH
+        if mode == "initial"
+        else (WILDCARD_REPORT_PATH if mode == "wildcard" else STRATEGIC_SQUAD_REPORT_PATH)
+    )
+    if out_path:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    return res
+
+
+def suggest_initial_squad(
+    budget_millions: float = 100.0,
+    database_path: Path = DATABASE_PATH,
+    num_gameweeks: int = 5,
+    strategy: str = "balanced",
+    locked_player_ids: list[int] | set[int] | None = None,
+    excluded_player_ids: list[int] | set[int] | None = None,
+    preferred_player_ids: list[int] | set[int] | None = None,
+    generate_all_candidates: bool = True,
+    report_path: Path = INITIAL_SQUAD_REPORT_PATH,
+) -> dict[str, Any]:
+    """Generate strategic starting squad for Gameweek 1 over an initial planning horizon (V1.1)."""
+    return suggest_strategic_squad(
+        mode="initial",
+        budget_millions=budget_millions,
+        database_path=database_path,
+        num_gameweeks=num_gameweeks,
+        strategy=strategy,
+        locked_player_ids=locked_player_ids,
+        excluded_player_ids=excluded_player_ids,
+        preferred_player_ids=preferred_player_ids,
+        generate_all_candidates=generate_all_candidates,
+        report_path=report_path,
+    )
+
+
+def suggest_free_hit(
+    budget_millions: float | None = None,
+    squad_path: Path = DEFAULT_SQUAD_PATH,
+    database_path: Path = DATABASE_PATH,
+    strategy: str = "maximum_ev",
+    locked_player_ids: list[int] | set[int] | None = None,
+    excluded_player_ids: list[int] | set[int] | None = None,
+    preferred_player_ids: list[int] | set[int] | None = None,
+    report_path: Path | None = None,
+) -> dict[str, Any]:
+    """Generate 1-Gameweek optimal temporary squad for Free Hit (V1.1)."""
+    return suggest_strategic_squad(
+        mode="free_hit",
+        budget_millions=budget_millions,
+        squad_path=squad_path,
+        database_path=database_path,
+        num_gameweeks=1,
+        strategy=strategy,
+        locked_player_ids=locked_player_ids,
+        excluded_player_ids=excluded_player_ids,
+        preferred_player_ids=preferred_player_ids,
+        generate_all_candidates=True,
+        report_path=report_path,
+    )
+
 
 
 

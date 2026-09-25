@@ -1,0 +1,85 @@
+{
+  "seasons_evaluated": [
+    "2023-24",
+    "2021-22",
+    "2022-23",
+    "2024-25",
+    "2025-26"
+  ],
+  "horizon": 5,
+  "end_gw": 10,
+  "mean_point_gain": 12.4,
+  "std_point_gain": 33.69,
+  "win_rate_pct": 40.0,
+  "season_summaries": [
+    {
+      "season": "2023-24",
+      "strategic_net_points": 522,
+      "baseline_net_points": 527,
+      "delta_points": -5,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2021-22",
+      "strategic_net_points": 544,
+      "baseline_net_points": 551,
+      "delta_points": -7,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2022-23",
+      "strategic_net_points": 401,
+      "baseline_net_points": 405,
+      "delta_points": -4,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": false
+    },
+    {
+      "season": "2024-25",
+      "strategic_net_points": 542,
+      "baseline_net_points": 536,
+      "delta_points": 6,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": true
+    },
+    {
+      "season": "2025-26",
+      "strategic_net_points": 570,
+      "baseline_net_points": 498,
+      "delta_points": 72,
+      "strategic_hits": 0,
+      "baseline_hits": 0,
+      "strategic_wins": true
+    }
+  ],
+  "provenance": {
+    "experiment_id": "exp_multi_season_summary_2023_24,2021_22,2022_23,2024_25,2025_26_gw1_99a120a6673ebb03",
+    "season": "2023-24,2021-22,2022-23,2024-25,2025-26",
+    "gameweek": 1,
+    "decision_deadline": "2023-24,2021-22,2022-23,2024-25,2025-26-gw1-pre-deadline",
+    "starting_state_policy": "strategic_balanced_vs_greedy_single_gw_baseline",
+    "starting_state_predictor_version": "v1.0.1",
+    "evaluation_predictor_version": "v1.0.1",
+    "decision_engine_version": "v1.0.1",
+    "strategic_solver_version": "v1.1-exact-reference",
+    "objective": "balanced",
+    "horizon": 5,
+    "constraints": {
+      "budget_tenths": 1000
+    },
+    "random_seed": 42,
+    "configuration_hash": "99a120a6673ebb03",
+    "dataset_version": "historical-fpl-v1",
+    "fallback_used": false,
+    "fallback_reason": null,
+    "requested_engine": "v1.0.1",
+    "actual_engine": "v1.0.1",
+    "created_at": "2026-09-25T16:03:02.129071+00:00"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "season": "2021-22",
+  "wildcard_gw": 8,
+  "window_gameweeks": "GW8–GW13",
+  "horizon": 5,
+  "predictor_version": "v1.0.1",
+  "decision_engine_version": "v1.0.1",
+  "budget_millions": 100.3,
+  "outcomes": {
+    "No-Wildcard Baseline": {
+      "net_points": 348,
+      "gross_points": 348,
+      "hits": 0,
+      "gain_over_no_wildcard": 0,
+      "zero_min_starters": 7
+    },
+    "Single-GW Wildcard Baseline": {
+      "net_points": 349,
+      "gross_points": 349,
+      "hits": 0,
+      "gain_over_no_wildcard": 1,
+      "zero_min_starters": 6
+    },
+    "Strategic Wildcard (Balanced)": {
+      "net_points": 333,
+      "gross_points": 333,
+      "hits": 0,
+      "gain_over_no_wildcard": -15,
+      "zero_min_starters": 4
+    },
+    "Strategic Wildcard (Max EV)": {
+      "net_points": 333,
+      "gross_points": 333,
+      "hits": 0,
+      "gain_over_no_wildcard": -15,
+      "zero_min_starters": 4
+    },
+    "Strategic Wildcard (High Floor)": {
+      "net_points": 373,
+      "gross_points": 373,
+      "hits": 0,
+      "gain_over_no_wildcard": 25,
+      "zero_min_starters": 6
+    }
+  }
+}

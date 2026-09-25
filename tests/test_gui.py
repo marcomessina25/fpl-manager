@@ -155,7 +155,29 @@ def test_api_teams_crud(gui_test_server: str) -> None:
         data = json.loads(resp.read().decode("utf-8"))
         assert data["active_team_id"] == "gui-dream-team"
 
-    # 3. POST /api/teams/switch back to default
+    # 3. POST /api/teams/rename
+    ren_req = urllib.request.Request(
+        f"{gui_test_server}/api/teams/rename",
+        data=json.dumps({"team_id": "gui-dream-team", "name": "GUI Super Team"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(ren_req) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["name"] == "GUI Super Team"
+
+    # Verify PATCH /api/teams/default
+    patch_req = urllib.request.Request(
+        f"{gui_test_server}/api/teams/default",
+        data=json.dumps({"name": "Team Marco"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="PATCH",
+    )
+    with urllib.request.urlopen(patch_req) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        assert res["name"] == "Team Marco"
+
+    # 4. POST /api/teams/switch back to default
     switch_req = urllib.request.Request(
         f"{gui_test_server}/api/teams/switch",
         data=json.dumps({"team_id": "default"}).encode("utf-8"),
@@ -166,7 +188,7 @@ def test_api_teams_crud(gui_test_server: str) -> None:
         res = json.loads(resp.read().decode("utf-8"))
         assert res["team_id"] == "default"
 
-    # 4. DELETE /api/teams/gui-dream-team
+    # 5. DELETE /api/teams/gui-dream-team
     del_req = urllib.request.Request(
         f"{gui_test_server}/api/teams/gui-dream-team",
         method="DELETE",

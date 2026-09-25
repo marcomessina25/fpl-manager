@@ -65,9 +65,21 @@ def format_decision_report(
         "",
         "## 1. Strategy Rankings & Executive Summary",
         "",
-        "| Rank | Strategy | Predictor | Decision Engine | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |",
-        "| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
+
+    has_init_strat = any(getattr(s, "initial_strategy", None) for s in sorted_sims)
+    if has_init_strat:
+        init_s = getattr(sorted_sims[0], "initial_strategy", "balanced")
+        init_h = getattr(sorted_sims[0], "initial_horizon", 5)
+        init_cost = getattr(sorted_sims[0], "initial_squad_cost_tenths", 1000)
+        init_bank = getattr(sorted_sims[0], "initial_squad_bank_tenths", 0)
+        lines.append(f"**V1.1 Initial Selection Strategy:** `{init_s}` (Horizon: {init_h} GWs, Initial Cost: £{init_cost / 10:.1f}m, Bank: £{init_bank / 10:.1f}m)")
+        lines.append("")
+        lines.append("| Rank | Strategy | Initial Strategy | Predictor | Decision Engine | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |")
+        lines.append("| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    else:
+        lines.append("| Rank | Strategy | Predictor | Decision Engine | Net Points | Gross Points | Transfer Hits | Total Transfers | Final Bank | Points / GW |")
+        lines.append("| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     for rank, s in enumerate(sorted_sims, 1):
         bank_str = f"£{s.final_bank_tenths / 10:.1f}m"
@@ -76,9 +88,15 @@ def format_decision_report(
         pred_label = getattr(s, "predictor_version", "v0.9")
         engine_label = getattr(s, "decision_engine_version", "v0.9")
         strat_display = f"**{s.strategy_name}**"
-        lines.append(
-            f"| {rank} | {strat_display} | `{pred_label}` | `{engine_label}` | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
-        )
+        if has_init_strat:
+            init_strat_label = getattr(s, "initial_strategy", "balanced")
+            lines.append(
+                f"| {rank} | {strat_display} | `{init_strat_label}` | `{pred_label}` | `{engine_label}` | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
+            )
+        else:
+            lines.append(
+                f"| {rank} | {strat_display} | `{pred_label}` | `{engine_label}` | {s.total_net_points} | {s.total_gross_points} | -{s.total_hits} | {s.total_transfers} | {bank_str} | {pts_per_gw:.1f} |"
+            )
 
     lines.extend([
         "",
@@ -183,6 +201,66 @@ def format_prediction_report(results: dict[str, Any], season: str = "2023-24", g
         f"# Historical Prediction Backtest Report: Season {season} (GW {gameweek_range})",
         "",
         f"**Evaluated Player-Gameweeks:** {total:,}",
+    ]
+
+    ideal_squad = results.get("ideal_initial_squad")
+    ideal_metrics = results.get("ideal_squad_metrics")
+    if ideal_squad:
+        strat = ideal_squad.get("strategy", "balanced")
+        horizon = ideal_squad.get("horizon", 5)
+        cost_fmt = ideal_squad.get("total_cost_fmt", "£100.0m")
+        bank_fmt = ideal_squad.get("bank_remaining_fmt", "£0.0m")
+        form = ideal_squad.get("formation", "3-4-3")
+        h_xp = ideal_squad.get("horizon_xp", 0.0)
+        gw1_xp = ideal_squad.get("start_gw_lineup_xp", 0.0)
+
+        lines.extend([
+            "",
+            "## 0. V1.1 Ideal Initial Squad Selection (Gameweek 1 Team Selection)",
+            "",
+            f"- **Selection Strategy:** `{strat}`",
+            f"- **Planning Horizon:** {horizon} Gameweeks",
+            f"- **Total Squad Cost:** {cost_fmt} | **Bank Remaining:** {bank_fmt}",
+            f"- **Starting Formation:** {form} | **GW1 Lineup Projected xP:** {gw1_xp:.2f} pts | **{horizon}-GW Horizon xP:** {h_xp:.2f} pts",
+            "",
+            "### Starting XI Selected Before Matchday 1",
+            "",
+            "| Position | Player | Team | Price | Role |",
+            "| :---: | :--- | :---: | :---: | :---: |",
+        ])
+        for p in ideal_squad.get("starters", []):
+            role_badge = f"**{p.get('lineup_role', 'STARTER')}**"
+            lines.append(f"| {p.get('pos_abbr', p.get('position', 'MID'))} | **{p.get('name')}** | {p.get('team', '')} | {p.get('price_fmt', '')} | {role_badge} |")
+
+        lines.extend([
+            "",
+            "### Bench (Ordered Substitutes)",
+            "",
+            "| Order | Position | Player | Team | Price |",
+            "| :---: | :---: | :--- | :---: | :---: |",
+        ])
+        for idx, p in enumerate(ideal_squad.get("bench", []), 1):
+            sub_label = "GK Sub" if idx == 1 else f"Sub {idx - 1}"
+            lines.append(f"| {sub_label} | {p.get('pos_abbr', p.get('position', 'MID'))} | {p.get('name')} | {p.get('team', '')} | {p.get('price_fmt', '')} |")
+
+        if ideal_metrics:
+            sq_xp = ideal_metrics.get("xp", {})
+            sq_xm = ideal_metrics.get("xm", {})
+            sq_avail = ideal_metrics.get("availability", {})
+            lines.extend([
+                "",
+                "### Prediction Accuracy Comparison: Ideal Squad vs All Players",
+                "",
+                "| Evaluation Metric | Ideal 15-Player Squad | All League Players |",
+                "| :--- | :---: | :---: |",
+                f"| **xP MAE** | **{sq_xp.get('overall_mae', 0.0):.3f} pts** | {xp.get('overall_mae', 0.0):.3f} pts |",
+                f"| **xP Spearman Correlation** | **{sq_xp.get('spearman_correlation', 0.0):.4f}** | {xp.get('spearman_correlation', 0.0):.4f} |",
+                f"| **Active Players xP MAE** | **{sq_xp.get('active_players_mae', 0.0):.3f} pts** | {xp.get('active_players_mae', 0.0):.3f} pts |",
+                f"| **Expected Minutes (xM) MAE** | **{sq_xm.get('overall_mae', 0.0):.2f} mins** | {xm.get('overall_mae', 0.0):.2f} mins |",
+                f"| **Playing Availability Accuracy** | **{sq_avail.get('accuracy', 0.0) * 100:.1f}%** | {avail.get('accuracy', 0.0) * 100:.1f}% |",
+            ])
+
+    lines.extend([
         "",
         "## 1. Overall Expected Points (xP) Accuracy",
         "",
@@ -205,7 +283,7 @@ def format_prediction_report(results: dict[str, Any], season: str = "2023-24", g
         "",
         "| Predicted Minutes Bucket | Count | Mean Predicted | Mean Actual | MAE |",
         "| :--- | :---: | :---: | :---: | :---: |",
-    ]
+    ])
 
     cal_buckets = xm.get("calibration_buckets", {})
     for b_name in ("0-15", "16-30", "31-60", "61-75", "76-90"):
