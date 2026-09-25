@@ -224,8 +224,11 @@ def run_prediction_backtest(
                 "horizon_xp": cand.horizon_xp,
                 "start_gw_lineup_xp": cand.start_gw_lineup_xp,
             }
-        except Exception:
-            pass
+        except Exception as exc:
+            from .engine import StrategicInitializationError
+            raise StrategicInitializationError(
+                f"V1.1 strategic initialization failed in prediction backtest for season '{season_dir.name}': {exc}"
+            ) from exc
 
     all_records: list[PredictionEvaluationRecord] = []
 

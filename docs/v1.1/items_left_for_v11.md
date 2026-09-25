@@ -51,18 +51,18 @@ Do not multiply an already horizon-aggregated value by `horizon` again.
 
 ### Tasks
 
-- [ ] Audit `load_historical_strategic_players()`.
-- [ ] Audit `compute_player_strategic_value()`.
-- [ ] Audit strategic objective aggregation.
-- [ ] Audit multi-GW candidate evaluation.
-- [ ] Introduce explicit naming where necessary:
+- [x] Audit `load_historical_strategic_players()`.
+- [x] Audit `compute_player_strategic_value()`.
+- [x] Audit strategic objective aggregation.
+- [x] Audit multi-GW candidate evaluation.
+- [x] Introduce explicit naming where necessary:
   - `gw_xp`
   - `horizon_xp`
   - `strategic_value`
-- [ ] Add tests for horizon 1, 2, 5, and 8.
-- [ ] Verify that doubling the horizon does not accidentally multiply an already aggregated value.
-- [ ] Add a regression test with manually known player projections.
-- [ ] Document the aggregation convention in the strategic-engine documentation.
+- [x] Add tests for horizon 1, 2, 5, and 8.
+- [x] Verify that doubling the horizon does not accidentally multiply an already aggregated value.
+- [x] Add a regression test with manually known player projections.
+- [x] Document the aggregation convention in the strategic-engine documentation.
 
 ### Acceptance criteria
 
@@ -122,16 +122,16 @@ If production fallback is retained, it must be explicitly recorded.
 
 ### Tasks
 
-- [ ] Remove unconditional silent fallback.
-- [ ] Introduce an explicit strategic-initialization exception/result state.
-- [ ] If fallback is retained for interactive GUI use, expose:
+- [x] Remove unconditional silent fallback.
+- [x] Introduce an explicit strategic-initialization exception/result state.
+- [x] If fallback is retained for interactive GUI use, expose:
   - `fallback_used`
   - `fallback_reason`
   - requested version
   - actual solver/version used.
-- [ ] Ensure backtesting never silently falls back.
-- [ ] Add tests for solver failure.
-- [ ] Add a backtest assertion that requested V1.1 and executed V1.1 are identical.
+- [x] Ensure backtesting never silently falls back.
+- [x] Add tests for solver failure.
+- [x] Add a backtest assertion that requested V1.1 and executed V1.1 are identical.
 
 ### Acceptance criteria
 
@@ -177,15 +177,15 @@ Starting-state × Predictor × Decision-engine
 
 ### Tasks
 
-- [ ] Implement complete factorial cell extraction.
-- [ ] Calculate all main effects.
-- [ ] Calculate all pairwise interactions.
-- [ ] Calculate the three-way interaction.
-- [ ] Verify the decomposition mathematically.
-- [ ] Add tests using a synthetic 2×2×2 dataset with known effects.
-- [ ] Remove or rewrite language claiming that an effect is "independent" unless supported by the interaction analysis.
-- [ ] Report sample counts for every cell.
-- [ ] Report missing/failed cells explicitly.
+- [x] Implement complete factorial cell extraction.
+- [x] Calculate all main effects.
+- [x] Calculate all pairwise interactions.
+- [x] Calculate the three-way interaction.
+- [x] Verify the decomposition mathematically.
+- [x] Add tests using a synthetic 2×2×2 dataset with known effects.
+- [x] Remove or rewrite language claiming that an effect is "independent" unless supported by the interaction analysis.
+- [x] Report sample counts for every cell.
+- [x] Report missing/failed cells explicitly.
 
 ### Acceptance criteria
 
@@ -249,15 +249,15 @@ unless the underlying counterfactual framework is actually implemented.
 
 ### Tasks
 
-- [ ] Audit all error-attribution categories.
-- [ ] Identify hard-coded point allocations.
-- [ ] Identify overlapping categories.
-- [ ] Rename current diagnostics if they are heuristic.
-- [ ] Document category definitions.
-- [ ] Ensure categories are not described as causal attribution.
-- [ ] Add tests for category assignment.
-- [ ] Add explicit "heuristic" metadata to the analysis result.
-- [ ] If genuine counterfactual attribution is implemented, document the counterfactual baseline for every category.
+- [x] Audit all error-attribution categories.
+- [x] Identify hard-coded point allocations.
+- [x] Identify overlapping categories.
+- [x] Rename current diagnostics if they are heuristic.
+- [x] Document category definitions.
+- [x] Ensure categories are not described as causal attribution.
+- [x] Add tests for category assignment.
+- [x] Add explicit "heuristic" metadata to the analysis result.
+- [x] If genuine counterfactual attribution is implemented, document the counterfactual baseline for every category.
 
 ### Acceptance criteria
 
@@ -294,14 +294,14 @@ can make the exact solver an invalid oracle.
 
 ### Tasks
 
-- [ ] Compare production and exact-reference eligibility filtering.
-- [ ] Compare all hard constraints.
-- [ ] Ensure unavailable players are handled consistently.
-- [ ] Ensure locked players are handled consistently.
-- [ ] Ensure exclusions are handled consistently.
-- [ ] Ensure objective terms are equivalent.
-- [ ] Keep search algorithms independent.
-- [ ] Add adversarial exact-reference tests.
+- [x] Compare production and exact-reference eligibility filtering.
+- [x] Compare all hard constraints.
+- [x] Ensure unavailable players are handled consistently.
+- [x] Ensure locked players are handled consistently.
+- [x] Ensure exclusions are handled consistently.
+- [x] Ensure objective terms are equivalent.
+- [x] Keep search algorithms independent.
+- [x] Add adversarial exact-reference tests.
 
 ### Acceptance criteria
 
@@ -341,17 +341,17 @@ relative gap = (X - Y) / |X|
 
 ### Tasks
 
-- [ ] Generate bounded synthetic strategic pools.
-- [ ] Run exact reference.
-- [ ] Run production heuristic.
-- [ ] Calculate absolute optimality gap.
-- [ ] Calculate relative optimality gap.
-- [ ] Report mean gap.
-- [ ] Report median gap.
-- [ ] Report maximum gap.
-- [ ] Report 95th percentile gap.
-- [ ] Include adversarial local-search cases.
-- [ ] Test 1-opt and 2-opt separately.
+- [x] Generate bounded synthetic strategic pools.
+- [x] Run exact reference.
+- [x] Run production heuristic.
+- [x] Calculate absolute optimality gap.
+- [x] Calculate relative optimality gap.
+- [x] Report mean gap.
+- [x] Report median gap.
+- [x] Report maximum gap.
+- [x] Report 95th percentile gap.
+- [x] Include adversarial local-search cases.
+- [x] Test 1-opt and 2-opt separately.
 
 ### Acceptance criteria
 
@@ -369,13 +369,13 @@ That makes an incomplete experiment look like a complete one.
 
 ### Tasks
 
-- [ ] Record every requested profile.
-- [ ] Record success/failure.
-- [ ] Record failure reason.
-- [ ] Preserve successful candidates.
-- [ ] Surface failed profiles in GUI.
-- [ ] Include failures in backtest reports.
-- [ ] Add regression test.
+- [x] Record every requested profile.
+- [x] Record success/failure.
+- [x] Record failure reason.
+- [x] Preserve successful candidates.
+- [x] Surface failed profiles in GUI.
+- [x] Include failures in backtest reports.
+- [x] Add regression test.
 
 ### Example result
 
@@ -408,18 +408,18 @@ Ensure V1.1 historical strategic construction uses only information available at
 
 ### Audit areas
 
-- [ ] Player projections.
-- [ ] Player prices.
-- [ ] Player availability.
-- [ ] Fixtures.
-- [ ] Team strength.
-- [ ] Ownership.
-- [ ] Form.
-- [ ] News/injury signals.
-- [ ] Historical squad state.
-- [ ] Chip state.
-- [ ] Transfer state.
-- [ ] Any feature introduced by V1.1.
+- [x] Player projections.
+- [x] Player prices.
+- [x] Player availability.
+- [x] Fixtures.
+- [x] Team strength.
+- [x] Ownership.
+- [x] Form.
+- [x] News/injury signals.
+- [x] Historical squad state.
+- [x] Chip state.
+- [x] Transfer state.
+- [x] Any feature introduced by V1.1.
 
 ### Special attention
 
@@ -443,12 +443,12 @@ A missing cell must not silently change the experimental population.
 
 ### Tasks
 
-- [ ] Record requested experiment cells.
-- [ ] Record completed cells.
-- [ ] Record failed cells.
-- [ ] Record sample size per cell.
-- [ ] Refuse aggregate comparison when required cells are missing.
-- [ ] Allow exploratory partial results only when clearly marked.
+- [x] Record requested experiment cells.
+- [x] Record completed cells.
+- [x] Record failed cells.
+- [x] Record sample size per cell.
+- [x] Refuse aggregate comparison when required cells are missing.
+- [x] Allow exploratory partial results only when clearly marked.
 
 ---
 
@@ -1060,56 +1060,56 @@ V1.1 is ready to merge/release when all of the following are true.
 
 ### Engine
 
-- [ ] Strategic Initial/Wildcard/Free Hit construction works.
-- [ ] Hard constraints are enforced.
-- [ ] Soft preferences are explicit.
-- [ ] Horizon semantics are correct.
-- [ ] Exact reference is independent.
-- [ ] Exact reference uses the same feasible space.
-- [ ] Heuristic nature is explicit.
-- [ ] Heuristic optimality gap is measured.
+- [x] Strategic Initial/Wildcard/Free Hit construction works.
+- [x] Hard constraints are enforced.
+- [x] Soft preferences are explicit.
+- [x] Horizon semantics are correct.
+- [x] Exact reference is independent.
+- [x] Exact reference uses the same feasible space.
+- [x] Heuristic nature is explicit.
+- [x] Heuristic optimality gap is measured.
 
 ### GUI
 
-- [ ] Strategic Squad Studio works end-to-end.
-- [ ] Initial/Wildcard/Free Hit modes work.
-- [ ] Candidate comparison works.
-- [ ] Locks/exclusions/preferences work.
-- [ ] Optimizer → human → optimizer works.
-- [ ] Human → optimizer works.
-- [ ] Solver provenance is visible.
-- [ ] Failures/fallbacks are visible.
+- [x] Strategic Squad Studio works end-to-end.
+- [x] Initial/Wildcard/Free Hit modes work.
+- [x] Candidate comparison works.
+- [x] Locks/exclusions/preferences work.
+- [x] Optimizer → human → optimizer works.
+- [x] Human → optimizer works.
+- [x] Solver provenance is visible.
+- [x] Failures/fallbacks are visible.
 
 ### ML / research
 
-- [ ] Historical initial-squad backtests work.
-- [ ] Historical Wildcard backtests work.
-- [ ] Point-in-time reconstruction is audited.
-- [ ] Walk-forward evaluation works.
-- [ ] 2×2×2 factorial analysis includes interactions.
-- [ ] Error diagnostics are honestly characterized.
-- [ ] Starting-state regret is measured.
-- [ ] Horizon sensitivity is measured.
-- [ ] Constraint sensitivity is measured.
-- [ ] Strategy-profile sensitivity is measured.
-- [ ] Near-optimal solution analysis exists.
+- [x] Historical initial-squad backtests work.
+- [x] Historical Wildcard backtests work.
+- [x] Point-in-time reconstruction is audited.
+- [x] Walk-forward evaluation works.
+- [x] 2×2×2 factorial analysis includes interactions.
+- [x] Error diagnostics are honestly characterized.
+- [x] Starting-state regret is measured.
+- [x] Horizon sensitivity is measured.
+- [x] Constraint sensitivity is measured.
+- [x] Strategy-profile sensitivity is measured.
+- [x] Near-optimal solution analysis exists.
 
 ### Reproducibility
 
-- [ ] Experiment provenance is complete.
-- [ ] Seeds/configuration are recorded.
-- [ ] Historical decision timestamps are deterministic.
-- [ ] Results can be replayed.
-- [ ] No silent fallback exists in research/backtesting.
+- [x] Experiment provenance is complete.
+- [x] Seeds/configuration are recorded.
+- [x] Historical decision timestamps are deterministic.
+- [x] Results can be replayed.
+- [x] No silent fallback exists in research/backtesting.
 
 ### Quality
 
-- [ ] Unit tests pass.
-- [ ] Integration tests pass.
-- [ ] Regression tests pass.
-- [ ] Exact-reference adversarial tests pass.
-- [ ] Performance benchmarks are acceptable.
-- [ ] Documentation matches implementation.
+- [x] Unit tests pass.
+- [x] Integration tests pass.
+- [x] Regression tests pass.
+- [x] Exact-reference adversarial tests pass.
+- [x] Performance benchmarks are acceptable.
+- [x] Documentation matches implementation.
 
 ---
 

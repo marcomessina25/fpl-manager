@@ -92,8 +92,11 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_error_json(self, message: str, status: int = 400) -> None:
-        self._send_json({"error": message, "success": False}, status=status)
+    def _send_error_json(self, message: str, status: int = 400, error_type: str | None = None) -> None:
+        payload = {"error": message, "success": False, "status": "error"}
+        if error_type:
+            payload["error_type"] = error_type
+        self._send_json(payload, status=status)
 
     def _read_json_body(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", 0))
@@ -588,20 +591,29 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
                 squad_path = get_team_squad_path(tid, self.config_dir)
 
-                rep = suggest_strategic_squad(
-                    mode=mode,
-                    budget_millions=budget,
-                    squad_path=squad_path,
-                    database_path=self.database_path,
-                    num_gameweeks=horizon,
-                    strategy=strategy,
-                    locked_player_ids=locked_ids,
-                    excluded_player_ids=excluded_ids,
-                    preferred_player_ids=preferred_ids,
-                    generate_all_candidates=True,
-                )
-                rep["team_id"] = tid
-                self._send_json(rep)
+                try:
+                    rep = suggest_strategic_squad(
+                        mode=mode,
+                        budget_millions=budget,
+                        squad_path=squad_path,
+                        database_path=self.database_path,
+                        num_gameweeks=horizon,
+                        strategy=strategy,
+                        locked_player_ids=locked_ids,
+                        excluded_player_ids=excluded_ids,
+                        preferred_player_ids=preferred_ids,
+                        generate_all_candidates=True,
+                    )
+                    rep["team_id"] = tid
+                    self._send_json(rep)
+                except ValueError as err:
+                    self._send_json({"error": str(err), "error_type": "INFEASIBLE_CONSTRAINTS", "status": "error"}, status=400)
+                except RuntimeError as err:
+                    err_str = str(err)
+                    err_type = "DATA_UNAVAILABLE" if "No FPL data" in err_str else "SOLVER_FAILURE"
+                    self._send_json({"error": err_str, "error_type": err_type, "status": "error"}, status=400)
+                except Exception as err:
+                    self._send_json({"error": str(err), "error_type": "SOLVER_FAILURE", "status": "error"}, status=500)
             elif path == "/api/strategic-squad/reoptimize":
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 prev_cand_data = body.get("previous_candidate", {})
@@ -778,8 +790,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(res)
             else:
                 self._send_error_json("Unknown endpoint", status=404)
+        except ValueError as err:
+            err_str = str(err)
+            err_type = "INFEASIBLE_CONSTRAINTS" if any(w in err_str.lower() for w in ("constraint", "budget", "quota", "locked", "exclude")) else "VALIDATION_ERROR"
+            self._send_error_json(err_str, status=400, error_type=err_type)
+        except RuntimeError as err:
+            err_str = str(err)
+            err_type = "DATA_UNAVAILABLE" if "No FPL data" in err_str else "SOLVER_FAILURE"
+            self._send_error_json(err_str, status=400, error_type=err_type)
         except Exception as err:
-            self._send_error_json(str(err), status=400)
+            self._send_error_json(str(err), status=500, error_type="SOLVER_FAILURE")
 
     def do_DELETE(self) -> None:
         parsed = urllib.parse.urlparse(self.path)

@@ -3214,10 +3214,19 @@ function initStrategicStudio() {
           const reoptBtn = document.getElementById("btn-reoptimize-strategic");
           if (reoptBtn) reoptBtn.disabled = false;
 
-          showToast(`Generated ${Object.keys(strategicState.candidates).length} strategic candidates!`);
+          if (res.failed_profiles && Object.keys(res.failed_profiles).length > 0) {
+            const failedList = Object.entries(res.failed_profiles).map(([p, reason]) => `${p}: ${reason}`).join("; ");
+            showToast(`Generated ${Object.keys(strategicState.candidates).length} candidates. Notice: unfeasible profiles skipped: ${failedList}`, true);
+          } else {
+            showToast(`Generated ${Object.keys(strategicState.candidates).length} strategic candidates!`);
+          }
         }
       } catch (err) {
-        showToast(`Strategic optimization error: ${err.message}`, true);
+        let msg = err.message || "Optimization failed.";
+        if (err.error_type === "INFEASIBLE_CONSTRAINTS" || msg.toLowerCase().includes("budget") || msg.toLowerCase().includes("constraint")) {
+          msg = `Infeasible Constraints: ${msg}. Please relax player locks or adjust budget.`;
+        }
+        showToast(`Strategic optimization error: ${msg}`, true);
       } finally {
         genBtn.disabled = false;
         genBtn.textContent = "⚡ Generate Strategic Candidates";

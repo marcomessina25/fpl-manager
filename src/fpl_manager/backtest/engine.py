@@ -25,6 +25,11 @@ LEGAL_FORMATIONS = (
 )
 
 
+class StrategicInitializationError(RuntimeError):
+    """Raised when V1.1 strategic squad initialization fails during backtesting (P0.2)."""
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class GameweekDecisionResult:
     """Audit record for a simulated gameweek decision and revealed outcome."""
@@ -393,8 +398,11 @@ def run_sequential_simulation(
                 squad_ids = list(cand.player_ids)
                 purchase_prices = {p.id: p.price_tenths for p in strat_players if p.id in squad_ids}
                 bank = cand.bank_remaining_tenths
-            except Exception:
-                squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
+            except Exception as exc:
+                raise StrategicInitializationError(
+                    f"V1.1 strategic initialization failed for season '{season_dir.name}', "
+                    f"strategy '{chosen_initial_strategy}', horizon {chosen_initial_horizon}: {exc}"
+                ) from exc
         else:
             squad_ids, purchase_prices, bank = dec_engine.initialize_squad(init_snap, init_projs, budget_tenths=1000)
     else:

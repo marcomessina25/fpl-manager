@@ -215,33 +215,53 @@ def compute_player_strategic_value(
     preferred_ids: set[int] | None = None,
     fdr_avg: float = 3.0,
 ) -> float:
-    """Calculate single-player strategic value under the selected profile."""
+    """Calculate single-player strategic value under the selected profile.
+
+    Aggregation Convention (P0.1):
+    - player.expected_points or player.gw_xp represents the 1-GW expected points.
+    - If player.horizon_xp is explicitly provided (> 0.0), it represents the exact
+      sum across the target gameweeks (Σ expected_points(player, GW)), and is used
+      directly without multiplying by horizon_len again.
+    - If player.horizon_xp is not provided, the 1-GW rate is scaled by horizon_len.
+    - Under either representation, the 5-GW expected-point contribution of a player
+      projected for [5, 6, 7, 8, 9] is 35.0, NEVER multiplied twice.
+    """
     strat = strategy.lower().strip()
-    base_xp = getattr(player, "expected_points", 0.0)
-    floor_val = getattr(player, "xp_floor", base_xp)
-    ceil_val = getattr(player, "xp_ceiling", base_xp)
+
+    # Detect if player already provides an explicit horizon aggregate
+    has_horizon_xp = getattr(player, "horizon_xp", 0.0) != 0.0
+    if has_horizon_xp:
+        base_xp = float(player.horizon_xp)
+        floor_val = float(getattr(player, "horizon_floor", getattr(player, "xp_floor", base_xp)))
+        ceil_val = float(getattr(player, "horizon_ceiling", getattr(player, "xp_ceiling", base_xp)))
+    else:
+        gw_xp = float(getattr(player, "gw_xp", getattr(player, "expected_points", 0.0)))
+        base_xp = gw_xp * horizon_len
+        floor_val = float(getattr(player, "xp_floor", gw_xp)) * horizon_len
+        ceil_val = float(getattr(player, "xp_ceiling", gw_xp)) * horizon_len
+
     sd = getattr(player, "standard_deviation", 1.0)
     sel = getattr(player, "selected_by_percent", 10.0)
 
-    # Base profile value
+    # Base profile value (all terms calibrated to horizon scale)
     if strat == "maximum_ev":
-        val = base_xp * horizon_len
+        val = base_xp
     elif strat == "floor":
-        val = (floor_val * 0.85 + base_xp * 0.15) * horizon_len - 0.2 * sd
+        val = (floor_val * 0.85 + base_xp * 0.15) - 0.2 * sd
     elif strat == "ceiling":
-        val = (ceil_val * 0.85 + base_xp * 0.15) * horizon_len + 0.3 * sd
+        val = (ceil_val * 0.85 + base_xp * 0.15) + 0.3 * sd
     elif strat == "flexibility":
         # Rewards solid xP, favorable fixture run, and standard price brackets
-        fixture_bonus = max(0.0, (3.5 - fdr_avg) * 0.6)
-        val = (base_xp + fixture_bonus) * horizon_len
+        fixture_bonus = max(0.0, (3.5 - fdr_avg) * 0.6) * horizon_len
+        val = base_xp + fixture_bonus
     elif strat == "defend_lead":
-        val = (floor_val - 0.20 * sd + 0.02 * min(50.0, sel)) * horizon_len
+        val = floor_val - 0.20 * sd + (0.02 * min(50.0, sel)) * horizon_len
     elif strat == "chase":
-        diff_bonus = max(0.0, (15.0 - sel) * 0.05)
-        val = (ceil_val + 0.25 * sd + diff_bonus) * horizon_len
+        diff_bonus = max(0.0, (15.0 - sel) * 0.05) * horizon_len
+        val = ceil_val + 0.25 * sd + diff_bonus
     else:  # balanced
-        fixture_bonus = max(0.0, (3.2 - fdr_avg) * 0.4)
-        val = (base_xp * 0.7 + floor_val * 0.2 + ceil_val * 0.1 + fixture_bonus) * horizon_len
+        fixture_bonus = max(0.0, (3.2 - fdr_avg) * 0.4) * horizon_len
+        val = base_xp * 0.7 + floor_val * 0.2 + ceil_val * 0.1 + fixture_bonus
 
     if preferred_ids and player.id in preferred_ids:
         val += 2.5 * (horizon_len / 5.0)
@@ -354,19 +374,31 @@ def evaluate_strategic_squad_objective(
             best_vc = vc
 
     # Compute component scores
-    starters_xp_per_gw = sum(getattr(p, "expected_points", 0.0) for p in best_starters)
-    cap_bonus_per_gw = getattr(best_cap, "expected_points", 0.0) if best_cap else 0.0
+    starters_xp_per_gw = sum(getattr(p, "gw_xp", getattr(p, "expected_points", 0.0)) for p in best_starters)
+    cap_bonus_per_gw = getattr(best_cap, "gw_xp", getattr(best_cap, "expected_points", 0.0)) if best_cap else 0.0
     lineup_xp_per_gw = starters_xp_per_gw + cap_bonus_per_gw
 
-    total_horizon_xp = round(lineup_xp_per_gw * h_len, 2)
-    horizon_breakdown = {gw: round(lineup_xp_per_gw, 2) for gw in horizon_gws}
+    has_horizon = any(getattr(p, "horizon_xp", 0.0) != 0.0 for p in best_starters)
+    if has_horizon:
+        total_horizon_xp = round(
+            sum(getattr(p, "horizon_xp", getattr(p, "expected_points", 0.0) * h_len) for p in best_starters)
+            + (getattr(best_cap, "horizon_xp", getattr(best_cap, "expected_points", 0.0) * h_len) if best_cap else 0.0),
+            2,
+        )
+    else:
+        total_horizon_xp = round(lineup_xp_per_gw * h_len, 2)
+
+    horizon_breakdown = {gw: round(total_horizon_xp / h_len, 2) for gw in horizon_gws}
 
     club_counts: dict[int, int] = {}
     for p in squad:
         club_counts[p.team_id] = club_counts.get(p.team_id, 0) + 1
 
     flexibility_score = compute_future_flexibility(squad, bank_tenths, club_counts)
-    bench_val_score = round(sum(getattr(p, "expected_points", 0.0) for p in best_bench), 2)
+    bench_val_score = round(
+        sum(getattr(p, "horizon_xp", getattr(p, "gw_xp", getattr(p, "expected_points", 0.0)) * h_len) for p in best_bench),
+        2,
+    )
     cap_score = round((getattr(best_cap, "xp_ceiling", getattr(best_cap, "expected_points", 0.0)) * 2), 2)
 
     # Risk penalty
@@ -382,11 +414,19 @@ def evaluate_strategic_squad_objective(
     elif strat_lower == "flexibility":
         total_obj = total_horizon_xp * 0.85 + (flexibility_score * 0.4) + 0.15 * bench_val_score - risk_pts
     elif strat_lower == "floor":
-        floor_sum = sum(getattr(p, "xp_floor", getattr(p, "expected_points", 0.0)) for p in best_starters)
-        total_obj = (floor_sum * h_len) + (flexibility_score * 0.1) - (risk_pts * 2.0)
+        if has_horizon:
+            floor_sum = sum(getattr(p, "horizon_floor", getattr(p, "xp_floor", getattr(p, "expected_points", 0.0)) * h_len) for p in best_starters)
+            total_obj = floor_sum + (flexibility_score * 0.1) - (risk_pts * 2.0)
+        else:
+            floor_sum = sum(getattr(p, "xp_floor", getattr(p, "expected_points", 0.0)) for p in best_starters)
+            total_obj = (floor_sum * h_len) + (flexibility_score * 0.1) - (risk_pts * 2.0)
     elif strat_lower == "ceiling":
-        ceil_sum = sum(getattr(p, "xp_ceiling", getattr(p, "expected_points", 0.0)) for p in best_starters)
-        total_obj = (ceil_sum * h_len) + cap_score * 0.5 - risk_pts
+        if has_horizon:
+            ceil_sum = sum(getattr(p, "horizon_ceiling", getattr(p, "xp_ceiling", getattr(p, "expected_points", 0.0)) * h_len) for p in best_starters)
+            total_obj = ceil_sum + cap_score * 0.5 - risk_pts
+        else:
+            ceil_sum = sum(getattr(p, "xp_ceiling", getattr(p, "expected_points", 0.0)) for p in best_starters)
+            total_obj = (ceil_sum * h_len) + cap_score * 0.5 - risk_pts
     else:  # balanced / default
         total_obj = total_horizon_xp + (flexibility_score * 0.2) + (bench_val_score * 0.2) + (cap_score * 0.1) - risk_pts
 
@@ -408,7 +448,7 @@ def evaluate_strategic_squad_objective(
         "bench": best_bench,
         "captain": best_cap,
         "vice_captain": best_vc,
-        "lineup_xp": round(lineup_xp_per_gw, 2),
+        "lineup_xp": round(total_horizon_xp / h_len, 2),
         "horizon_breakdown": horizon_breakdown,
     }
 
@@ -436,7 +476,13 @@ def solve_strategic_squad_exact_reference(
     locked_set = set(constraints.locked_player_ids)
 
     # Filter out excluded players; pool cannot contain excluded
-    eligible_pool = [p for p in candidate_pool if p.id not in excluded_set]
+    # Align feasibility with production solver (P0.5):
+    # Unavailable players ('i', 's', 'u') cannot be selected unless locked.
+    eligible_pool = [
+        p
+        for p in candidate_pool
+        if p.id not in excluded_set and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
+    ]
 
     # Partition by position
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
@@ -702,6 +748,37 @@ def solve_strategic_squad(
                 t_counts[cand.team_id] = t_counts.get(cand.team_id, 0) + 1
                 picked += 1
 
+        # Fallback if club saturation blocked candidates: swap an earlier selection
+        if picked < needed:
+            blocked_cands = [c for c in cands if c not in squad and t_counts.get(c.team_id, 0) >= constraints.max_players_per_club]
+            for cand in blocked_cands:
+                if picked >= needed:
+                    break
+                swapped = False
+                for sel_p in list(squad):
+                    if sel_p.id in locked_set or sel_p.team_id != cand.team_id or sel_p.position == pos:
+                        continue
+                    alt_candidates = sorted(by_pos[sel_p.position], key=lambda p: p.price_tenths)
+                    for alt in alt_candidates:
+                        if alt in squad or alt.id in locked_set:
+                            continue
+                        if t_counts.get(alt.team_id, 0) >= constraints.max_players_per_club or alt.team_id == cand.team_id:
+                            continue
+                        current_cost = sum(p.price_tenths for p in squad)
+                        if current_cost - sel_p.price_tenths + alt.price_tenths + cand.price_tenths > effective_budget:
+                            continue
+                        squad.remove(sel_p)
+                        t_counts[sel_p.team_id] -= 1
+                        squad.append(alt)
+                        t_counts[alt.team_id] = t_counts.get(alt.team_id, 0) + 1
+                        squad.append(cand)
+                        t_counts[cand.team_id] = t_counts.get(cand.team_id, 0) + 1
+                        picked += 1
+                        swapped = True
+                        break
+                    if swapped:
+                        break
+
     if len(squad) != 15:
         raise RuntimeError("Failed to build a valid 15-player squad from candidate pool under constraints.")
 
@@ -931,16 +1008,34 @@ def solve_strategic_squad(
     )
 
 
+class StrategicCandidateDict(dict):
+    """Dictionary of strategic candidates that stores requested, successful, and failed profile metadata (P1.2)."""
+    requested_profiles: list[str]
+    successful_profiles: list[str]
+    failed_profiles: dict[str, str]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.requested_profiles = []
+        self.successful_profiles = []
+        self.failed_profiles = {}
+
+
 def generate_strategic_candidates(
     candidate_pool: list[Any],
     constraints: StrategicConstraints,
     strategies: list[str] | None = None,
     mode: str = "initial",
     horizon: int | None = None,
+    failed_profiles: dict[str, str] | None = None,
 ) -> dict[str, StrategicCandidate]:
-    """Generate a diversified set of strategic candidate squads across multiple objectives."""
+    """Generate a diversified set of strategic candidate squads across multiple objectives.
+
+    Tracks requested, successful, and failed strategic profiles without silently dropping them (P1.2).
+    """
     strats = strategies or ["maximum_ev", "balanced", "floor", "ceiling", "flexibility"]
-    candidates: dict[str, StrategicCandidate] = {}
+    candidates = StrategicCandidateDict()
+    failures: dict[str, str] = {}
 
     for strat in strats:
         try:
@@ -953,13 +1048,60 @@ def generate_strategic_candidates(
             )
             candidates[strat] = cand
         except Exception as e:
-            # If a specific profile fails due to narrow constraints, log and continue
-            continue
+            err_msg = str(e)
+            failures[strat] = err_msg
+            if failed_profiles is not None:
+                failed_profiles[strat] = err_msg
 
     if not candidates:
-        raise RuntimeError("Failed to generate any valid strategic candidate squads.")
+        first_err = next(iter(failures.values()), "Unknown failure")
+        raise RuntimeError(f"Failed to generate any valid strategic candidate squads: {first_err}")
+
+    candidates.requested_profiles = list(strats)
+    candidates.successful_profiles = list(candidates.keys())
+    candidates.failed_profiles = failures
 
     return candidates
+
+
+def measure_heuristic_optimality_gap(
+    candidate_pool: list[Any],
+    constraints: StrategicConstraints,
+    strategy: str = "maximum_ev",
+) -> dict[str, float]:
+    """Empirically evaluate the production heuristic's optimality gap against the exact reference oracle (P1.1).
+
+    Reports:
+    - exact_optimum: objective value from exact reference solver
+    - heuristic_value: objective value from production heuristic solver
+    - absolute_gap: exact_optimum - heuristic_value
+    - relative_gap: (exact_optimum - heuristic_value) / |exact_optimum| (if non-zero)
+    """
+    exact_cand = solve_strategic_squad_exact_reference(
+        candidate_pool=candidate_pool,
+        constraints=constraints,
+        strategy=strategy,
+    )
+    if exact_cand is None:
+        raise ValueError("No feasible squad found by exact reference solver.")
+
+    heur_cand = solve_strategic_squad(
+        candidate_pool=candidate_pool,
+        constraints=constraints,
+        strategy=strategy,
+    )
+
+    exact_obj = float(exact_cand.total_objective_value)
+    heur_obj = float(heur_cand.total_objective_value)
+    abs_gap = round(max(0.0, exact_obj - heur_obj), 4)
+    rel_gap = round(abs_gap / abs(exact_obj), 4) if exact_obj != 0.0 else 0.0
+
+    return {
+        "exact_optimum": exact_obj,
+        "heuristic_value": heur_obj,
+        "absolute_gap": abs_gap,
+        "relative_gap": rel_gap,
+    }
 
 
 def analyze_constraint_impact(

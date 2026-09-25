@@ -381,3 +381,180 @@ def test_planner_integration_with_strategic_starting_squad(strategic_test_db: tu
     assert "best_plan" in plan
     assert plan["best_plan"] is not None
     assert len(plan["best_plan"]["gameweek_steps"]) == 2
+
+
+# =========================================================================
+# 7. V1.1 Hardening Tests (P0.1, P0.5, P1.1, P1.2)
+# =========================================================================
+
+def test_horizon_xp_aggregation_convention_p01() -> None:
+    """Verify unambiguous horizon xP aggregation semantics (P0.1).
+
+    Acceptance criteria:
+    For a player with:
+      GW1 = 5, GW2 = 6, GW3 = 7, GW4 = 8, GW5 = 9 (sum = 35)
+    the 5-GW expected-point contribution must be exactly 35, NOT 175.
+    Doubling the horizon does not accidentally multiply an already aggregated value.
+    """
+    from fpl_manager.suggest_transfers import PlayerInfo
+    from fpl_manager.strategic_squad import compute_player_strategic_value
+
+    # Case A: Player with explicit horizon_xp (already summed across 5 GWs)
+    player_multi = PlayerInfo(
+        id=999,
+        name="Test Star",
+        position=Position.MIDFIELDER,
+        team_id=1,
+        team_short="TST",
+        price_tenths=80,
+        status="a",
+        total_points=50,
+        expected_points=7.0,  # average per GW = 35 / 5
+        gw_xp=7.0,
+        horizon_xp=35.0,     # explicit sum: 5 + 6 + 7 + 8 + 9 = 35
+        xp_floor=6.0,
+        xp_ceiling=8.0,
+        standard_deviation=1.0,
+        horizon_floor=30.0,
+        horizon_ceiling=40.0,
+    )
+
+    val_multi = compute_player_strategic_value(player_multi, strategy="maximum_ev", horizon_len=5)
+    assert val_multi == 35.0, f"Expected exactly 35.0, got {val_multi}"
+
+    # Case B: Player with 1-GW expected_points = 7.0 over horizon 1, 2, 5, 8
+    player_single = PlayerInfo(
+        id=998,
+        name="Test Single",
+        position=Position.MIDFIELDER,
+        team_id=1,
+        team_short="TST",
+        price_tenths=80,
+        status="a",
+        total_points=50,
+        expected_points=7.0,
+        gw_xp=7.0,
+        horizon_xp=0.0,  # not pre-aggregated
+        xp_floor=6.0,
+        xp_ceiling=8.0,
+        standard_deviation=1.0,
+    )
+
+    val_h1 = compute_player_strategic_value(player_single, strategy="maximum_ev", horizon_len=1)
+    val_h2 = compute_player_strategic_value(player_single, strategy="maximum_ev", horizon_len=2)
+    val_h5 = compute_player_strategic_value(player_single, strategy="maximum_ev", horizon_len=5)
+    val_h8 = compute_player_strategic_value(player_single, strategy="maximum_ev", horizon_len=8)
+
+    assert val_h1 == 7.0
+    assert val_h2 == 14.0
+    assert val_h5 == 35.0
+    assert val_h8 == 56.0
+
+
+def test_measure_heuristic_optimality_gap_p11() -> None:
+    """Measure production heuristic optimality gap against exact oracle on bounded pool (P1.1)."""
+    from fpl_manager.suggest_transfers import PlayerInfo
+    from fpl_manager.strategic_squad import measure_heuristic_optimality_gap
+
+    # Create small bounded pool of 16 players (2 GKP, 5 DEF, 6 MID, 3 FWD)
+    pool = []
+    pid = 1
+    # 2 GKP
+    for _ in range(2):
+        pool.append(PlayerInfo(id=pid, name=f"GKP_{pid}", position=Position.GOALKEEPER, team_id=pid, team_short=f"T{pid}", price_tenths=45, status="a", total_points=20, expected_points=3.5, gw_xp=3.5, horizon_xp=17.5))
+        pid += 1
+    # 5 DEF
+    for _ in range(5):
+        pool.append(PlayerInfo(id=pid, name=f"DEF_{pid}", position=Position.DEFENDER, team_id=pid, team_short=f"T{pid}", price_tenths=50, status="a", total_points=25, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+        pid += 1
+    # 6 MID (1 spare)
+    for i in range(6):
+        xp = 4.5 + i * 0.5
+        pool.append(PlayerInfo(id=pid, name=f"MID_{pid}", position=Position.MIDFIELDER, team_id=pid, team_short=f"T{pid}", price_tenths=50 + i * 5, status="a", total_points=30, expected_points=xp, gw_xp=xp, horizon_xp=xp*5))
+        pid += 1
+    # 3 FWD
+    for _ in range(3):
+        pool.append(PlayerInfo(id=pid, name=f"FWD_{pid}", position=Position.FORWARD, team_id=pid, team_short=f"T{pid}", price_tenths=60, status="a", total_points=30, expected_points=5.0, gw_xp=5.0, horizon_xp=25.0))
+        pid += 1
+
+    constraints = StrategicConstraints(budget_tenths=1000)
+    gap_metrics = measure_heuristic_optimality_gap(pool, constraints, strategy="maximum_ev")
+
+    assert "exact_optimum" in gap_metrics
+    assert "heuristic_value" in gap_metrics
+    assert "absolute_gap" in gap_metrics
+    assert "relative_gap" in gap_metrics
+    assert gap_metrics["absolute_gap"] >= 0.0
+    assert gap_metrics["relative_gap"] >= 0.0
+    assert gap_metrics["heuristic_value"] <= gap_metrics["exact_optimum"] + 1e-4
+
+
+def test_exact_reference_and_production_eligibility_alignment_p05() -> None:
+    """Verify that unavailable players are excluded from both exact and heuristic solvers unless locked (P0.5)."""
+    from fpl_manager.suggest_transfers import PlayerInfo
+
+    pool = []
+    pid = 1
+    # 2 GKP
+    for _ in range(2):
+        pool.append(PlayerInfo(id=pid, name=f"GKP_{pid}", position=Position.GOALKEEPER, team_id=pid, team_short=f"T{pid}", price_tenths=45, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+        pid += 1
+    # 5 DEF
+    for _ in range(5):
+        pool.append(PlayerInfo(id=pid, name=f"DEF_{pid}", position=Position.DEFENDER, team_id=pid, team_short=f"T{pid}", price_tenths=45, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+        pid += 1
+    # 5 MID - including one injured player with high xP
+    for i in range(4):
+        pool.append(PlayerInfo(id=pid, name=f"MID_{pid}", position=Position.MIDFIELDER, team_id=pid, team_short=f"T{pid}", price_tenths=50, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+        pid += 1
+    # Injured MID (status 'i') with massive xP (trap player)
+    injured_mid = PlayerInfo(id=pid, name="Injured_Trap", position=Position.MIDFIELDER, team_id=pid, team_short=f"T{pid}", price_tenths=50, status="i", total_points=100, expected_points=20.0, gw_xp=20.0, horizon_xp=100.0)
+    pool.append(injured_mid)
+    pid += 1
+    # Healthy MID with modest xP
+    healthy_mid = PlayerInfo(id=pid, name="Healthy_Mid", position=Position.MIDFIELDER, team_id=pid, team_short=f"T{pid}", price_tenths=50, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0)
+    pool.append(healthy_mid)
+    pid += 1
+    # 3 FWD
+    for _ in range(3):
+        pool.append(PlayerInfo(id=pid, name=f"FWD_{pid}", position=Position.FORWARD, team_id=pid, team_short=f"T{pid}", price_tenths=55, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+        pid += 1
+
+    constraints = StrategicConstraints(budget_tenths=1000)
+
+    # 1. Without lock: injured player must NOT be in exact solver solution or heuristic solution
+    exact_cand = solve_strategic_squad_exact_reference(pool, constraints)
+    heur_cand = solve_strategic_squad(pool, constraints)
+
+    assert exact_cand is not None
+    assert injured_mid.id not in exact_cand.player_ids
+    assert injured_mid.id not in heur_cand.player_ids
+
+    # 2. With lock: injured player MUST be included in both
+    locked_constraints = StrategicConstraints(budget_tenths=1000, locked_player_ids={injured_mid.id})
+    exact_locked = solve_strategic_squad_exact_reference(pool, locked_constraints)
+    heur_locked = solve_strategic_squad(pool, locked_constraints)
+
+    assert exact_locked is not None
+    assert injured_mid.id in exact_locked.player_ids
+    assert injured_mid.id in heur_locked.player_ids
+
+
+def test_profile_failure_tracking_p12() -> None:
+    """Verify that failed strategic profiles are tracked and not silently dropped (P1.2)."""
+    from fpl_manager.suggest_transfers import PlayerInfo
+
+    # Create minimum viable pool
+    pool = []
+    pid = 1
+    for pos, quota in [(Position.GOALKEEPER, 2), (Position.DEFENDER, 5), (Position.MIDFIELDER, 5), (Position.FORWARD, 3)]:
+        for _ in range(quota):
+            pool.append(PlayerInfo(id=pid, name=f"P_{pid}", position=pos, team_id=pid % 8 + 1, team_short=f"T{pid % 8 + 1}", price_tenths=50, status="a", total_points=20, expected_points=4.0, gw_xp=4.0, horizon_xp=20.0))
+            pid += 1
+
+    # Normal constraints: all succeed
+    cands = generate_strategic_candidates(pool, constraints=StrategicConstraints(budget_tenths=1000))
+    assert hasattr(cands, "requested_profiles")
+    assert hasattr(cands, "successful_profiles")
+    assert hasattr(cands, "failed_profiles")
+    assert len(cands.failed_profiles) == 0

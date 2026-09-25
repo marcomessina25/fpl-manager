@@ -215,3 +215,82 @@ def test_strategic_profiles_and_wildcard_backtest(tmp_path: Path) -> None:
     assert "wildcard_gw" in wc_res
     assert "report_path" in wc_res
     assert Path(wc_res["report_path"]).exists()
+
+
+def test_factorial_ablation_full_interactions_p03(tmp_path: Path) -> None:
+    """Verify complete 2x2x2 factorial decomposition including pairwise and 3-way interactions (P0.3)."""
+    res = run_starting_state_ablation(
+        season="2024-25",
+        horizon=3,
+        end_gw=3,
+        save_report=True,
+        output_dir=tmp_path / "ablation",
+    )
+
+    assert "main_effects" in res
+    assert "interactions" in res
+    assert "reconstruction_verification" in res
+
+    # Verify all effects and interactions are present
+    assert "starting_state_effect" in res["main_effects"]
+    assert "predictor_effect" in res["main_effects"]
+    assert "decision_engine_effect" in res["main_effects"]
+
+    assert "state_x_predictor" in res["interactions"]
+    assert "state_x_decision_engine" in res["interactions"]
+    assert "predictor_x_decision_engine" in res["interactions"]
+    assert "state_x_predictor_x_decision_engine" in res["interactions"]
+
+    # Verify orthogonal reconstruction
+    assert res["reconstruction_verification"]["is_orthogonal"] is True
+    assert res["reconstruction_verification"]["max_residual"] < 1e-6
+    assert len(res["completed_cells"]) == 8
+    assert len(res["missing_cells"]) == 0
+
+
+def test_heuristic_error_diagnostics_p04(tmp_path: Path) -> None:
+    """Verify error diagnostics are characterized as heuristic rules rather than counterfactual causal claims (P0.4)."""
+    from fpl_manager.backtest.strategic_analysis import run_decision_error_diagnostics
+
+    res = run_decision_error_diagnostics(
+        season="2024-25",
+        horizon=3,
+        end_gw=3,
+        save_report=True,
+        output_dir=tmp_path / "diagnostics",
+    )
+
+    assert res["diagnostic_type"] == "heuristic"
+    assert res["methodology"] == "heuristic_rule_based_attribution"
+    assert "error_counts" in res
+    assert "diagnostic_lost_points_by_category" in res
+
+    # Verify markdown report does not use unsupported causal claims
+    report_text = Path(res["report_path"]).read_text(encoding="utf-8")
+    assert "Heuristic Decision Error Diagnostics" in report_text
+    assert "not mathematically identified counterfactual causal attribution" in report_text
+
+
+def test_strategic_initialization_no_silent_fallback_p02(sample_season_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that V1.1 strategic initialization failure raises StrategicInitializationError instead of silently falling back (P0.2)."""
+    import fpl_manager.strategic_squad
+    from fpl_manager.backtest.engine import run_sequential_simulation, StrategicInitializationError
+    from fpl_manager.backtest.strategies import OptimizerStrategy
+
+    opt_strat = OptimizerStrategy(max_transfers=1, decision_engine="v1.1")
+
+    def mock_solve(*args, **kwargs):
+        raise RuntimeError("Simulated solver failure")
+
+    monkeypatch.setattr(fpl_manager.strategic_squad, "solve_strategic_squad", mock_solve)
+
+    with pytest.raises(StrategicInitializationError, match="V1.1 strategic initialization failed"):
+        run_sequential_simulation(
+            season_dir=sample_season_dir,
+            strategy=opt_strat,
+            start_gw=1,
+            end_gw=2,
+            predictor_version="v1.1",
+            decision_engine="v1.1",
+        )
+

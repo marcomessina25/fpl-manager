@@ -169,6 +169,11 @@ def load_historical_strategic_players(
             sigmas.append(proj.standard_deviation)
 
         tot_sigma = math.sqrt(sum(s**2 for s in sigmas)) if sigmas else 0.0
+        h_len = max(1, len(target_gws))
+        gw_xp = round(tot_xp / h_len, 2)
+        gw_xm = round(tot_xm / h_len, 1)
+        gw_floor = round(tot_floor / h_len, 2)
+        gw_ceil = round(tot_ceil / h_len, 2)
 
         players.append(
             PlayerInfo(
@@ -180,11 +185,15 @@ def load_historical_strategic_players(
                 price_tenths=p.price_tenths,
                 status=p.status,
                 total_points=p.total_points,
-                expected_points=round(tot_xp, 2),
-                expected_minutes=round(tot_xm, 1),
-                xp_floor=round(tot_floor, 2),
-                xp_ceiling=round(tot_ceil, 2),
+                expected_points=gw_xp,
+                expected_minutes=gw_xm,
+                xp_floor=gw_floor,
+                xp_ceiling=gw_ceil,
                 standard_deviation=round(tot_sigma, 2),
+                gw_xp=gw_xp,
+                horizon_xp=round(tot_xp, 2),
+                horizon_floor=round(tot_floor, 2),
+                horizon_ceiling=round(tot_ceil, 2),
             )
         )
 
@@ -971,28 +980,78 @@ def run_starting_state_ablation(
                     "transfers": sim.total_transfers,
                 })
 
-    # Main Effects Decomposition
-    strat_scores = [r["net_points"] for r in matrix_results if r["is_strategic_state"]]
-    base_scores = [r["net_points"] for r in matrix_results if not r["is_strategic_state"]]
-    main_effect_state = _mean(strat_scores) - _mean(base_scores)
+    # Complete 2x2x2 Factorial Decomposition (P0.3, P1.4)
+    requested_cells = [(a, b, c) for a in (-1, 1) for b in (-1, 1) for c in (-1, 1)]
+    cells: dict[tuple[int, int, int], float] = {}
+    for r in matrix_results:
+        a = 1 if r["is_strategic_state"] else -1
+        b = 1 if r["predictor"] == "v1.0.1" else -1
+        c = 1 if r["decision_engine"] == "v1.0.1" else -1
+        cells[(a, b, c)] = float(r["net_points"])
 
-    pred_v1_scores = [r["net_points"] for r in matrix_results if r["predictor"] == "v1.0.1"]
-    pred_v08_scores = [r["net_points"] for r in matrix_results if r["predictor"] == "v0.8"]
-    main_effect_predictor = _mean(pred_v1_scores) - _mean(pred_v08_scores)
+    completed_cells = list(cells.keys())
+    missing_cells = [cell for cell in requested_cells if cell not in cells]
+    cell_sample_counts = {str(cell): 1 for cell in completed_cells}
+    is_complete_factorial = (len(missing_cells) == 0 and len(completed_cells) == 8)
 
-    eng_v1_scores = [r["net_points"] for r in matrix_results if r["decision_engine"] == "v1.0.1"]
-    eng_v08_scores = [r["net_points"] for r in matrix_results if r["decision_engine"] == "v0.8"]
-    main_effect_engine = _mean(eng_v1_scores) - _mean(eng_v08_scores)
+    if not is_complete_factorial:
+        raise RuntimeError(f"Factorial experiment missing required cells: {missing_cells}")
+
+    grand_mean = sum(cells.values()) / 8.0
+
+    # Main Effects: mean(variant) - mean(baseline) = 1/4 * sum(contrast * y)
+    main_effect_state = sum(a * y for (a, b, c), y in cells.items()) / 4.0
+    main_effect_predictor = sum(b * y for (a, b, c), y in cells.items()) / 4.0
+    main_effect_engine = sum(c * y for (a, b, c), y in cells.items()) / 4.0
+
+    # Two-Way Interactions: 1/4 * sum((X1 * X2) * y)
+    interaction_state_predictor = sum(a * b * y for (a, b, c), y in cells.items()) / 4.0
+    interaction_state_engine = sum(a * c * y for (a, b, c), y in cells.items()) / 4.0
+    interaction_predictor_engine = sum(b * c * y for (a, b, c), y in cells.items()) / 4.0
+
+    # Three-Way Interaction: 1/4 * sum((a * b * c) * y)
+    interaction_three_way = sum(a * b * c * y for (a, b, c), y in cells.items()) / 4.0
+
+    # Mathematical Verification: reconstruct every cell from orthogonal components
+    reconstruction_errors = []
+    for (a, b, c), y in cells.items():
+        y_hat = (
+            grand_mean
+            + 0.5 * a * main_effect_state
+            + 0.5 * b * main_effect_predictor
+            + 0.5 * c * main_effect_engine
+            + 0.5 * a * b * interaction_state_predictor
+            + 0.5 * a * c * interaction_state_engine
+            + 0.5 * b * c * interaction_predictor_engine
+            + 0.5 * a * b * c * interaction_three_way
+        )
+        reconstruction_errors.append(abs(y - y_hat))
+    max_reconstruction_error = max(reconstruction_errors) if reconstruction_errors else 0.0
 
     results = {
         "season": season,
         "end_gw": end_gw,
         "horizon": horizon,
         "matrix": matrix_results,
+        "requested_cells": [str(c) for c in requested_cells],
+        "completed_cells": [str(c) for c in completed_cells],
+        "missing_cells": [str(c) for c in missing_cells],
+        "cell_sample_counts": cell_sample_counts,
+        "grand_mean": round(grand_mean, 2),
         "main_effects": {
             "starting_state_effect": round(main_effect_state, 2),
             "predictor_effect": round(main_effect_predictor, 2),
             "decision_engine_effect": round(main_effect_engine, 2),
+        },
+        "interactions": {
+            "state_x_predictor": round(interaction_state_predictor, 2),
+            "state_x_decision_engine": round(interaction_state_engine, 2),
+            "predictor_x_decision_engine": round(interaction_predictor_engine, 2),
+            "state_x_predictor_x_decision_engine": round(interaction_three_way, 2),
+        },
+        "reconstruction_verification": {
+            "is_orthogonal": max_reconstruction_error < 1e-6,
+            "max_residual": round(max_reconstruction_error, 8),
         },
     }
 
@@ -1003,13 +1062,13 @@ def run_starting_state_ablation(
         json_file = out_dir / f"starting_state_ablation_{season}.json"
 
         md_lines = [
-            f"# Factorial Ablation: Starting State × Predictor × Decision Engine ({season})",
+            f"# Full Factorial Ablation: Starting State × Predictor × Decision Engine ({season})",
             "",
-            "Complete 2×2×2 factorial evaluation isolating whether strategic squad construction provides benefits independent of weekly predictions.",
+            "Complete 2×2×2 factorial evaluation evaluating main effects, pairwise interactions, and 3-way interactions without premature independence assumptions.",
             "",
             "## 1. Experimental Matrix (GW 1–10 Net Points)",
             "",
-            "| Starting Squad State | Predictor Version | Decision Engine | Net Points | Gross Points | Hits | Transfers |",
+            "| Starting Squad State (A) | Predictor Version (B) | Decision Engine (C) | Net Points | Gross Points | Hits | Transfers |",
             "|---|:---:|:---:|---:|---:|---:|---:|",
         ]
         for r in matrix_results:
@@ -1022,12 +1081,20 @@ def run_starting_state_ablation(
             "",
             "## 2. Main Effects Decomposition",
             "",
-            f"- **Starting State Main Effect (Delta_State):** **{main_effect_state:+.2f} pts** (Strategic Multi-GW vs Single-GW Baseline)",
-            f"- **Predictor Main Effect (Delta_Predictor):** **{main_effect_predictor:+.2f} pts** (v1.0.1 Canonical vs v0.8 Baseline)",
-            f"- **Decision Engine Main Effect (Delta_Engine):** **{main_effect_engine:+.2f} pts** (v1.0.1 Neutral vs v0.8 Heuristic)",
+            f"- **Grand Mean (y_bar):** **{grand_mean:.2f} pts**",
+            f"- **Starting State Main Effect (Delta_A):** **{main_effect_state:+.2f} pts** (Strategic Multi-GW vs Single-GW Baseline)",
+            f"- **Predictor Main Effect (Delta_B):** **{main_effect_predictor:+.2f} pts** (v1.0.1 Canonical vs v0.8 Baseline)",
+            f"- **Decision Engine Main Effect (Delta_C):** **{main_effect_engine:+.2f} pts** (v1.0.1 Neutral vs v0.8 Heuristic)",
             "",
-            "## 3. Scientific Conclusion",
-            f"Strategic starting squad construction produces an independent positive effect of **{main_effect_state:+.1f} points**, confirming that good initial squad structure compounds throughout downstream gameweeks.",
+            "## 3. Pairwise & Three-Way Interactions",
+            "",
+            f"- **Starting State × Predictor (Delta_AB):** **{interaction_state_predictor:+.2f} pts**",
+            f"- **Starting State × Decision Engine (Delta_AC):** **{interaction_state_engine:+.2f} pts**",
+            f"- **Predictor × Decision Engine (Delta_BC):** **{interaction_predictor_engine:+.2f} pts**",
+            f"- **Three-Way Interaction (Delta_ABC):** **{interaction_three_way:+.2f} pts**",
+            "",
+            "## 4. Scientific Interpretation",
+            f"The starting state main effect is **{main_effect_state:+.2f} pts**, with interaction terms demonstrating the extent to which starting squad quality couples with downstream weekly decision engines.",
             "",
         ])
         md_file.write_text("\n".join(md_lines), encoding="utf-8")
@@ -1116,7 +1183,11 @@ def run_error_attribution_analysis(
     save_report: bool = True,
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Decompose points lost into Starting-State, Prediction, Decision, Interaction, and Harmless errors."""
+    """Execute heuristic decision error diagnostics across opening gameweeks (P0.4).
+
+    Identifies and categorizes observed decision errors (e.g. 0-min starters, bench regret,
+    transfer hits) using deterministic diagnostic heuristics rather than counterfactual causal identification.
+    """
     season_dir = DATA_DIRECTORY / "historical" / season
     players, _ = load_historical_strategic_players(season_dir, gameweek=1, horizon=horizon)
     cand = solve_strategic_squad(players, constraints=StrategicConstraints(budget_tenths=1000), strategy="balanced", horizon=horizon)
@@ -1129,7 +1200,7 @@ def run_error_attribution_analysis(
         end_gw=end_gw,
     )
 
-    # Classify decision errors for each gameweek
+    # Classify decision errors for each gameweek under heuristic diagnostic rules
     taxonomies = {
         "STARTING_STATE_ERROR": 0,
         "PREDICTION_ERROR": 0,
@@ -1137,7 +1208,7 @@ def run_error_attribution_analysis(
         "INTERACTION_ERROR": 0,
         "HARMLESS": 0,
     }
-    lost_points = {k: 0 for k in taxonomies}
+    diagnostic_lost_points = {k: 0 for k in taxonomies}
     ledger: list[dict[str, Any]] = []
 
     for h in sim.history:
@@ -1147,18 +1218,18 @@ def run_error_attribution_analysis(
         # 1. Zero-minute starters
         for zm in h.zero_min_starters:
             taxonomies["PREDICTION_ERROR"] += 1
-            lost_points["PREDICTION_ERROR"] += 2
+            diagnostic_lost_points["PREDICTION_ERROR"] += 2
             ledger.append({
                 "gw": gw,
                 "category": "PREDICTION_ERROR",
                 "player_id": zm,
-                "description": f"0-minute starter selected; expected minutes prediction failed.",
+                "description": "0-minute starter selected; expected minutes prediction failed.",
             })
 
         # 2. Bench regret (benched players who scored highly)
         if h.bench_regret_points > 4:
             taxonomies["DECISION_ERROR"] += 1
-            lost_points["DECISION_ERROR"] += h.bench_regret_points
+            diagnostic_lost_points["DECISION_ERROR"] += h.bench_regret_points
             ledger.append({
                 "gw": gw,
                 "category": "DECISION_ERROR",
@@ -1168,7 +1239,7 @@ def run_error_attribution_analysis(
         # 3. Transfer hits taken
         if h.transfer_hits > 0:
             taxonomies["STARTING_STATE_ERROR"] += 1
-            lost_points["STARTING_STATE_ERROR"] += (h.transfer_hits * 4)
+            diagnostic_lost_points["STARTING_STATE_ERROR"] += (h.transfer_hits * 4)
             ledger.append({
                 "gw": gw,
                 "category": "STARTING_STATE_ERROR",
@@ -1178,11 +1249,16 @@ def run_error_attribution_analysis(
     results = {
         "season": season,
         "end_gw": end_gw,
+        "diagnostic_type": "heuristic",
+        "methodology": "heuristic_rule_based_attribution",
         "error_counts": taxonomies,
-        "lost_points_by_category": lost_points,
-        "total_lost_points": sum(lost_points.values()),
+        "diagnostic_lost_points_by_category": diagnostic_lost_points,
+        "total_diagnostic_lost_points": sum(diagnostic_lost_points.values()),
         "ledger_sample": ledger[:10],
     }
+    # Backward compatibility alias
+    results["lost_points_by_category"] = diagnostic_lost_points
+    results["total_lost_points"] = results["total_diagnostic_lost_points"]
 
     if save_report:
         out_dir = output_dir or (REPORTS_V11_DIR / "error_attribution")
@@ -1191,25 +1267,28 @@ def run_error_attribution_analysis(
         json_file = out_dir / f"error_attribution_{season}.json"
 
         md_lines = [
-            f"# Counterfactual Error Attribution Report: Season {season}",
+            f"# Heuristic Decision Error Diagnostics Report: Season {season}",
             "",
-            "Decomposing points foregone across Starting State, Predictive Modeling, and Decision Engine Heuristics.",
+            "**Methodology:** Deterministic rule-based diagnostic classification of observed decision frictions (not mathematically identified counterfactual causal attribution).",
             "",
-            "| Error Taxonomy Category | Incident Count | Estimated Point Cost | Proportion |",
+            "| Error Taxonomy Category | Incident Count | Diagnostic Points Foregone | Proportion |",
             "|---|---:|---:|---:|",
         ]
-        tot_pts = max(1, sum(lost_points.values()))
+        tot_pts = max(1, sum(diagnostic_lost_points.values()))
         for cat, cnt in taxonomies.items():
-            pts = lost_points[cat]
+            pts = diagnostic_lost_points[cat]
             md_lines.append(f"| `{cat}` | {cnt} | {pts} pts | {round((pts/tot_pts)*100, 1)}% |")
 
         md_lines.extend([
             "",
-            "## Taxonomy Definitions",
-            "- `STARTING_STATE_ERROR`: Structural squad flaws (bad budget distribution, dead roster spots forcing hits).",
-            "- `PREDICTION_ERROR`: Minutes or point model misclassification (e.g. 0-min starter).",
-            "- `DECISION_ERROR`: Optimal player available and projected well, but left on bench.",
-            "- `INTERACTION_ERROR`: Unfavorable interplay between transfers and budget limits.",
+            "## Diagnostic Taxonomy Definitions",
+            "- `STARTING_STATE_ERROR`: Structural squad imbalances (e.g. rigid bench or budget concentration forcing hits).",
+            "- `PREDICTION_ERROR`: Participation or expected minutes misclassification (e.g. unannounced resting of starter).",
+            "- `DECISION_ERROR`: Lineup/captaincy selection regret where an available bench player substantially outscores a starter.",
+            "- `INTERACTION_ERROR`: Unfavorable interplay between transfers, budget limits, and unexpected fixture events.",
+            "",
+            "> [!NOTE]",
+            "> These point deductions represent heuristic diagnostic indicators for system auditing, and are clearly distinguished from counterfactual causal estimations.",
             "",
         ])
         md_file.write_text("\n".join(md_lines), encoding="utf-8")
@@ -1217,6 +1296,10 @@ def run_error_attribution_analysis(
         results["report_path"] = str(md_file)
 
     return results
+
+
+# Canonical alias conforming to P0.4 terminology
+run_decision_error_diagnostics = run_error_attribution_analysis
 
 
 # ==============================================================================
