@@ -1885,5 +1885,14 @@ def run_version_comparison_backtest(
         results["report_path"] = str(md_file)
         results["json_path"] = str(json_file)
 
+        # Also populate reports/v115/multi_season_summary/
+        summary_dir = REPORTS_V115_DIR / "multi_season_summary"
+        summary_dir.mkdir(parents=True, exist_ok=True)
+        summary_md = summary_dir / "multi_season_summary.md"
+        summary_json = summary_dir / "multi_season_summary.json"
+        if not summary_md.exists() or len(results["seasons_evaluated"]) >= 5:
+            summary_md.write_text("\n".join(md_lines), encoding="utf-8")
+            summary_json.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+
     return results
 
