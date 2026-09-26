@@ -140,7 +140,14 @@ def build_historical_snapshot(
             )
 
     # Load current GW raw data for point-in-time player status/price/ownership
-    current_gw_players = {p["player_id"]: p for p in load_gameweek_raw_data(season_dir, gameweek)}
+    raw_players = load_gameweek_raw_data(season_dir, gameweek)
+    if not raw_players and gameweek > 1:
+        for prev_g in range(gameweek - 1, 0, -1):
+            prior_raw = load_gameweek_raw_data(season_dir, prev_g)
+            if prior_raw:
+                raw_players = prior_raw
+                break
+    current_gw_players = {p["player_id"]: p for p in raw_players}
 
     # Accumulate prior historical statistics strictly from GW 1 to GW (N-1)
     cum_minutes: dict[int, int] = {}

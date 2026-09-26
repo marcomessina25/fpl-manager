@@ -505,14 +505,17 @@ def run_sequential_simulation(
                 new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
                     snapshot, projections, budget_tenths=total_funds
                 )
-                old_set = set(squad_ids)
-                new_set = set(new_squad_ids)
-                out_list = sorted(list(old_set - new_set))
-                in_list = sorted(list(new_set - old_set))
-                chosen_transfers = list(zip(out_list, in_list))
-                squad_ids = new_squad_ids
-                purchase_prices = new_prices
-                bank = new_bank
+                if len(new_squad_ids) == 15:
+                    old_set = set(squad_ids)
+                    new_set = set(new_squad_ids)
+                    out_list = sorted(list(old_set - new_set))
+                    in_list = sorted(list(new_set - old_set))
+                    chosen_transfers = list(zip(out_list, in_list))
+                    squad_ids = new_squad_ids
+                    purchase_prices = new_prices
+                    bank = new_bank
+                else:
+                    chosen_transfers = []
             except Exception:
                 chosen_transfers = []
             hits = 0
