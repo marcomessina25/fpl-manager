@@ -50,6 +50,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIRECTORY = PROJECT_ROOT / "data"
 REPORTS_V11_DIR = PROJECT_ROOT / "reports" / "v11"
 REPORTS_V115_DIR = PROJECT_ROOT / "reports" / "v115"
+REPORTS_V12_DIR = PROJECT_ROOT / "reports" / "v12"
 
 AVAILABLE_HISTORICAL_SEASONS = ("2021-22", "2022-23", "2023-24", "2024-25", "2025-26")
 
@@ -158,6 +159,7 @@ def load_historical_strategic_players(
     horizon: int = 5,
     predictor_version: str = "v1.0.1",
     apply_departures: bool = True,
+    apply_unavailability: bool = True,
 ) -> tuple[list[PlayerInfo], dict[int, str]]:
     """Construct multi-gameweek PlayerInfo pool strictly from pre-gameweek point-in-time data.
     
@@ -166,7 +168,7 @@ def load_historical_strategic_players(
     - Future fixtures are evaluated using pre-season schedule from fixtures.json.
     - Future goals, assists, cards, minutes, and points are never referenced.
     """
-    snapshot = build_historical_snapshot(season_dir, gameweek, apply_departures=apply_departures)
+    snapshot = build_historical_snapshot(season_dir, gameweek, apply_departures=apply_departures, apply_unavailability=apply_unavailability)
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
     fixtures_by_gw = load_historical_fixtures(season_dir)
 
@@ -1649,7 +1651,7 @@ def run_all_v11_analyses(
 
 def run_version_comparison_backtest(
     seasons: Sequence[str] = AVAILABLE_HISTORICAL_SEASONS,
-    versions: Sequence[str] = ("v0.9", "v1.0", "v1.1", "v1.1.5"),
+    versions: Sequence[str] = ("v0.9", "v1.0", "v1.1", "v1.1.5", "v1.2"),
     tracks: Sequence[str] = ("track_a_no_chips", "track_b_with_chips"),
     start_gw: int = 1,
     end_gw: int = 38,
@@ -1657,13 +1659,14 @@ def run_version_comparison_backtest(
     output_dir: Path | None = None,
     smoke_test: bool = False,
 ) -> dict[str, Any]:
-    """Execute the multi-version historical benchmark comparison ledger (V1.1.5 Pillar 4).
+    """Execute the multi-version historical benchmark comparison ledger (V1.2 Pillar 4).
 
     Replays historical seasons with controlled point-in-time state to compare:
     - V0.9: Learned Participation Baseline (SimpleXpStrategy + participation weighting)
     - V1.0: Canonical Single-GW Decision Engine (OptimizerStrategy + single-GW greedy init)
     - V1.1: Strategic Squad Optimization (OptimizerStrategy + multi-GW strategic init)
     - V1.1.5: Departure Priority Offload & Seasonal Chip Engine (OptimizerStrategy + dead capital weight)
+    - V1.2: Strategic Squad Balancing (XI vs Bench) & Long-Term Unavailability Modeling
 
     Across both:
     - Track A: Without chips (pure transfer and lineup decisions)
@@ -1685,13 +1688,13 @@ def run_version_comparison_backtest(
         for track in tracks:
             use_chips = (track == "track_b_with_chips")
             for ver in versions:
-                dead_cap_w = 3.0 if ver == "v1.1.5" else 0.0
+                dead_cap_w = 3.0 if ver in ("v1.1.5", "v1.2") else 0.0
                 if ver == "v0.9":
                     strat: BacktestStrategy = SimpleXpStrategy(decision_engine="v0.9")
                 else:
                     strat = OptimizerStrategy(max_transfers=1, decision_engine=ver)
 
-                exp_id = f"exp_v115_bench_{season.replace('-', '_')}_{track}_{ver}_gw{actual_end_gw}"
+                exp_id = f"exp_v12_bench_{season.replace('-', '_')}_{track}_{ver}_gw{actual_end_gw}"
                 sim = run_sequential_simulation(
                     season_dir=season_dir,
                     strategy=strat,
@@ -1797,13 +1800,13 @@ def run_version_comparison_backtest(
     }
 
     if save_report:
-        out_dir = output_dir or (REPORTS_V115_DIR / "multi_version_benchmark")
+        out_dir = output_dir or (REPORTS_V12_DIR / "multi_version_benchmark")
         out_dir.mkdir(parents=True, exist_ok=True)
         md_file = out_dir / "multi_version_comparison.md"
         json_file = out_dir / "multi_version_comparison.json"
 
         md_lines = [
-            "# Multi-Version Historical Benchmark Ledger: V0.9 vs V1.0 vs V1.1 vs V1.1.5",
+            "# Multi-Version Historical Benchmark Ledger: V0.9 vs V1.0 vs V1.1 vs V1.1.5 vs V1.2",
             "",
             f"**Historical Seasons:** {', '.join(results['seasons_evaluated'])} ({len(results['seasons_evaluated'])} seasons evaluated)",
             f"**Evaluation Window:** {results['gameweek_range']} | **Predictor:** `v1.0.1` | **Benchmark Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
@@ -1822,6 +1825,7 @@ def run_version_comparison_backtest(
             "v1.0": "Canonical Single-GW Decision Engine",
             "v1.1": "Strategic Squad Optimization (Multi-GW Init)",
             "v1.1.5": "Departure Engine + Dead Capital Offload + Seasonal Chips",
+            "v1.2": "Strategic Squad Balancing (XI vs Bench) + Unavailability Modeling",
         }
         for ver in versions:
             m = version_aggregates.get(ver, {}).get("track_a_no_chips", {})
@@ -1886,8 +1890,8 @@ def run_version_comparison_backtest(
         results["report_path"] = str(md_file)
         results["json_path"] = str(json_file)
 
-        # Also populate reports/v115/multi_season_summary/
-        summary_dir = REPORTS_V115_DIR / "multi_season_summary"
+        # Also populate reports/v12/multi_season_summary/
+        summary_dir = REPORTS_V12_DIR / "multi_season_summary"
         summary_dir.mkdir(parents=True, exist_ok=True)
         summary_md = summary_dir / "multi_season_summary.md"
         summary_json = summary_dir / "multi_season_summary.json"
