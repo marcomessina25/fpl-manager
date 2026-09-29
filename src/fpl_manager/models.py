@@ -112,17 +112,6 @@ def is_departed_from_premier_league(player: object, snapshot: object = None) -> 
                 }
                 if team_id not in team_ids:
                     return True
-            fixtures = getattr(snapshot, "fixtures", None)
-            current_gw = getattr(snapshot, "gameweek", None)
-            if fixtures and current_gw is not None and current_gw < 38:
-                rem_fixtures = [
-                    f
-                    for f in fixtures
-                    if (getattr(f, "team_h", None) == team_id or getattr(f, "team_a", None) == team_id)
-                    and not getattr(f, "finished", False)
-                ]
-                if len(rem_fixtures) == 0:
-                    return True
 
     return False
 

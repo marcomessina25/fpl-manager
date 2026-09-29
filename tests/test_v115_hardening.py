@@ -119,6 +119,30 @@ class TestDepartureDetection:
         )
         assert is_departed_from_premier_league(p) is False
 
+    def test_blank_gameweek_player_is_not_departed(self) -> None:
+        """A player whose club has a blank gameweek (0 fixtures in snapshot.fixtures) must not be departed."""
+        p = Player(
+            id=106,
+            name="Blank Gameweek Star",
+            position=Position.MIDFIELDER,
+            team_id=1,
+            price_tenths=120,
+            status="a",
+            chance_of_playing_this_round=None,
+            chance_of_playing_next_round=None,
+            news="",
+        )
+        snap = HistoricalGameweekSnapshot(
+            season="2023-24",
+            gameweek=28,
+            deadline_time="2024-03-09T11:00:00Z",
+            finished_gameweeks=27,
+            players=(),
+            teams=({"team_id": 1, "name": "Arsenal", "short_name": "ARS"}, {"team_id": 2, "name": "Chelsea", "short_name": "CHE"}),
+            fixtures=(),
+        )
+        assert is_departed_from_premier_league(p, snapshot=snap) is False
+
     def test_eligibility_status_dataclass(self) -> None:
         p = Player(
             id=101,
