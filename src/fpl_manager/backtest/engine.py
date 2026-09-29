@@ -422,7 +422,12 @@ def run_sequential_simulation(
                     apply_departures=apply_dep,
                     apply_unavailability=apply_unavail,
                 )
-                if dec_engine.version in ("v1.1.5", "v1.2"):
+                if dec_engine.version == "v1.1.5":
+                    strat_players = [
+                        p for p in strat_players
+                        if not is_departed_from_premier_league(p, init_snap)
+                    ]
+                elif dec_engine.version == "v1.2":
                     strat_players = [
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)

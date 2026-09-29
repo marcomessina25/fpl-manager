@@ -8,6 +8,7 @@ Verifies:
 5. DecisionEngineV12 integration and Lineup-Aware Transfer Evaluation.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 
@@ -78,6 +79,42 @@ class TestHistoricalUnavailabilityRegistry:
         assert tonali_gw10.status == "s"
         assert is_long_term_unavailable(tonali_gw10, snap_gw10) is True
 
+    def test_greenwood_2021_22_no_future_leakage(self) -> None:
+        """Greenwood was suspended by his club on 30 Jan 2022, after the GW23 deadline
+        (2022-01-21) and after he played in GW23. He must NOT be long-term-unavailable
+        at the GW23 snapshot, and must be flagged from GW24 onward (start_gw fixed to 24).
+        """
+        season_dir = Path("data/historical/2021-22")
+        if not season_dir.exists():
+            pytest.skip("Historical data directory not found")
+
+        snap_gw23 = build_historical_snapshot(season_dir, 23)
+        greenwood_gw23 = next(p for p in snap_gw23.players if p.player_id == 289)
+        assert is_long_term_unavailable(greenwood_gw23, snap_gw23) is False
+
+        snap_gw24 = build_historical_snapshot(season_dir, 24)
+        greenwood_gw24 = next(p for p in snap_gw24.players if p.player_id == 289)
+        assert is_long_term_unavailable(greenwood_gw24, snap_gw24) is True
+
+    def test_timber_and_mings_2023_24_no_future_leakage(self) -> None:
+        """Timber and Mings both suffered their injuries on 12 Aug 2023, after the GW1
+        deadline (2023-08-11), and both played in GW1. Neither must be long-term-unavailable
+        at the GW1 snapshot; both must be flagged from GW2 onward (start_gw fixed to 2).
+        """
+        season_dir = Path("data/historical/2023-24")
+        if not season_dir.exists():
+            pytest.skip("Historical data directory not found")
+
+        snap_gw1 = build_historical_snapshot(season_dir, 1)
+        for pid in (585, 51):
+            p_gw1 = next(p for p in snap_gw1.players if p.player_id == pid)
+            assert is_long_term_unavailable(p_gw1, snap_gw1) is False
+
+        snap_gw2 = build_historical_snapshot(season_dir, 2)
+        for pid in (585, 51):
+            p_gw2 = next(p for p in snap_gw2.players if p.player_id == pid)
+            assert is_long_term_unavailable(p_gw2, snap_gw2) is True
+
     def test_acl_injuries_in_2023_24(self) -> None:
         """Verify season-ending ACL injuries (Timber, Mings, Buendia, Fofana) are flagged."""
         season_dir = Path("data/historical/2023-24")
@@ -130,6 +167,101 @@ class TestUnavailabilitySemantics:
         assert is_long_term_unavailable(p) is False
         elig = get_player_eligibility_status(p, dead_capital_weight=3.0)
         assert elig.dead_capital_penalty == 0.0
+
+    def test_one_match_suspension_with_near_return_date_is_not_long_term(self) -> None:
+        """A one-match ban with a return date within 35 days must NOT be long-term."""
+        reference = datetime(2024, 1, 10, tzinfo=timezone.utc)
+        return_date = reference + timedelta(days=7)
+        news = f"Suspended until {return_date.day} {return_date.strftime('%b')}"
+        p = Player(
+            id=401,
+            name="One Match Ban",
+            position=Position.MIDFIELDER,
+            team_id=2,
+            price_tenths=60,
+            status="s",
+            chance_of_playing_this_round=0,
+            news=news,
+        )
+        snap = HistoricalGameweekSnapshot(
+            season="2023-24",
+            gameweek=20,
+            deadline_time=reference.isoformat().replace("+00:00", "Z"),
+            finished_gameweeks=19,
+            players=(),
+            teams=(),
+            fixtures=(),
+        )
+        assert is_long_term_unavailable(p, snap) is False
+
+    def test_long_suspension_with_distant_return_date_is_long_term(self) -> None:
+        """A ban with a return date more than 35 days away must be long-term."""
+        reference = datetime(2024, 1, 10, tzinfo=timezone.utc)
+        return_date = reference + timedelta(days=120)
+        news = f"Suspended until {return_date.day} {return_date.strftime('%B')} {return_date.year}"
+        p = Player(
+            id=402,
+            name="Long Ban",
+            position=Position.MIDFIELDER,
+            team_id=2,
+            price_tenths=60,
+            status="s",
+            chance_of_playing_this_round=0,
+            news=news,
+        )
+        snap = HistoricalGameweekSnapshot(
+            season="2023-24",
+            gameweek=20,
+            deadline_time=reference.isoformat().replace("+00:00", "Z"),
+            finished_gameweeks=19,
+            players=(),
+            teams=(),
+            fixtures=(),
+        )
+        assert is_long_term_unavailable(p, snap) is True
+
+    def test_suspended_status_with_no_news_is_not_long_term(self) -> None:
+        """A bare 's' status with no news and no other signal is NOT long-term."""
+        p = Player(
+            id=403,
+            name="Bare Suspension",
+            position=Position.DEFENDER,
+            team_id=3,
+            price_tenths=45,
+            status="s",
+            chance_of_playing_this_round=0,
+            news="",
+        )
+        assert is_long_term_unavailable(p) is False
+
+    def test_acl_news_with_status_i_and_zero_chance_is_long_term(self) -> None:
+        """Injury status with ACL keyword and zero chance of playing is long-term,
+        even without a parseable return date."""
+        p = Player(
+            id=404,
+            name="ACL Case",
+            position=Position.DEFENDER,
+            team_id=4,
+            price_tenths=55,
+            status="i",
+            chance_of_playing_this_round=0,
+            news="Ruptured ACL - surgery required",
+        )
+        assert is_long_term_unavailable(p) is True
+
+    def test_long_ban_months_phrasing_is_long_term(self) -> None:
+        """A disciplinary suspension described in months (without a parseable date) is long-term."""
+        p = Player(
+            id=405,
+            name="Months Ban",
+            position=Position.FORWARD,
+            team_id=5,
+            price_tenths=70,
+            status="s",
+            chance_of_playing_this_round=0,
+            news="Handed an 8-month suspension by the FA",
+        )
+        assert is_long_term_unavailable(p) is True
 
 
 class TestOptimizerUnavailabilityIntegration:
@@ -195,6 +327,46 @@ class TestOptimizerUnavailabilityIntegration:
         assert len(recs) > 0
         out_id = recs[0]["outgoing"][0]["id"]
         assert out_id == 15, "Should immediately liquidate ACL victim with dead capital bonus"
+
+    def test_solve_transfers_short_suspension_gets_no_dead_capital_bonus(self) -> None:
+        """A squad player serving a short (1-match) suspension is not dead capital:
+        offloading them must NOT receive the dead capital bonus."""
+        squad = [
+            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=20, expected_points=3.0)
+            for i in range(1, 15)
+        ]
+        # 15th player is serving a single-match disciplinary suspension (not long-term)
+        squad.append(
+            PlayerOptInfo(
+                id=15,
+                name="One Match Ban",
+                position=Position.DEFENDER,
+                team_id=2,
+                team_short="T2",
+                price_tenths=80,
+                status="s",
+                total_points=30,
+                expected_points=0.0,
+                news="One match violent conduct suspension",
+            )
+        )
+        cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=75, status="a", total_points=40, expected_points=4.5)
+
+        recs, _ = solve_transfers(
+            num_transfers=1,
+            squad_players=squad,
+            candidate_pool=[cand],
+            bank_tenths=10,
+            free_transfers=1,
+            selling_prices={p.id: p.price_tenths for p in squad},
+            fdr_map={},
+            ticker_map={},
+            dead_capital_weight=3.0,
+        )
+        assert len(recs) > 0
+        out_id = recs[0]["outgoing"][0]["id"]
+        assert out_id == 15
+        assert recs[0]["dead_capital_bonus"] == 0
 
 
 class TestDecisionEngineV12Integration:

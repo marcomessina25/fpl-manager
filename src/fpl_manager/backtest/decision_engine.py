@@ -866,6 +866,7 @@ class DecisionEngineV11(DecisionEngineV10):
             constraints = StrategicConstraints(
                 budget_tenths=budget_tenths,
                 target_gameweeks=tuple(range(snapshot.gameweek, effective_end)),
+                bench_weight=1.0,
             )
             cand = solve_strategic_squad(
                 candidate_pool=candidate_pool,
@@ -873,6 +874,7 @@ class DecisionEngineV11(DecisionEngineV10):
                 strategy=self.initial_strategy,
                 mode="initial" if snapshot.gameweek == 1 else "wildcard",
                 horizon=effective_horizon,
+                bench_weight=1.0,
             )
             squad_ids = list(cand.player_ids)
             purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
@@ -914,6 +916,14 @@ class DecisionEngineV115(DecisionEngineV11):
         )
         self.dead_capital_weight = dead_capital_weight
 
+    def _is_dead_capital(self, player: Any, snapshot: HistoricalGameweekSnapshot) -> bool:
+        """Determine whether a player counts as "dead capital" to be prioritized for sale.
+
+        V1.1.5 only ever treats Premier League departures as dead capital (master behavior).
+        DecisionEngineV12 overrides this to additionally include long-term unavailability.
+        """
+        return is_departed_from_premier_league(player, snapshot)
+
     @property
     def version(self) -> str:
         return "v1.1.5"
@@ -940,8 +950,8 @@ class DecisionEngineV115(DecisionEngineV11):
             proj_map = {p.player_id: p for p in projections}
             candidate_pool = []
             for p in snapshot.players:
-                # Exclude departed and long-term unavailable players from candidate pool at squad initialization
-                if is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot):
+                # Exclude dead-capital players from candidate pool at squad initialization
+                if self._is_dead_capital(p, snapshot):
                     continue
                 proj = proj_map.get(p.player_id)
                 xp = proj.expected_points if proj else 0.0
@@ -973,6 +983,7 @@ class DecisionEngineV115(DecisionEngineV11):
             constraints = StrategicConstraints(
                 budget_tenths=budget_tenths,
                 target_gameweeks=tuple(range(snapshot.gameweek, effective_end)),
+                bench_weight=1.0,
             )
             cand = solve_strategic_squad(
                 candidate_pool=candidate_pool,
@@ -980,6 +991,7 @@ class DecisionEngineV115(DecisionEngineV11):
                 strategy=self.initial_strategy,
                 mode="initial" if snapshot.gameweek == 1 else "wildcard",
                 horizon=effective_horizon,
+                bench_weight=1.0,
             )
             squad_ids = list(cand.player_ids)
             purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
@@ -1027,10 +1039,10 @@ class DecisionEngineV115(DecisionEngineV11):
                 selling_prices[pid] = bought_price + max(0, (cur_price - bought_price) // 2)
 
             squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
-            # Prioritize selling departed or long-term unavailable players first
+            # Prioritize selling dead-capital players first
             squad_projs.sort(
                 key=lambda p: (
-                    0 if (is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot)) else 1,
+                    0 if self._is_dead_capital(p, snapshot) else 1,
                     p.expected_points,
                 )
             )
@@ -1044,8 +1056,7 @@ class DecisionEngineV115(DecisionEngineV11):
                     if p.player_id not in squad_set
                     and p.position == out_p.position
                     and p.price_tenths <= available_cash
-                    and not is_departed_from_premier_league(p, snapshot)
-                    and not is_long_term_unavailable(p, snapshot)
+                    and not self._is_dead_capital(p, snapshot)
                 ]
                 valid_cands = [
                     p
@@ -1056,7 +1067,7 @@ class DecisionEngineV115(DecisionEngineV11):
                     continue
                 valid_cands.sort(key=lambda p: p.expected_points, reverse=True)
                 best_in = valid_cands[0]
-                thresh = 0.0 if (is_departed_from_premier_league(out_p, snapshot) or is_long_term_unavailable(out_p, snapshot)) else min_net_gain
+                thresh = 0.0 if self._is_dead_capital(out_p, snapshot) else min_net_gain
                 if (best_in.expected_points - out_p.expected_points) >= thresh:
                     return [(out_id, best_in.player_id)]
             return []
@@ -1085,15 +1096,14 @@ class DecisionEngineV115(DecisionEngineV11):
         squad_set = set(current_squad_ids)
         squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
         proj_map = {p.player_id: p for p in projections}
-        # Strictly exclude departed or long-term unavailable players from incoming candidates
+        # Strictly exclude dead-capital players from incoming candidates
         cand_pool = [
             opt
             for pid, opt in opt_map.items()
             if pid not in squad_set
             and proj_map.get(pid)
             and proj_map[pid].play_probability >= 0.35
-            and not is_departed_from_premier_league(opt, snapshot)
-            and not is_long_term_unavailable(opt, snapshot)
+            and not self._is_dead_capital(opt, snapshot)
         ]
 
         selling_prices = {}
@@ -1215,6 +1225,10 @@ class DecisionEngineV12(DecisionEngineV115):
         )
         self.bench_weight = bench_weight
 
+    def _is_dead_capital(self, player: Any, snapshot: HistoricalGameweekSnapshot) -> bool:
+        """V1.2 additionally treats long-term unavailable players (multi-month bans, ACL tears) as dead capital."""
+        return is_departed_from_premier_league(player, snapshot) or is_long_term_unavailable(player, snapshot)
+
     @property
     def version(self) -> str:
         return "v1.2"
@@ -1247,7 +1261,7 @@ class DecisionEngineV12(DecisionEngineV115):
             proj_map = {p.player_id: p for p in projections}
             candidate_pool = []
             for p in snapshot.players:
-                if is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot):
+                if self._is_dead_capital(p, snapshot):
                     continue
                 proj = proj_map.get(p.player_id)
                 xp = proj.expected_points if proj else 0.0
@@ -1356,15 +1370,14 @@ class DecisionEngineV12(DecisionEngineV115):
         squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
         proj_map = {p.player_id: p for p in projections}
 
-        # Strictly exclude departed or long-term unavailable players from incoming candidates
+        # Strictly exclude dead-capital players from incoming candidates
         cand_pool = [
             opt
             for pid, opt in opt_map.items()
             if pid not in squad_set
             and proj_map.get(pid)
             and proj_map[pid].play_probability >= 0.35
-            and not is_departed_from_premier_league(opt, snapshot)
-            and not is_long_term_unavailable(opt, snapshot)
+            and not self._is_dead_capital(opt, snapshot)
         ]
 
         selling_prices = {}

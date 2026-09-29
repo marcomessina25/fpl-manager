@@ -113,3 +113,40 @@ def test_asymmetric_scoring_alignment_with_exact_reference() -> None:
     exact_score = exact_res.total_objective_value
     heur_score = heur_res.total_objective_value
     assert heur_score >= 0.95 * exact_score, f"Heuristic score {heur_score} fell below 95% of exact {exact_score}"
+
+
+class TestLegacyModeReproducesMaster:
+    """Regression guard for the V1.1/V1.1.5 baseline-drift fix (Issue 3a).
+
+    When the effective bench_weight is >= 1.0, solve_strategic_squad must run the exact
+    legacy (pre-V1.2) symmetric per-player-score search algorithm used by master:
+    per-player p_score deltas for 1-opt/2-opt (not asymmetric lineup scoring), top-30
+    2-opt candidates (not top-25), and a final evaluate_strategic_squad_objective call
+    without an explicit bench_weight override (using its own 0.15 default, exactly as
+    master's solve_strategic_squad did).
+
+    Expected player IDs and objective value below were obtained by running master's
+    (pre-V1.2) `solve_strategic_squad` from `git show master:src/fpl_manager/strategic_squad.py`
+    against this exact synthetic pool in an isolated temp module (not committed), and
+    hard-coding the result here for a fast, dependency-free regression check.
+    """
+
+    def test_legacy_bench_weight_matches_master_algorithm(self) -> None:
+        pool = _create_balancing_test_pool()
+        constraints = StrategicConstraints(budget_tenths=1000, bench_weight=1.0)
+        cand = solve_strategic_squad(pool, constraints, strategy="balanced", horizon=5, bench_weight=1.0)
+
+        expected_ids = [1, 2, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33]
+        assert sorted(cand.player_ids) == expected_ids
+        assert cand.total_objective_value == pytest.approx(431.0)
+
+    def test_legacy_bench_weight_via_constraints_default_matches_master_algorithm(self) -> None:
+        """Same as above, but bench_weight=1.0 comes solely from StrategicConstraints
+        (no explicit override kwarg to solve_strategic_squad)."""
+        pool = _create_balancing_test_pool()
+        constraints = StrategicConstraints(budget_tenths=1000, bench_weight=1.0)
+        cand = solve_strategic_squad(pool, constraints, strategy="balanced", horizon=5)
+
+        expected_ids = [1, 2, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33]
+        assert sorted(cand.player_ids) == expected_ids
+        assert cand.total_objective_value == pytest.approx(431.0)

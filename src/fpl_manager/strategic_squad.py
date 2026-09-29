@@ -718,6 +718,7 @@ def solve_strategic_squad(
         return compute_player_strategic_value(p, strategy, horizon_len=h_len, preferred_ids=pref_set)
 
     eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 0.15)
+    legacy_mode = eff_bench_weight >= 1.0
     p_score_map = {p.id: p_score(p) for p in eligible_pool}
 
     def _eval_squad_lineup_score(sq: list[Any]) -> float:
@@ -841,7 +842,10 @@ def solve_strategic_squad(
     squad_ids = {p.id for p in squad}
 
     # Stage 2: 1-Opt Upgrades (Locked players cannot be replaced)
-    base_lineup_score = _eval_squad_lineup_score(squad)
+    # Legacy mode (effective bench_weight >= 1.0, i.e. V1.1/V1.1.5 non-asymmetric callers) reproduces
+    # master's exact symmetric per-player score-delta search. Asymmetric mode (bench_weight < 1.0,
+    # V1.2 default) evaluates candidate lineups via _eval_squad_lineup_score (best XI + captain + bench).
+    base_lineup_score = None if legacy_mode else _eval_squad_lineup_score(squad)
     improved_1opt = True
     iteration = 0
     while improved_1opt and iteration < max_1opt_iterations:
@@ -854,6 +858,8 @@ def solve_strategic_squad(
             if curr_p.id in locked_set:
                 continue  # Never replace a locked player
 
+            if legacy_mode:
+                curr_val = p_score(curr_p)
             for cand in by_pos[curr_p.position]:
                 if cand.id in squad_ids:
                     continue
@@ -863,14 +869,18 @@ def solve_strategic_squad(
                 if cand.team_id != curr_p.team_id and t_counts.get(cand.team_id, 0) >= constraints.max_players_per_club:
                     continue
 
-                squad[i] = cand
-                cand_score = _eval_squad_lineup_score(squad)
-                squad[i] = curr_p
+                if legacy_mode:
+                    delta_val = p_score(cand) - curr_val
+                    new_score = None
+                else:
+                    squad[i] = cand
+                    new_score = _eval_squad_lineup_score(squad)
+                    squad[i] = curr_p
+                    delta_val = new_score - base_lineup_score
 
-                delta_val = cand_score - base_lineup_score
                 if delta_val > best_gain:
                     best_gain = delta_val
-                    best_swap = (i, curr_p, cand, delta_cost, cand_score)
+                    best_swap = (i, curr_p, cand, delta_cost, new_score)
 
         if best_swap:
             i, curr_p, cand, delta_cost, new_score = best_swap
@@ -880,12 +890,13 @@ def solve_strategic_squad(
             t_counts[cand.team_id] = t_counts.get(cand.team_id, 0) + 1
             squad[i] = cand
             current_cost += delta_cost
-            base_lineup_score = new_score
+            if not legacy_mode:
+                base_lineup_score = new_score
             improved_1opt = True
 
     # Stage 3: 2-Opt Cross-Position Swaps
     cands_pos = {
-        pos: sorted(by_pos[pos], key=p_score, reverse=True)[:25]
+        pos: sorted(by_pos[pos], key=p_score, reverse=True)[:(30 if legacy_mode else 25)]
         for pos in Position
     }
 
@@ -910,6 +921,8 @@ def solve_strategic_squad(
                 t_counts[p1.team_id] -= 1
                 t_counts[p2.team_id] -= 1
                 base_cost = current_cost - p1.price_tenths - p2.price_tenths
+                if legacy_mode:
+                    base_val = p_score(p1) + p_score(p2)
 
                 for c1 in cands_pos[p1.position]:
                     if c1.id in squad_ids and c1.id not in (p1.id, p2.id):
@@ -929,13 +942,17 @@ def solve_strategic_squad(
                         if new_cost > effective_budget:
                             continue
 
-                        squad[i] = c1
-                        squad[j] = c2
-                        cand_score = _eval_squad_lineup_score(squad)
-                        squad[i] = p1
-                        squad[j] = p2
+                        if legacy_mode:
+                            gain = (p_score(c1) + p_score(c2)) - base_val
+                            cand_score = None
+                        else:
+                            squad[i] = c1
+                            squad[j] = c2
+                            cand_score = _eval_squad_lineup_score(squad)
+                            squad[i] = p1
+                            squad[j] = p2
+                            gain = cand_score - base_lineup_score
 
-                        gain = cand_score - base_lineup_score
                         if gain > best_2gain:
                             best_2gain = gain
                             best_2swap = (i, j, p1, p2, c1, c2, new_cost, cand_score)
@@ -958,7 +975,8 @@ def solve_strategic_squad(
             squad[i] = c1
             squad[j] = c2
             current_cost = new_cost
-            base_lineup_score = new_score
+            if not legacy_mode:
+                base_lineup_score = new_score
             improved_2opt = True
 
     # Rule validation of finalized 15-player squad
@@ -976,16 +994,27 @@ def solve_strategic_squad(
     if not val.is_valid:
         raise RuntimeError(f"Optimized squad failed FPL rules: {'; '.join(val.errors)}")
 
-    # Objective and Lineup Evaluation
+    # Objective and Lineup Evaluation.
+    # Legacy mode matches master exactly: it never passed bench_weight, so the function's
+    # own default (0.15) applies regardless of the search-phase effective bench weight.
     bank_rem = constraints.budget_tenths - current_cost
-    obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
-        squad=squad,
-        strategy=strategy,
-        horizon_gws=target_gws,
-        bank_tenths=bank_rem,
-        preferred_ids=pref_set,
-        bench_weight=eff_bench_weight,
-    )
+    if legacy_mode:
+        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+            squad=squad,
+            strategy=strategy,
+            horizon_gws=target_gws,
+            bank_tenths=bank_rem,
+            preferred_ids=pref_set,
+        )
+    else:
+        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+            squad=squad,
+            strategy=strategy,
+            horizon_gws=target_gws,
+            bank_tenths=bank_rem,
+            preferred_ids=pref_set,
+            bench_weight=eff_bench_weight,
+        )
 
     def serialize(p: Any, role: str) -> dict[str, Any]:
         return {

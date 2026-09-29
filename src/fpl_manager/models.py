@@ -1,9 +1,9 @@
 """Small domain models independent of the FPL API transport format."""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import IntEnum
-import json
-from pathlib import Path
+import re
 from typing import Any
 
 
@@ -70,11 +70,7 @@ DEPARTURE_KEYWORDS: tuple[str, ...] = (
     "sold to",
 )
 
-UNAVAILABILITY_KEYWORDS: tuple[str, ...] = (
-    "suspended",
-    "suspension",
-    "banned",
-    "ban",
+LONG_TERM_INJURY_KEYWORDS: tuple[str, ...] = (
     "acl",
     "anterior cruciate ligament",
     "cruciate ligament",
@@ -82,29 +78,82 @@ UNAVAILABILITY_KEYWORDS: tuple[str, ...] = (
     "season-ending",
     "out for the season",
     "out for season",
-    "surgery",
     "indefinitely",
 )
 
-_UNAVAILABILITY_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
+_MONTH_NAMES: dict[str, int] = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+
+# Matches FPL-style return-date phrasing: "Suspended until 17 Jan", "Expected back 17 Jan",
+# "until 17 January 2024". Captures (day, month name, optional year).
+_RETURN_DATE_RE = re.compile(
+    r"(?:suspended\s+until|expected\s+(?:to\s+)?(?:be\s+)?back|out\s+until|until|back)"
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?(?:\s+(\d{4}))?",
+    re.IGNORECASE,
+)
+
+# Matches disciplinary ban duration phrasing such as "8-month" or "10 months".
+_MONTHS_BAN_RE = re.compile(r"\d+[\s-]*months?", re.IGNORECASE)
 
 
-def _get_unavailability_registry() -> dict[str, dict[str, Any]]:
-    global _UNAVAILABILITY_REGISTRY_CACHE
-    if _UNAVAILABILITY_REGISTRY_CACHE is not None:
-        return _UNAVAILABILITY_REGISTRY_CACHE
-    base_paths = [
-        Path(__file__).resolve().parent.parent.parent / "data" / "historical" / "unavailability_registry.json",
-        Path("data/historical/unavailability_registry.json"),
-    ]
-    for p in base_paths:
-        if p.exists():
+def _parse_return_date(news_lower: str, reference: datetime) -> datetime | None:
+    """Extract a point-in-time expected return date from FPL news text, if present."""
+    match = _RETURN_DATE_RE.search(news_lower)
+    if not match:
+        return None
+    day_str, month_str, year_str = match.groups()
+    month = _MONTH_NAMES.get(month_str.lower())
+    if month is None:
+        return None
+    try:
+        day = int(day_str)
+    except ValueError:
+        return None
+    if year_str:
+        try:
+            return datetime(int(year_str), month, day, tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    # No year given: choose the first occurrence of that day/month that is not more
+    # than ~30 days before the reference date (roll into next year if needed).
+    try:
+        candidate = datetime(reference.year, month, day, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if (reference - candidate).days > 30:
+        try:
+            candidate = datetime(reference.year + 1, month, day, tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return candidate
+
+
+def _reference_datetime(snapshot: object | None) -> datetime:
+    """Resolve the point-in-time reference datetime for return-date calculations."""
+    if snapshot is not None:
+        deadline_str = getattr(snapshot, "deadline_time", None)
+        if deadline_str:
             try:
-                _UNAVAILABILITY_REGISTRY_CACHE = json.loads(p.read_text(encoding="utf-8"))
-                return _UNAVAILABILITY_REGISTRY_CACHE
+                clean = deadline_str.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(clean)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             except Exception:
                 pass
-    return {}
+    return datetime.now(timezone.utc)
 
 
 def is_departed_from_premier_league(player: object, snapshot: object = None) -> bool:
@@ -157,13 +206,22 @@ def is_departed_from_premier_league(player: object, snapshot: object = None) -> 
 
 
 def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
-    """Determine whether a player is long-term unavailable (multi-month ban, ACL, out for season).
+    """Determine whether a player is long-term unavailable (expected return > 35 days away).
 
     Point-in-time criteria:
-    1. Already classified as departed from Premier League.
-    2. Official FPL status == 'u'.
-    3. Registry lookup: player is in unavailability_registry.json for the active season and gameweek.
-    4. Disciplinary or severe injury status ('s' or 'i') with zero chance of playing and explicit long-term absence news.
+    1. Already classified as departed from Premier League, or official FPL status == 'u'.
+    2. Registry marker: `build_historical_snapshot` stamps registry-applied players' news with
+       a "Long-term unavailable: <reason>" prefix (see historical/snapshots.py); such a marker
+       is always treated as long-term regardless of status.
+    3. For status 's' (suspended) or 'i' (injured) with zero chance of playing:
+       a. If the news contains a parseable expected-return date, long-term iff that date is
+          more than 35 days after the point-in-time reference date (the snapshot's deadline
+          if available, otherwise "now").
+       b. Else if status == 'i' and the news contains a severe long-term injury keyword
+          (ACL, cruciate ligament, out for the season, indefinitely, ...) -> True.
+       c. Else if status == 's' and the news indicates a long ban ("indefinitely" or an
+          "N-month(s)" phrasing) -> True.
+       d. Otherwise False (e.g. a short suspension or a bare "Suspended" with no other signal).
     """
     if is_departed_from_premier_league(player, snapshot=snapshot):
         return True
@@ -172,31 +230,39 @@ def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
     if status == "u":
         return True
 
-    pid = getattr(player, "id", getattr(player, "player_id", None))
+    news = (getattr(player, "news", None) or "")
+    news_lower = news.lower()
 
-    # 3. Registry verification
-    if snapshot is not None and pid is not None:
-        season = getattr(snapshot, "season", None)
-        gw = getattr(snapshot, "gameweek", None)
-        if season and gw is not None:
-            reg = _get_unavailability_registry().get(str(season), {})
-            entry = reg.get(str(pid)) or reg.get(pid)
-            if entry and entry.get("start_gw", 1) <= gw <= entry.get("end_gw", 38):
-                return True
-
-    # 4. News / status inspection
-    news = (getattr(player, "news", None) or "").lower()
-    chance_this = getattr(player, "chance_of_playing_this_round", None)
-    chance_next = getattr(player, "chance_of_playing_next_round", None)
-
-    if status == "s":
+    # 2. Registry marker stamped by build_historical_snapshot when apply_unavailability=True.
+    if news_lower.startswith("long-term unavailable:"):
         return True
 
-    if status == "i":
-        is_zero_chance = (chance_this == 0 or chance_next == 0 or (chance_this is None and chance_next is None))
-        if is_zero_chance and any(kw in news for kw in UNAVAILABILITY_KEYWORDS):
-            return True
+    if status not in ("s", "i"):
+        return False
 
+    chance_this = getattr(player, "chance_of_playing_this_round", None)
+    chance_next = getattr(player, "chance_of_playing_next_round", None)
+    is_zero_chance = (
+        chance_this == 0
+        or chance_next == 0
+        or (chance_this is None and chance_next is None)
+    )
+    if not is_zero_chance:
+        return False
+
+    reference_dt = _reference_datetime(snapshot)
+    return_date = _parse_return_date(news_lower, reference_dt)
+    if return_date is not None:
+        return (return_date - reference_dt).days > 35
+
+    if status == "i":
+        return any(kw in news_lower for kw in LONG_TERM_INJURY_KEYWORDS)
+
+    # status == "s"
+    if "indefinitely" in news_lower:
+        return True
+    if _MONTHS_BAN_RE.search(news_lower):
+        return True
     return False
 
 

@@ -291,7 +291,7 @@ def build_historical_snapshot(
             status = "s" if ("suspen" in reason_lower or "ban" in reason_lower) else "i"
             chance_next = 0
             chance_this = 0
-            news_text = f"Unavailable: {unavail_entry.get('reason')}"
+            news_text = f"Long-term unavailable: {unavail_entry.get('reason')}"
         elif status == "a" and finished_gws >= 3 and mins == 0:
             # Player consistently not playing across completed gameweeks (1..N-1)
             status = "d"
