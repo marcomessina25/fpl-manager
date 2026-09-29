@@ -22,7 +22,7 @@ import itertools
 import math
 from typing import Any
 
-from .models import Position
+from .models import Position, is_departed_from_premier_league
 from .optimizer import LEGAL_FORMATIONS, PlayerOptInfo, get_player_profile_value, validate_risk_profile
 from .rules import Player, validate_squad, validate_starting_lineup
 
@@ -76,6 +76,18 @@ class StrategicConstraints:
         missing_locked = [pid for pid in self.locked_player_ids if pid not in pool_by_id]
         if missing_locked:
             errors.append(f"Locked player IDs not found in candidate pool: {missing_locked}")
+
+        departed_locked = [
+            pid
+            for pid in self.locked_player_ids
+            if pid in pool_by_id
+            and (
+                getattr(pool_by_id[pid], "status", "a") == "u"
+                or is_departed_from_premier_league(pool_by_id[pid])
+            )
+        ]
+        if departed_locked:
+            errors.append(f"Departed player IDs cannot be locked: {departed_locked}")
 
         locked_players = [pool_by_id[pid] for pid in self.locked_player_ids if pid in pool_by_id]
 
@@ -229,16 +241,16 @@ def compute_player_strategic_value(
     strat = strategy.lower().strip()
 
     # Detect if player already provides an explicit horizon aggregate
-    has_horizon_xp = getattr(player, "horizon_xp", 0.0) != 0.0
+    has_horizon_xp = float(getattr(player, "horizon_xp", 0.0) or 0.0) > 0.0
     if has_horizon_xp:
         base_xp = float(player.horizon_xp)
-        floor_val = float(getattr(player, "horizon_floor", getattr(player, "xp_floor", base_xp)))
-        ceil_val = float(getattr(player, "horizon_ceiling", getattr(player, "xp_ceiling", base_xp)))
+        floor_val = float(getattr(player, "horizon_floor", 0.0) or getattr(player, "xp_floor", 0.0) or base_xp)
+        ceil_val = float(getattr(player, "horizon_ceiling", 0.0) or getattr(player, "xp_ceiling", 0.0) or base_xp)
     else:
-        gw_xp = float(getattr(player, "gw_xp", getattr(player, "expected_points", 0.0)))
+        gw_xp = float(getattr(player, "gw_xp", 0.0) or getattr(player, "expected_points", 0.0))
         base_xp = gw_xp * horizon_len
-        floor_val = float(getattr(player, "xp_floor", gw_xp)) * horizon_len
-        ceil_val = float(getattr(player, "xp_ceiling", gw_xp)) * horizon_len
+        floor_val = float(getattr(player, "xp_floor", 0.0) or gw_xp) * horizon_len
+        ceil_val = float(getattr(player, "xp_ceiling", 0.0) or gw_xp) * horizon_len
 
     sd = getattr(player, "standard_deviation", 1.0)
     sel = getattr(player, "selected_by_percent", 10.0)
@@ -481,7 +493,10 @@ def solve_strategic_squad_exact_reference(
     eligible_pool = [
         p
         for p in candidate_pool
-        if p.id not in excluded_set and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
+        if p.id not in excluded_set
+        and getattr(p, "status", "a") != "u"
+        and not is_departed_from_premier_league(p)
+        and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
     # Partition by position
@@ -681,7 +696,10 @@ def solve_strategic_squad(
     eligible_pool = [
         p
         for p in candidate_pool
-        if p.id not in excluded_set and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
+        if p.id not in excluded_set
+        and getattr(p, "status", "a") != "u"
+        and not is_departed_from_premier_league(p)
+        and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}

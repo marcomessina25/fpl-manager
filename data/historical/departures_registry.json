@@ -1,0 +1,51 @@
+{
+  "2021-22": {
+    "3": {"name": "Willian Borges Da Silva", "departure_gw": 1, "reason": "transferred to Corinthians"},
+    "120": {"name": "Olivier Giroud", "departure_gw": 1, "reason": "transferred to AC Milan"},
+    "126": {"name": "Michy Batshuayi", "departure_gw": 1, "reason": "loaned to Besiktas"},
+    "136": {"name": "Tammy Abraham", "departure_gw": 1, "reason": "transferred to AS Roma"},
+    "164": {"name": "Gylfi Sigurdsson", "departure_gw": 1, "reason": "suspended / unavailable"},
+    "166": {"name": "James Rodriguez", "departure_gw": 1, "reason": "transferred to Al-Rayyan"},
+    "167": {"name": "Bernard", "departure_gw": 1, "reason": "transferred to Sharjah FC"},
+    "226": {"name": "Xherdan Shaqiri", "departure_gw": 1, "reason": "transferred to Lyon"},
+    "356": {"name": "Erik Lamela", "departure_gw": 1, "reason": "transferred to Sevilla"},
+    "4": {"name": "Pierre-Emerick Aubameyang", "departure_gw": 21, "reason": "transferred to Barcelona"},
+    "268": {"name": "Ferran Torres", "departure_gw": 21, "reason": "transferred to Barcelona"}
+  },
+  "2022-23": {
+    "129": {"name": "Marcos Alonso", "departure_gw": 1, "reason": "transferred to Barcelona"},
+    "137": {"name": "Timo Werner", "departure_gw": 1, "reason": "transferred to RB Leipzig"},
+    "232": {"name": "Raphinha", "departure_gw": 1, "reason": "transferred to Barcelona"},
+    "437": {"name": "Steven Bergwijn", "departure_gw": 1, "reason": "transferred to Ajax"},
+    "326": {"name": "Cristiano Ronaldo dos Santos Aveiro", "departure_gw": 16, "reason": "contract terminated / joined Al-Nassr"},
+    "306": {"name": "Joao Cancelo", "departure_gw": 21, "reason": "loaned to Bayern Munich"}
+  },
+  "2023-24": {
+    "24": {"name": "Kieran Tierney", "departure_gw": 3, "reason": "season-long loan to Real Sociedad"},
+    "30": {"name": "Granit Xhaka", "departure_gw": 1, "reason": "transferred to Bayer Leverkusen"},
+    "188": {"name": "Pierre-Emerick Aubameyang", "departure_gw": 1, "reason": "transferred to Marseille"},
+    "207": {"name": "Romelu Lukaku Bolingoli", "departure_gw": 1, "reason": "loaned to Roma"},
+    "213": {"name": "Christian Pulisic", "departure_gw": 1, "reason": "transferred to AC Milan"},
+    "218": {"name": "Hakim Ziyech", "departure_gw": 1, "reason": "loaned to Galatasaray"},
+    "346": {"name": "Joao Cancelo", "departure_gw": 1, "reason": "loaned to Barcelona"},
+    "359": {"name": "Riyad Mahrez", "departure_gw": 1, "reason": "transferred to Al-Ahli"},
+    "426": {"name": "Allan Saint-Maximin", "departure_gw": 1, "reason": "transferred to Al-Ahli"},
+    "500": {"name": "Harry Kane", "departure_gw": 1, "reason": "transferred to Bayern Munich"},
+    "541": {"name": "Gianluca Scamacca", "departure_gw": 1, "reason": "transferred to Atalanta"},
+    "525": {"name": "Said Benrahma", "departure_gw": 22, "reason": "loaned to Lyon"}
+  },
+  "2024-25": {
+    "34": {"name": "Moussa Diaby", "departure_gw": 1, "reason": "transferred to Al-Ittihad"},
+    "108": {"name": "Ivan Toney", "departure_gw": 3, "reason": "transferred to Al-Ahli"},
+    "125": {"name": "Pascal Gross", "departure_gw": 1, "reason": "transferred to Borussia Dortmund"},
+    "169": {"name": "Conor Gallagher", "departure_gw": 1, "reason": "transferred to Atletico Madrid"},
+    "175": {"name": "Romelu Lukaku Bolingoli", "departure_gw": 1, "reason": "transferred to Napoli"},
+    "352": {"name": "Julian Alvarez", "departure_gw": 1, "reason": "transferred to Atletico Madrid"},
+    "353": {"name": "Joao Cavaco Cancelo", "departure_gw": 1, "reason": "transferred to Al-Hilal"}
+  },
+  "2025-26": {
+    "383": {"name": "Luis Diaz Marulanda", "departure_gw": 1, "reason": "transferred permanently abroad"},
+    "420": {"name": "Ilkay Gundogan", "departure_gw": 1, "reason": "transferred permanently abroad"},
+    "579": {"name": "Son Heung-min", "departure_gw": 1, "reason": "transferred permanently abroad"}
+  }
+}

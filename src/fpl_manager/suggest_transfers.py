@@ -14,7 +14,7 @@ from .expected_points import (
     project_multi_gameweek_profiles,
 )
 from .fixtures import analyze_team_fixtures, get_current_gameweek
-from .models import Position
+from .models import Position, is_departed_from_premier_league
 from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
@@ -152,6 +152,7 @@ def suggest_transfers(
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
     gameweek: int | None = None,
+    dead_capital_weight: float = 3.0,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad using branch-and-bound optimization."""
     if num_transfers < 1 or num_transfers > 5:
@@ -185,8 +186,14 @@ def suggest_transfers(
         for p_id in state.player_ids if p_id in players_map
     }
 
-    # Only recommend available active players
-    candidate_pool = [p for p in players_map.values() if p.id not in squad_set and p.status in ("a", "d")]
+    # Only recommend available active players (strictly excluding departed players)
+    candidate_pool = [
+        p
+        for p in players_map.values()
+        if p.id not in squad_set
+        and p.status in ("a", "d")
+        and not is_departed_from_premier_league(p)
+    ]
 
     top_results, total_evaluated = solve_transfers(
         num_transfers=num_transfers,
@@ -199,6 +206,7 @@ def suggest_transfers(
         ticker_map=ticker_map,
         risk_profile=risk_profile,
         max_results=max_results,
+        dead_capital_weight=dead_capital_weight,
     )
 
     report = {
@@ -264,7 +272,11 @@ def suggest_wildcard(
         )
         budget_tenths = state.bank_tenths + squad_selling_value
 
-    candidate_pool = list(players_map.values())
+    candidate_pool = [
+        p
+        for p in players_map.values()
+        if p.status in ("a", "d") and not is_departed_from_premier_league(p)
+    ]
     result = solve_wildcard(
         candidate_pool=candidate_pool,
         budget_tenths=budget_tenths,

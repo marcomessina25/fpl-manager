@@ -17,7 +17,7 @@ It is **not** an autonomous team manager. A human remains responsible for final 
 - Decisions, alternatives, and outcomes should be recorded so the system can be evaluated and improved.
 - The system runs locally except for public data downloads and optional, deterministically validated LLM API calls.
 
-## System architecture (V1.0.1)
+## System architecture (V1.1.5)
 
 ```text
 Official FPL API                 Human observations / news

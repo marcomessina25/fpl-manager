@@ -1127,13 +1127,15 @@ def main(argv: list[str] | None = None) -> None:
         ("v11-backtest", "Alias for `fpl backtest-strategic`"),
     ):
         bt_p = subcommands.add_parser(bt_cmd, help=bt_help)
-        bt_p.add_argument("--suite", choices=["all", "initial", "wildcard", "profiles", "horizon", "constraints", "ablation", "prediction_ablation", "errors", "summary"], default="all", help="Analysis suite to execute")
+        bt_p.add_argument("--suite", choices=["all", "initial", "wildcard", "profiles", "horizon", "constraints", "ablation", "prediction_ablation", "errors", "summary", "compare", "benchmark"], default="all", help="Analysis suite to execute")
         bt_p.add_argument("--season", type=str, default="2023-24", help="Historical season to evaluate (default: 2023-24)")
         bt_p.add_argument("--seasons", type=str, default="2021-22,2022-23,2023-24,2024-25,2025-26", help="Comma-separated seasons for multi-season summary")
         bt_p.add_argument("--horizon", type=int, default=5, help="Planning horizon in gameweeks (default: 5)")
         bt_p.add_argument("--end-gw", type=int, default=10, help="Ending gameweek for simulation (default: 10)")
         bt_p.add_argument("--smoke", "--quick", dest="smoke", action="store_true", help="Run in fast smoke-test mode")
-        bt_p.add_argument("--output-dir", type=Path, default=None, help="Output directory for generated reports (default: reports/v11/)")
+        bt_p.add_argument("--chips", action="store_true", help="Enable seasonal 2-window chip engine (Pillar 2)")
+        bt_p.add_argument("--compare-versions", action="store_true", help="Execute multi-version benchmark comparing V0.9, V1.0, V1.1, and V1.1.5 (Pillar 4)")
+        bt_p.add_argument("--output-dir", type=Path, default=None, help="Output directory for generated reports (default: reports/v11/ or reports/v115/)")
 
     arguments = parser.parse_args(argv)
 
@@ -1639,7 +1641,18 @@ def main(argv: list[str] | None = None) -> None:
             end_gw = arguments.end_gw
             smoke = arguments.smoke
 
-            if suite == "all":
+            if arguments.compare_versions or suite in ("compare", "benchmark"):
+                from .backtest.strategic_analysis import run_version_comparison_backtest
+                seasons_list = [s.strip() for s in arguments.seasons.split(",") if s.strip()]
+                res = run_version_comparison_backtest(
+                    seasons=seasons_list,
+                    start_gw=1,
+                    end_gw=end_gw,
+                    smoke_test=smoke,
+                    output_dir=out_dir,
+                )
+                print(f"Multi-version benchmark ledger generated! Report saved to: {res.get('report_path')}")
+            elif suite == "all":
                 seasons_list = [s.strip() for s in arguments.seasons.split(",") if s.strip()]
                 res = run_all_v11_analyses(seasons=seasons_list, smoke_test=smoke, output_base_dir=out_dir)
                 print(f"Executed all V1.1 analysis suites! Reports saved to: {out_dir or 'reports/v11/'}")
