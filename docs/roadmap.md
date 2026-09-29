@@ -145,7 +145,7 @@ Automated learning loops
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
 | **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
-| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Active Development (branch `v12`)** |
+| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Implemented / Benchmarked — target not met (branch `v12`)** |
 | V1.3 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
@@ -1566,7 +1566,7 @@ Eliminate dead capital from players transferred out of the Premier League, preve
 
 # 20. V1.2 — Strategic Squad Balancing & Long-Term Unavailability
 
-**Status:** Active development on branch `v12`. Specification: [`docs/v1.2/v12.md`](v1.2/v12.md).
+**Status:** Implemented and benchmarked on branch `v12` (Track A 2,025.8 vs target ≥2,050; V1.0 2,048.4). Specification and results: [`docs/v1.2/v12.md`](v1.2/v12.md).
 
 V1.2 focuses on closing the performance gap between V1.0 (canonical single-gameweek decision engine) and V1.1 (strategic squad construction), while integrating first-class support for long-term player unavailability.
 

@@ -175,3 +175,27 @@ def test_generate_multi_gameweek_plan_validation_and_risk(planner_test_db: tuple
 
     with pytest.raises(ValueError, match="Invalid risk_profile"):
         generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, risk_profile="unknown")
+
+
+def _incoming_ids(plan: dict) -> set[int]:
+    return {
+        tx["in"]["id"]
+        for step in plan["best_plan"]["gameweek_steps"]
+        for tx in step.get("transfers", [])
+    }
+
+
+def test_generate_multi_gameweek_plan_excludes_long_term_unavailable(
+    planner_test_db: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path, squad_path = planner_test_db
+
+    baseline_in = _incoming_ids(generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, horizon=2))
+    assert baseline_in, "fixture must produce at least one incoming transfer"
+
+    import fpl_manager.planner as planner_mod
+
+    monkeypatch.setattr(planner_mod, "is_long_term_unavailable", lambda p, snapshot=None: p.id in baseline_in)
+    res = generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, horizon=2)
+
+    assert _incoming_ids(res).isdisjoint(baseline_in)
