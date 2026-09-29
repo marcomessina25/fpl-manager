@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.1 is completed and validated. V1.1.5 (`v115`) is the current hardening release, delivering Premier League departure lifecycles, dead capital recovery, and historically calibrated seasonal chip policies with an audited 5-season benchmark ledger. V1.2 is scheduled for **Strategic Squad Balancing & Long-Term Unavailability** (addressing the V1.1 starting XI vs bench overinvestment trade-off and multi-month bans/injuries like Toney/Tonali/ACLs). The multi-provider and extended-LLM advisory work is scheduled for V1.3.
+**Current baseline:** V1.1.5 is completed, validated, and merged into master. **V1.2 (`v12`) is the current active release in development**, delivering Strategic Squad Balancing (Starting XI vs Bench asymmetric weighting), Lineup-Aware Transfer Planning, and Long-Term Unavailability Modeling (multi-month bans like Toney/Tonali and long injuries) to close the performance gap vs V1.0. The multi-provider and extended-LLM advisory work is scheduled for V1.3.
 
 ---
 
@@ -144,8 +144,8 @@ Automated learning loops
 | V0.9 | Learned participation/closed-loop/hardening | Completed |
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
-| **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Validated / PR-Ready (branch `v115`)** |
-| V1.2 | Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs) | Planned |
+| **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
+| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Active Development (branch `v12`)** |
 | V1.3 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
@@ -1566,7 +1566,7 @@ Eliminate dead capital from players transferred out of the Premier League, preve
 
 # 20. V1.2 — Strategic Squad Balancing & Long-Term Unavailability
 
-**Status: planned next release.**
+**Status:** Active development on branch `v12`. Specification: [`docs/v1.2/v12.md`](v1.2/v12.md).
 
 V1.2 focuses on closing the performance gap between V1.0 (canonical single-gameweek decision engine) and V1.1 (strategic squad construction), while integrating first-class support for long-term player unavailability.
 
@@ -1592,7 +1592,7 @@ The central question becomes:
 
 ---
 
-## 20.1 Multi-provider infrastructure
+## 21.1 Multi-provider infrastructure
 
 Investigate and support, where justified:
 
@@ -1609,7 +1609,7 @@ The core application must work without an external LLM.
 
 ---
 
-## 20.2 Provider benchmark
+## 21.2 Provider benchmark
 
 Measure:
 
@@ -1626,7 +1626,7 @@ Do not evaluate providers only by subjective response quality.
 
 ---
 
-## 20.3 Extended model research
+## 21.3 Extended model research
 
 Test multiple model families and sizes.
 
@@ -1641,7 +1641,7 @@ Questions:
 
 ---
 
-## 20.4 Human-in-the-loop experimentation
+## 21.4 Human-in-the-loop experimentation
 
 V1.2 should support structured experiments where:
 
