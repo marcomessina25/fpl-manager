@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.1.5 is completed, validated, and merged into master. **V1.2 (`v12`) is the current active release in development**, delivering Strategic Squad Balancing (Starting XI vs Bench asymmetric weighting), Lineup-Aware Transfer Planning, and Long-Term Unavailability Modeling (multi-month bans like Toney/Tonali and long injuries) to close the performance gap vs V1.0. The multi-provider and extended-LLM advisory work is scheduled for V1.3.
+**Current baseline:** V1.1.5 is completed, validated, and merged into master. **V1.2 (`v12`) is implemented, verified, and PR-ready**, delivering Strategic Squad Balancing (Starting XI vs Bench asymmetric weighting), Lineup-Aware Transfer Planning, Long-Term Unavailability Modeling, and verified baseline parity (+45.4 pts vs V1.1.5 in Track A). The next milestone is **V1.2.5 (`v125`)** (Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement) designed to close the remaining gap to V1.0 before proceeding to V1.3 (Multi-Provider LLM Expansion).
 
 ---
 
@@ -115,6 +115,13 @@ V1.2
 Strategic squad balancing (starting XI vs bench weighting)
 + Long-term unavailability handling (multi-month bans & injuries)
         ↓
+V1.2.5
+Lineup-aware transfer evaluation refinements
++ Candidate pool widening & direct lineup search
++ Goalkeeper churn suppression & role transfer hurdles
++ Multi-gameweek discounted lineup horizon (H=3, γ=0.75)
++ Dynamic chip-aware bench weighting
+        ↓
 V1.3
 Multi-provider expansion
 + Extended LLM model research
@@ -145,7 +152,8 @@ Automated learning loops
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
 | **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
-| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Implemented / Benchmarked — target not met (branch `v12`)** |
+| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Implemented & Verified (PR Ready, branch `v12`)** |
+| **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression** | **Specification Complete (Target branch `v125`)** |
 | V1.3 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
@@ -1566,23 +1574,45 @@ Eliminate dead capital from players transferred out of the Premier League, preve
 
 # 20. V1.2 — Strategic Squad Balancing & Long-Term Unavailability
 
-**Status:** Implemented and benchmarked on branch `v12` (Track A 2,025.8 vs target ≥2,050; V1.0 2,048.4). Specification and results: [`docs/v1.2/v12.md`](v1.2/v12.md).
+**Status:** Implemented, verified, and PR-ready on branch `v12`. Dual-track audited 5-season ledger: Track A 2,025.8 pts (lowest variance $\pm 122.0$; $+45.4$ pts vs V1.1.5); Track B 2,050.2 pts ($+42.4$ pts vs V1.1.5). Full baseline parity verified across V0.9–V1.1.5 (0.0 drift). Full specification and results: [`docs/v1.2/v12.md`](v1.2/v12.md).
 
 V1.2 focuses on closing the performance gap between V1.0 (canonical single-gameweek decision engine) and V1.1 (strategic squad construction), while integrating first-class support for long-term player unavailability.
 
-### Core Objectives:
+### Core Deliverables:
 1. **Strategic Squad Balancing (Starting XI vs Bench Weighting):**
-   - **Diagnosis:** In V1.1, the strategic squad solver maximizes total 15-player multi-week xP with equal or near-equal weighting. This forces over-investment into bench players (e.g. £5.5m–£6.0m defenders/midfielders sitting on the bench) at the expense of premium starting XI assets (e.g. Salah, Haaland). In contrast, V1.0 invests heavily in top starters and places minimum-cost £4.0m/£4.5m enablers on the bench, leading to higher realized on-pitch points in Track A.
-   - **Solution:** Introduce explicit starting XI vs bench weighting in the multi-week ILP objective ($1.0\times$ for predicted starters, $0.10\times$–$0.20\times$ for bench substitutes), matching the actual expected contribution of bench points via auto-substitutions.
+   - Implemented asymmetric starting XI vs bench weighting in the multi-week objective ($1.0\times$ for starters, $0.15\times$ for bench substitutes), concentrating budget into active starting firepower while preserving playing security.
 2. **Long-Term Unavailability Modeling:**
-   - **Diagnosis:** Players with multi-month suspensions (e.g., Ivan Toney 8-month ban, Sandro Tonali 10-month ban) or season-ending injuries (ACL tears) were historically marked only with short-term absence flags, causing the transfer engine to retain them or incur multiple churn hits.
-   - **Solution:** Add explicit return-date and ban-duration parsing to the historical feature pipeline, treating long-term unavailability as zero-minute projections over the full strategic horizon (5–8 GWs).
+   - Explicit return-date ($>35$ days) and severe absence parsing (ACL tears, multi-month disciplinary bans) with point-in-time registry integration, purchase exclusion, and dead-capital liquidation prioritization.
+3. **Lineup-Aware Transfer Evaluation:**
+   - Candidate moves evaluated on Starting XI lineup delta rather than raw unweighted 15-player squad totals.
+4. **Verified Predecessor Baseline Parity:**
+   - Legacy mode guards ensure that V0.9, V1.0, V1.1, and V1.1.5 reproduce their exact canonical master branch ledgers with 0.0 pt drift.
 
 ---
 
-# 21. V1.3 — Multi-Provider Expansion & Extended LLM Model Research
+# 21. V1.2.5 — Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement
 
-**Status: planned after V1.2.**
+**Status:** Planned / Architectural Specification Complete. Target Branch: `v125`. Specification: [`docs/v1.2.5/v125.md`](v1.2.5/v125.md).
+
+V1.2.5 directly addresses the remaining 22.6 pt Track A and 57.8 pt Track B deficits against V1.0 identified in the audited 5-season benchmark, targeting $\ge \mathbf{2,060.0}$ Track A net pts and $\ge \mathbf{2,110.0}$ Track B net pts.
+
+### Core Objectives:
+1. **Candidate Pool Expansion & Direct Lineup Scoring:**
+   - Expand `max_results` in `solve_transfers` from 5 to 50/100, removing the candidate funnel bottleneck where high-value starting XI upgrades were pruned before lineup evaluation.
+2. **Goalkeeper Churn Suppression & Role Transfer Hurdles:**
+   - Apply position-specific transfer hurdles ($\ge 1.50$ pts for GKP vs $\ge 0.50$ pts for outfield) and playing security invariants ($P(\text{play}) \ge 0.50$), reducing non-injury goalkeeper transfers from 5 to $\le 1\text{–}2$ per season and freeing up free transfers for explosive outfield rotations.
+3. **Multi-Gameweek Discounted Lineup Horizon ($H=3, \gamma=0.75$):**
+   - Evaluate rolling 3-GW discounted lineup returns rather than 1-GW immediate points, eliminating reactive panic-selling during short knocks and capturing sustained green fixture streaks.
+4. **Double Gameweek (DGW) Lookahead:**
+   - Automatically weight multi-fixture gameweeks to load up on double gameweek assets (e.g. DGW34/37) ahead of deadlines.
+5. **Dynamic Chip-Aware Bench Weighting:**
+   - Dynamically scale `bench_weight`: $0.05\times$ for Free Hit (maximum starter budget concentration), $1.00\times$ for Bench Boost, and $0.60\times$ in pre-BB accumulation windows, closing the chip realization deficit.
+
+---
+
+# 22. V1.3 — Multi-Provider Expansion & Extended LLM Model Research
+
+**Status: planned after V1.2.5.**
 
 V1.3 is the multi-provider and LLM integration scope, placed after the strategic engine balancing and long-term unavailability modeling are completed and audited.
 
