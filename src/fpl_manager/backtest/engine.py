@@ -401,8 +401,10 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
+    apply_dep = (dec_engine.version == "v1.1.5")
+
     # 1. Initialize squad at start_gw
-    init_snap = build_historical_snapshot(season_dir, start_gw)
+    init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep)
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
@@ -416,6 +418,7 @@ def run_sequential_simulation(
                     gameweek=start_gw,
                     horizon=chosen_initial_horizon,
                     predictor_version=predictor_version,
+                    apply_departures=apply_dep,
                 )
                 if dec_engine.version == "v1.1.5":
                     strat_players = [
@@ -465,7 +468,7 @@ def run_sequential_simulation(
 
     # 2. Sequential simulation loop
     for gw in range(start_gw, end_gw + 1):
-        snapshot = build_historical_snapshot(season_dir, gw)
+        snapshot = build_historical_snapshot(season_dir, gw, apply_departures=apply_dep)
         projections = reconstruct_features_and_project(snapshot, predictor_version=predictor_version)
         proj_map = {p.player_id: p for p in projections}
         player_positions = {p.player_id: p.position for p in projections}

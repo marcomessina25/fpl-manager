@@ -655,7 +655,7 @@ class SeasonalChipInventory:
 class SeasonalChipPolicy:
     """Historically calibrated seasonal chip policy with anti-pathology guardrails (V1.1.5)."""
 
-    min_wc_deteriorated_players: int = 3
+    min_wc_deteriorated_players: int = 4
     early_wc_restricted_gws: tuple[int, ...] = (2, 3, 4)
     min_tc_xp_single_fixture: float = 8.5
     min_tc_xp_double_fixture: float = 11.0
@@ -683,16 +683,19 @@ class SeasonalChipPolicy:
 
         # 1. Evaluate Free Hit for severe Blank Gameweeks or end-of-window deficits
         if "free_hit" in available:
-            playing_count = 0
-            for p in squad_projs:
-                xp = getattr(p, "expected_points", 0.0)
-                prob = getattr(p, "play_probability", 1.0)
-                if xp > 0.5 and prob >= 0.40 and not is_departed_from_premier_league(p, snapshot):
-                    playing_count += 1
-            if playing_count <= self.max_fh_active_players_threshold:
-                return "free_hit"
-            if gameweek in (18, 19, 37, 38) and playing_count <= 10:
-                return "free_hit"
+            # Fixture existence guard: do not deploy Free Hit on completely postponed or cancelled matchdays
+            fixtures = getattr(snapshot, "fixtures", [])
+            if len(fixtures) >= 4:
+                playing_count = 0
+                for p in squad_projs:
+                    xp = getattr(p, "expected_points", 0.0)
+                    prob = getattr(p, "play_probability", 1.0)
+                    if xp > 0.5 and prob >= 0.40 and not is_departed_from_premier_league(p, snapshot):
+                        playing_count += 1
+                if playing_count <= self.max_fh_active_players_threshold:
+                    return "free_hit"
+                if gameweek in (18, 19, 37, 38) and playing_count <= 8:
+                    return "free_hit"
 
         # 2. Evaluate Triple Captain for DGW, elite single fixture, or near-expiry
         if "triple_captain" in available:
@@ -700,11 +703,11 @@ class SeasonalChipPolicy:
             if best_cap_cand is not None:
                 cap_xp = getattr(best_cap_cand, "expected_points", 0.0)
                 start_prob = getattr(best_cap_cand, "start_probability", 1.0)
-                is_near_expiry = gameweek in (17, 18, 19, 36, 37, 38)
+                is_near_expiry = gameweek in (18, 19, 37, 38)
                 if start_prob >= self.min_tc_start_probability:
                     if cap_xp >= self.min_tc_xp_double_fixture or cap_xp >= self.min_tc_xp_single_fixture:
                         return "triple_captain"
-                    if is_near_expiry and cap_xp >= 6.5:
+                    if is_near_expiry and cap_xp >= 8.0:
                         return "triple_captain"
 
         # 3. Evaluate Bench Boost for DGW, deep playing squad, or near-expiry
@@ -717,38 +720,44 @@ class SeasonalChipPolicy:
                 if bench_projs
                 else False
             )
-            is_near_expiry = gameweek in (17, 18, 19, 36, 37, 38)
+            is_near_expiry = gameweek in (18, 19, 37, 38)
             if bench_projs and all_bench_likely and bench_xp >= self.min_bb_bench_xp:
                 return "bench_boost"
-            if is_near_expiry and bench_projs and bench_xp >= 6.5 and all_bench_likely:
+            if is_near_expiry and bench_projs and bench_xp >= 8.0 and all_bench_likely:
                 return "bench_boost"
 
         # 4. Evaluate Wildcard
         if "wildcard" in available:
+            # Fixture availability guard: do not deploy Wildcard on postponed gameweeks
+            fixtures = getattr(snapshot, "fixtures", [])
+            if len(fixtures) < 5:
+                return None
+
             # Check early wildcard anti-pathology guardrail:
             if gameweek in self.early_wc_restricted_gws:
                 collapsed_count = 0
                 for p in squad_projs:
                     if is_departed_from_premier_league(p, snapshot):
                         collapsed_count += 1
-                    elif getattr(p, "status", "a") in ("i", "u"):
+                    elif getattr(p, "status", "a") in ("i", "u", "s"):
                         collapsed_count += 1
                     elif getattr(p, "chance_of_playing_next_round", 100) == 0:
                         collapsed_count += 1
                 if collapsed_count >= self.min_wc_deteriorated_players:
                     return "wildcard"
             else:
-                deteriorated_count = sum(
-                    1
-                    for p in squad_projs
-                    if is_departed_from_premier_league(p, snapshot)
-                    or getattr(p, "status", "a") in ("i", "u")
-                    or getattr(p, "play_probability", 1.0) < 0.25
-                )
+                deteriorated_count = 0
+                for p in squad_projs:
+                    if is_departed_from_premier_league(p, snapshot):
+                        deteriorated_count += 1
+                    elif getattr(p, "status", "a") in ("i", "u", "s"):
+                        deteriorated_count += 1
+                    elif getattr(p, "chance_of_playing_next_round", 100) == 0:
+                        deteriorated_count += 1
+                    elif getattr(p, "consecutive_zero_mins", 0) >= 3 and getattr(p, "expected_minutes", 0) < 15.0:
+                        deteriorated_count += 1
+
                 if deteriorated_count >= self.min_wc_deteriorated_players:
-                    return "wildcard"
-                # Expiry deployment in GW 19 or GW 37
-                if gameweek == 19 or gameweek == 37:
                     return "wildcard"
 
         return None

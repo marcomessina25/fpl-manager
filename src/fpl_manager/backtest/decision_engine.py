@@ -861,16 +861,18 @@ class DecisionEngineV11(DecisionEngineV10):
                 )
                 candidate_pool.append(p_info)
 
+            effective_end = min(39, snapshot.gameweek + self.initial_horizon)
+            effective_horizon = max(1, effective_end - snapshot.gameweek)
             constraints = StrategicConstraints(
                 budget_tenths=budget_tenths,
-                target_gameweeks=tuple(range(snapshot.gameweek, snapshot.gameweek + self.initial_horizon)),
+                target_gameweeks=tuple(range(snapshot.gameweek, effective_end)),
             )
             cand = solve_strategic_squad(
                 candidate_pool=candidate_pool,
                 constraints=constraints,
                 strategy=self.initial_strategy,
-                mode="initial",
-                horizon=self.initial_horizon,
+                mode="initial" if snapshot.gameweek == 1 else "wildcard",
+                horizon=effective_horizon,
             )
             squad_ids = list(cand.player_ids)
             purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
@@ -966,16 +968,18 @@ class DecisionEngineV115(DecisionEngineV11):
                 )
                 candidate_pool.append(p_info)
 
+            effective_end = min(39, snapshot.gameweek + self.initial_horizon)
+            effective_horizon = max(1, effective_end - snapshot.gameweek)
             constraints = StrategicConstraints(
                 budget_tenths=budget_tenths,
-                target_gameweeks=tuple(range(snapshot.gameweek, snapshot.gameweek + self.initial_horizon)),
+                target_gameweeks=tuple(range(snapshot.gameweek, effective_end)),
             )
             cand = solve_strategic_squad(
                 candidate_pool=candidate_pool,
                 constraints=constraints,
                 strategy=self.initial_strategy,
-                mode="initial",
-                horizon=self.initial_horizon,
+                mode="initial" if snapshot.gameweek == 1 else "wildcard",
+                horizon=effective_horizon,
             )
             squad_ids = list(cand.player_ids)
             purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}

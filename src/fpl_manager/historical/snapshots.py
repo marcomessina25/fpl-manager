@@ -35,9 +35,27 @@ def _parse_kickoff(kickoff_str: str | None) -> datetime | None:
         return None
 
 
+_DEPARTURES_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
+
+
+def load_departures_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
+    global _DEPARTURES_REGISTRY_CACHE
+    if _DEPARTURES_REGISTRY_CACHE is not None:
+        return _DEPARTURES_REGISTRY_CACHE
+    reg_file = data_dir / "departures_registry.json"
+    if reg_file.exists():
+        try:
+            _DEPARTURES_REGISTRY_CACHE = json.loads(reg_file.read_text(encoding="utf-8"))
+            return _DEPARTURES_REGISTRY_CACHE
+        except Exception:
+            return {}
+    return {}
+
+
 def build_historical_snapshot(
     season_dir: Path,
     gameweek: int,
+    apply_departures: bool = True,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
     
@@ -53,6 +71,7 @@ def build_historical_snapshot(
     season = manifest["season"]
     deadlines = manifest.get("deadlines", {})
     deadline_time = deadlines.get(str(gameweek), deadlines.get(gameweek, ""))
+    dep_registry = load_departures_registry(season_dir.parent).get(season, {}) if apply_departures else {}
 
     teams_data = json.loads((season_dir / "teams.json").read_text(encoding="utf-8"))
     teams = [
@@ -239,7 +258,17 @@ def build_historical_snapshot(
         # Inferred availability status strictly knowable prior to deadline
         status = p.get("status", "a")
         chance_next: int | None = p.get("chance_of_playing_next_round")
-        if status == "a" and finished_gws >= 3 and mins == 0:
+        chance_this: int | None = p.get("chance_of_playing_this_round")
+        news_text = p.get("news", "")
+
+        pid_str = str(pid)
+        dep_entry = dep_registry.get(pid_str) or dep_registry.get(pid)
+        if dep_entry and gameweek >= dep_entry.get("departure_gw", 1):
+            status = "u"
+            chance_next = 0
+            chance_this = 0
+            news_text = f"Transferred / departed: {dep_entry.get('reason', 'left Premier League')}"
+        elif status == "a" and finished_gws >= 3 and mins == 0:
             # Player consistently not playing across completed gameweeks (1..N-1)
             status = "d"
 
@@ -252,7 +281,7 @@ def build_historical_snapshot(
                 price_tenths=p["price_tenths"],
                 status=status,
                 chance_of_playing_next_round=chance_next,
-                chance_of_playing_this_round=None,
+                chance_of_playing_this_round=chance_this,
                 total_points=pts,
                 minutes=mins,
                 starts=starts,
@@ -269,7 +298,7 @@ def build_historical_snapshot(
                 form=form,
                 points_per_game=ppg,
                 selected_by_percent=p.get("selected", 0.0),
-                news="",
+                news=news_text,
                 starts_last_3=s_last_3,
                 starts_last_5=s_last_5,
                 minutes_last_3=m_last_3,

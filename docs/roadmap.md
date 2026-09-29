@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.0.0 is the current release target, with V1.0 release hardening completed on `version_10` / PR #12 work. V1.1 is the next major milestone and is deliberately centered on **strategic squad construction, full GUI integration, and end-to-end ML analysis**. The previously planned multi-provider / extended-LLM work moves to V1.2.
+**Current baseline:** V1.1 is completed and validated. V1.1.5 (`v115`) is the current hardening release, delivering Premier League departure lifecycles, dead capital recovery, and historically calibrated seasonal chip policies with an audited 5-season benchmark ledger. V1.2 is scheduled for **Strategic Squad Balancing & Long-Term Unavailability** (addressing the V1.1 starting XI vs bench overinvestment trade-off and multi-month bans/injuries like Toney/Tonali/ACLs). The multi-provider and extended-LLM advisory work is scheduled for V1.3.
 
 ---
 
@@ -112,6 +112,10 @@ Premier League departure handling
 + Multi-version benchmark (v0.9 vs v1.0 vs v1.1 vs v1.1.5)
         ↓
 V1.2
+Strategic squad balancing (starting XI vs bench weighting)
++ Long-term unavailability handling (multi-month bans & injuries)
+        ↓
+V1.3
 Multi-provider expansion
 + Extended LLM model research
 + Human-in-the-loop AI experimentation
@@ -140,8 +144,9 @@ Automated learning loops
 | V0.9 | Learned participation/closed-loop/hardening | Completed |
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
-| **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Active development (branch `v115`)** |
-| V1.2 | Multi-provider + extended LLM research | Planned |
+| **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Validated / PR-Ready (branch `v115`)** |
+| V1.2 | Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs) | Planned |
+| V1.3 | Multi-provider + extended LLM research | Planned |
 | Future | Automated learning / advanced strategy | Research |
 
 ---
@@ -1538,32 +1543,48 @@ It succeeds if the end-to-end experiment establishes **where strategic squad con
 
 # 19. V1.1.5 — Premier League Departure Handling, Historically Calibrated Chip Strategy & Multi-Version Benchmark
 
-**Status: active development on branch `v115`.**  
+**Status: completed & validated on branch `v115`.**  
 **Specification:** `docs/v1.1.5/v115.md`  
 
 ### Purpose
-Eliminate dead capital from players transferred out of the Premier League, prevent phantom buy recommendations, calibrate the 8 seasonal FPL chips (GW 1–19 and GW 20–38 quotas) against historical evidence, and deliver an audited multi-season benchmark across V0.9, V1.0, V1.1, and V1.1.5.
+Eliminate dead capital from players transferred out of the Premier League, prevent phantom buy recommendations, calibrate the 8 seasonal FPL chips (GW 1–19 and GW 20–38 quotas) against historical evidence with anti-pathology guardrails, and deliver an audited multi-season benchmark across V0.9, V1.0, V1.1, and V1.1.5.
 
-### Core Architectural Pillars
+### Core Architectural Pillars Delivered
 1. **Departure Lifecycle & Dead Capital Offloading:**
-   - Detect departures via status `'u'`, 0% availability with transfer/loan news, or zero remaining fixtures.
+   - Detect departures via status `'u'`, 0% availability with transfer/loan news, zero remaining fixtures, or the historical departures registry (`data/historical/departures_registry.json`).
    - Assign priority offload weight so recovering tied-up budget from departed players takes precedence over active underperformers.
-   - Enforce strict buy-side candidate exclusion.
+   - Enforce strict buy-side candidate exclusion in transfers, Wildcards, Free Hits, and initial squad optimization.
 2. **Historically Calibrated Seasonal Chip Engine:**
    - Track independent chip quotas: $1\times$ Wildcard, Free Hit, Triple Captain, Bench Boost in GW 1–19, and $1\times$ each in GW 20–38.
-   - Anti-pathology constraints: prohibit GW 2–4 Wildcard following initial strategic squad selection unless catastrophic squad collapse occurs ($\ge 3$ departures/injuries).
-   - DGW/BGW timing heuristics: reserve Triple Captain and Bench Boost for high-density Double Gameweeks; target Free Hit at severe Blank Gameweeks.
+   - Anti-pathology constraints: fixture density guards (preventing Free Hit on postponed gameweeks like 2022-23 GW7), removal of blind expiry Wildcards (preventing negative EV resets in GW19/37), season-boundary clamping at GW38, and squad deterioration criteria ($\ge 4$ genuine injuries/suspensions/departures).
+   - Near-expiry thresholds: disciplined dynamic thresholds (8.0 xP) for Triple Captain and Bench Boost to avoid burning chips on low-ceiling gameweeks.
 3. **Multi-Version Benchmark Ledger:**
    - 5-season historical audit comparing `v0.9` vs `v1.0` vs `v1.1` vs `v1.1.5`.
-   - Dual-track reporting: points scored *without chips* (pure transfer engine) vs *with chips* (seasonal chip orchestration).
+   - Dual-track reporting: points scored *without chips* (Track A: pure transfer engine) vs *with chips* (Track B: seasonal chip orchestration).
 
 ---
 
-# 20. V1.2 — Multi-Provider Expansion & Extended LLM Model Research
+# 20. V1.2 — Strategic Squad Balancing & Long-Term Unavailability
 
-**Status: planned after V1.1.5.**
+**Status: planned next release.**
 
-V1.2 is the previously planned multi-provider scope, placed after the strategic engine, departure handling, and chip optimization framework are fully benchmarked.
+V1.2 focuses on closing the performance gap between V1.0 (canonical single-gameweek decision engine) and V1.1 (strategic squad construction), while integrating first-class support for long-term player unavailability.
+
+### Core Objectives:
+1. **Strategic Squad Balancing (Starting XI vs Bench Weighting):**
+   - **Diagnosis:** In V1.1, the strategic squad solver maximizes total 15-player multi-week xP with equal or near-equal weighting. This forces over-investment into bench players (e.g. £5.5m–£6.0m defenders/midfielders sitting on the bench) at the expense of premium starting XI assets (e.g. Salah, Haaland). In contrast, V1.0 invests heavily in top starters and places minimum-cost £4.0m/£4.5m enablers on the bench, leading to higher realized on-pitch points in Track A.
+   - **Solution:** Introduce explicit starting XI vs bench weighting in the multi-week ILP objective ($1.0\times$ for predicted starters, $0.10\times$–$0.20\times$ for bench substitutes), matching the actual expected contribution of bench points via auto-substitutions.
+2. **Long-Term Unavailability Modeling:**
+   - **Diagnosis:** Players with multi-month suspensions (e.g., Ivan Toney 8-month ban, Sandro Tonali 10-month ban) or season-ending injuries (ACL tears) were historically marked only with short-term absence flags, causing the transfer engine to retain them or incur multiple churn hits.
+   - **Solution:** Add explicit return-date and ban-duration parsing to the historical feature pipeline, treating long-term unavailability as zero-minute projections over the full strategic horizon (5–8 GWs).
+
+---
+
+# 21. V1.3 — Multi-Provider Expansion & Extended LLM Model Research
+
+**Status: planned after V1.2.**
+
+V1.3 is the multi-provider and LLM integration scope, placed after the strategic engine balancing and long-term unavailability modeling are completed and audited.
 
 The central question becomes:
 
@@ -1683,9 +1704,9 @@ The goal is to measure whether it is useful.
 
 ---
 
-# 21. Long-Term Research Tracks
+# 22. Long-Term Research Tracks
 
-These remain available after V1.2 and should be promoted into releases only when there is sufficient evidence.
+These remain available after V1.3 and should be promoted into releases only when there is sufficient evidence.
 
 ## Track A — Better player modelling
 

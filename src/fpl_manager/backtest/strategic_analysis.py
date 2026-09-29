@@ -157,6 +157,7 @@ def load_historical_strategic_players(
     gameweek: int,
     horizon: int = 5,
     predictor_version: str = "v1.0.1",
+    apply_departures: bool = True,
 ) -> tuple[list[PlayerInfo], dict[int, str]]:
     """Construct multi-gameweek PlayerInfo pool strictly from pre-gameweek point-in-time data.
     
@@ -165,7 +166,7 @@ def load_historical_strategic_players(
     - Future fixtures are evaluated using pre-season schedule from fixtures.json.
     - Future goals, assists, cards, minutes, and points are never referenced.
     """
-    snapshot = build_historical_snapshot(season_dir, gameweek)
+    snapshot = build_historical_snapshot(season_dir, gameweek, apply_departures=apply_departures)
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
     fixtures_by_gw = load_historical_fixtures(season_dir)
 
