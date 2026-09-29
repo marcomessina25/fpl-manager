@@ -42,7 +42,7 @@ Evaluating sequential multi-window chip deployment (1x Wildcard, 1x Free Hit, 1x
 | **v1.1.5** | 1980.4 | 2007.8 | **+27.4 pts** | +13.7 pts | Dead capital avoidance preserves bank value for chip pivots |
 
 > [!IMPORTANT]
-> **Key Chip Synergy Finding:** While V1.0 leads Track A due to aggressive single-week premium concentration in its starting XI, **V1.1 and V1.1.5 achieve more than 4x higher chip value realization (+73.0 pts vs +17.2 pts)**. Strategic squad balancing maintains playing depth and financial flexibility, enabling massive returns on Bench Boost and Double Gameweek Free Hits without breaking squad equilibrium.
+> **Key Chip Synergy Finding:** While V1.0 leads Track A due to aggressive single-week premium concentration in its starting XI, chip returns across seasons show meaningful variance depending on schedule structure: V1.1.5 achieves strong positive chip gains in 4 out of 5 seasons (peaking at +78.0 pts in 2023-24 and +55.0 pts in 2021-22), but experiences negative chip returns in 2022-23 (-47.0 pts). This empirical finding confirms that while anti-pathology guardrails (postponement shields, no forced expiry dumps) successfully stabilize chip behavior, deeper strategic squad rebalancing and long-term unavailability handling (scheduled for V1.2) are required to eliminate chip volatility entirely.
 
 ---
 
