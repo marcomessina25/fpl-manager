@@ -10,7 +10,7 @@ from typing import Any
 
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import HistoricalGameweekSnapshot, Position
-from ..models import is_departed_from_premier_league
+from ..models import is_departed_from_premier_league, is_long_term_unavailable
 
 LEGAL_FORMATIONS = (
     (3, 5, 2),
@@ -940,8 +940,8 @@ class DecisionEngineV115(DecisionEngineV11):
             proj_map = {p.player_id: p for p in projections}
             candidate_pool = []
             for p in snapshot.players:
-                # Exclude departed players from candidate pool at squad initialization
-                if is_departed_from_premier_league(p, snapshot):
+                # Exclude departed and long-term unavailable players from candidate pool at squad initialization
+                if is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot):
                     continue
                 proj = proj_map.get(p.player_id)
                 xp = proj.expected_points if proj else 0.0
@@ -1027,9 +1027,12 @@ class DecisionEngineV115(DecisionEngineV11):
                 selling_prices[pid] = bought_price + max(0, (cur_price - bought_price) // 2)
 
             squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
-            # Prioritize selling departed players first
+            # Prioritize selling departed or long-term unavailable players first
             squad_projs.sort(
-                key=lambda p: (0 if is_departed_from_premier_league(p, snapshot) else 1, p.expected_points)
+                key=lambda p: (
+                    0 if (is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot)) else 1,
+                    p.expected_points,
+                )
             )
 
             for out_p in squad_projs:
@@ -1042,6 +1045,7 @@ class DecisionEngineV115(DecisionEngineV11):
                     and p.position == out_p.position
                     and p.price_tenths <= available_cash
                     and not is_departed_from_premier_league(p, snapshot)
+                    and not is_long_term_unavailable(p, snapshot)
                 ]
                 valid_cands = [
                     p
@@ -1052,7 +1056,7 @@ class DecisionEngineV115(DecisionEngineV11):
                     continue
                 valid_cands.sort(key=lambda p: p.expected_points, reverse=True)
                 best_in = valid_cands[0]
-                thresh = 0.0 if is_departed_from_premier_league(out_p, snapshot) else min_net_gain
+                thresh = 0.0 if (is_departed_from_premier_league(out_p, snapshot) or is_long_term_unavailable(out_p, snapshot)) else min_net_gain
                 if (best_in.expected_points - out_p.expected_points) >= thresh:
                     return [(out_id, best_in.player_id)]
             return []
@@ -1081,7 +1085,7 @@ class DecisionEngineV115(DecisionEngineV11):
         squad_set = set(current_squad_ids)
         squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
         proj_map = {p.player_id: p for p in projections}
-        # Strictly exclude departed players from incoming candidates
+        # Strictly exclude departed or long-term unavailable players from incoming candidates
         cand_pool = [
             opt
             for pid, opt in opt_map.items()
@@ -1089,6 +1093,7 @@ class DecisionEngineV115(DecisionEngineV11):
             and proj_map.get(pid)
             and proj_map[pid].play_probability >= 0.35
             and not is_departed_from_premier_league(opt, snapshot)
+            and not is_long_term_unavailable(opt, snapshot)
         ]
 
         selling_prices = {}
@@ -1148,11 +1153,299 @@ class DecisionEngineV115(DecisionEngineV11):
         return cfg
 
 
+def _evaluate_squad_lineup_xp(squad: list[Any], bench_w: float = 0.15) -> float:
+    """Evaluate optimal starting XI and weighted bench score for 15 squad players."""
+    by_pos: dict[Position, list[float]] = {pos: [] for pos in Position}
+    for p in squad:
+        xp = getattr(p, "expected_points", 0.0)
+        by_pos[p.position].append(xp)
+    for pos in by_pos:
+        by_pos[pos].sort(reverse=True)
+
+    gk = by_pos[Position.GOALKEEPER]
+    defs = by_pos[Position.DEFENDER]
+    mids = by_pos[Position.MIDFIELDER]
+    fwds = by_pos[Position.FORWARD]
+
+    if not gk or len(defs) < 3 or len(mids) < 2 or len(fwds) < 1:
+        return sum(getattr(p, "expected_points", 0.0) for p in squad)
+
+    total_val = gk[0] + (gk[1] if len(gk) > 1 else 0.0) + sum(defs) + sum(mids) + sum(fwds)
+    best_lineup = -float("inf")
+
+    for n_def, n_mid, n_fwd in LEGAL_FORMATIONS:
+        if len(defs) < n_def or len(mids) < n_mid or len(fwds) < n_fwd:
+            continue
+        st_val = gk[0] + sum(defs[:n_def]) + sum(mids[:n_mid]) + sum(fwds[:n_fwd])
+        cap_val = max(gk[0], defs[0] if defs else 0.0, mids[0] if mids else 0.0, fwds[0] if fwds else 0.0)
+        bench_val = total_val - st_val
+        score = st_val + cap_val + bench_w * bench_val
+        if score > best_lineup:
+            best_lineup = score
+
+    return best_lineup
+
+
+class DecisionEngineV12(DecisionEngineV115):
+    """V1.2 Strategic Decision Engine with Asymmetric Squad Balancing & Lineup-Aware Transfer Evaluation.
+
+    Features:
+    - Pillar 1: Asymmetric Starting XI vs Bench objective weighting (bench_weight=0.15)
+      prioritizing high-performing starting premiums over costly substitutes.
+    - Pillar 2: Long-Term Unavailability Modeling (multi-month bans and ACL tears)
+      with point-in-time registry checks, purchase exclusions, and dead capital recovery.
+    - Pillar 3: Lineup-Aware Transfer Planning: candidate transfers are evaluated by their
+      impact on Starting XI lineup expected return (new_lineup - old_lineup - hits)
+      rather than flat squad sum deltas, preventing wasted transfers on non-playing bench warmers.
+    """
+
+    def __init__(
+        self,
+        initial_strategy: str = "balanced",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+        dead_capital_weight: float = 3.0,
+        bench_weight: float = 0.15,
+    ) -> None:
+        super().__init__(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            lineup_penalty_weight=lineup_penalty_weight,
+            dead_capital_weight=dead_capital_weight,
+        )
+        self.bench_weight = bench_weight
+
+    @property
+    def version(self) -> str:
+        return "v1.2"
+
+    @property
+    def name(self) -> str:
+        return (
+            f"V1.2 Strategic Decision Engine ({self.initial_strategy}, "
+            f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
+            f"bench_w={self.bench_weight})"
+        )
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.2"
+
+    def initialize_squad(
+        self,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+        budget_tenths: int = 1000,
+    ) -> tuple[list[int], dict[int, int], int]:
+        """Select ideal initial 15-player squad strictly excluding departed and long-term unavailable players,
+        optimizing with asymmetric Starting XI vs Bench weighting (bench_weight=0.15).
+        """
+        from ..strategic_squad import StrategicConstraints, solve_strategic_squad
+        from ..suggest_transfers import PlayerInfo
+
+        try:
+            proj_map = {p.player_id: p for p in projections}
+            candidate_pool = []
+            for p in snapshot.players:
+                if is_departed_from_premier_league(p, snapshot) or is_long_term_unavailable(p, snapshot):
+                    continue
+                proj = proj_map.get(p.player_id)
+                xp = proj.expected_points if proj else 0.0
+                xm = proj.expected_minutes if proj else 0.0
+                flr = proj.xp_floor if proj and proj.xp_floor > 0 else xp
+                ceil = proj.xp_ceiling if proj and proj.xp_ceiling > 0 else xp
+                p_info = PlayerInfo(
+                    id=p.player_id,
+                    name=p.web_name,
+                    position=p.position,
+                    team_short=next((t.get("short_name", f"T{p.team_id}") for t in snapshot.teams if t["team_id"] == p.team_id), f"T{p.team_id}"),
+                    team_id=p.team_id,
+                    price_tenths=p.price_tenths,
+                    expected_points=xp,
+                    gw_xp=xp,
+                    horizon_xp=xp * self.initial_horizon,
+                    xp_floor=flr,
+                    xp_ceiling=ceil,
+                    horizon_floor=flr * self.initial_horizon,
+                    horizon_ceiling=ceil * self.initial_horizon,
+                    expected_minutes=xm,
+                    total_points=p.total_points,
+                    status=p.status,
+                )
+                candidate_pool.append(p_info)
+
+            effective_end = min(39, snapshot.gameweek + self.initial_horizon)
+            effective_horizon = max(1, effective_end - snapshot.gameweek)
+            constraints = StrategicConstraints(
+                budget_tenths=budget_tenths,
+                target_gameweeks=tuple(range(snapshot.gameweek, effective_end)),
+                bench_weight=self.bench_weight,
+            )
+            cand = solve_strategic_squad(
+                candidate_pool=candidate_pool,
+                constraints=constraints,
+                strategy=self.initial_strategy,
+                mode="initial" if snapshot.gameweek == 1 else "wildcard",
+                horizon=effective_horizon,
+                bench_weight=self.bench_weight,
+            )
+            squad_ids = list(cand.player_ids)
+            purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
+            bank = max(0, budget_tenths - sum(purchase_prices.values()))
+            return squad_ids, purchase_prices, bank
+        except Exception as exc:
+            self.fallback_occurred = True
+            self.fallback_reason = str(exc)
+            return super().initialize_squad(snapshot, projections, budget_tenths=budget_tenths)
+
+    def decide_transfers(
+        self,
+        strategy_name: str,
+        current_squad_ids: list[int],
+        purchase_prices: dict[int, int],
+        bank_tenths: int,
+        free_transfers: int,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+        max_transfers: int = 1,
+        allow_hits: bool = True,
+        risk_profile: str = "neutral",
+        min_net_gain: float = 0.50,
+    ) -> list[tuple[int, int]]:
+        strat = strategy_name.lower().strip().replace("-", "").replace("_", "").replace(" ", "")
+        if "notransfer" in strat:
+            return []
+
+        if "simplexp" in strat:
+            return super().decide_transfers(
+                strategy_name=strategy_name,
+                current_squad_ids=current_squad_ids,
+                purchase_prices=purchase_prices,
+                bank_tenths=bank_tenths,
+                free_transfers=free_transfers,
+                snapshot=snapshot,
+                projections=projections,
+                max_transfers=max_transfers,
+                allow_hits=allow_hits,
+                risk_profile=risk_profile,
+                min_net_gain=min_net_gain,
+            )
+
+        # Production Optimizer Strategy with Lineup-Aware Transfer Evaluation & Dead Capital Offloading
+        from ..optimizer import PlayerOptInfo, solve_transfers
+
+        opt_map: dict[int, PlayerOptInfo] = {}
+        for p in projections:
+            opt_map[p.player_id] = PlayerOptInfo(
+                id=p.player_id,
+                name=p.web_name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=p.team_short,
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=0,
+                expected_points=p.expected_points,
+                expected_minutes=p.expected_minutes,
+                xp_floor=p.xp_floor,
+                xp_ceiling=p.xp_ceiling,
+                standard_deviation=p.standard_deviation,
+            )
+
+        squad_set = set(current_squad_ids)
+        squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
+        proj_map = {p.player_id: p for p in projections}
+
+        # Strictly exclude departed or long-term unavailable players from incoming candidates
+        cand_pool = [
+            opt
+            for pid, opt in opt_map.items()
+            if pid not in squad_set
+            and proj_map.get(pid)
+            and proj_map[pid].play_probability >= 0.35
+            and not is_departed_from_premier_league(opt, snapshot)
+            and not is_long_term_unavailable(opt, snapshot)
+        ]
+
+        selling_prices = {}
+        for pid in current_squad_ids:
+            cur_p = opt_map.get(pid)
+            cur_price = cur_p.price_tenths if cur_p else 50
+            bought = purchase_prices.get(pid, cur_price)
+            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+
+        fdr_map = {}
+        ticker_map = {}
+        for fix in snapshot.fixtures:
+            h_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_h), "")
+            a_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_a), "")
+            if h_team:
+                fdr_map[h_team] = float(fix.team_h_difficulty)
+                ticker_map[h_team] = f"{a_team} (H)"
+            if a_team:
+                fdr_map[a_team] = float(fix.team_a_difficulty)
+                ticker_map[a_team] = f"{h_team} (A)"
+
+        best_moves: list[tuple[int, int]] = []
+        best_gain = min_net_gain
+        k_max = max_transfers if allow_hits else min(max_transfers, free_transfers)
+        if k_max <= 0:
+            return []
+
+        curr_lineup_xp = _evaluate_squad_lineup_xp(squad_opt, bench_w=self.bench_weight)
+
+        for k in range(1, k_max + 1):
+            recs, _ = solve_transfers(
+                num_transfers=k,
+                squad_players=squad_opt,
+                candidate_pool=cand_pool,
+                bank_tenths=bank_tenths,
+                free_transfers=free_transfers,
+                selling_prices=selling_prices,
+                fdr_map=fdr_map,
+                ticker_map=ticker_map,
+                risk_profile=risk_profile,
+                max_results=5,
+                dead_capital_weight=self.dead_capital_weight,
+            )
+            for rec in recs:
+                if not allow_hits and rec.get("hit_cost", 0) > 0:
+                    continue
+
+                out_list = [p["id"] for p in rec.get("outgoing", [])]
+                in_list = [p["id"] for p in rec.get("incoming", [])]
+                out_set = set(out_list)
+
+                # Lineup-Aware Evaluation (Pillar 3)
+                if len(squad_opt) == 15:
+                    new_squad = [p for p in squad_opt if p.id not in out_set] + [opt_map[pid] for pid in in_list if pid in opt_map]
+                    new_lineup_xp = _evaluate_squad_lineup_xp(new_squad, bench_w=self.bench_weight)
+                    lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
+                    hit_pts = rec.get("transfer_hits", 0) * 4
+                    fdr_gain = rec.get("fdr_improvement", 0.0)
+                    dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
+                    net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
+                else:
+                    net_gain = rec.get("score", rec.get("xp_delta", 0.0))
+
+                if net_gain > best_gain:
+                    best_gain = net_gain
+                    best_moves = list(zip(out_list, in_list))
+
+        return best_moves
+
+    def get_strategy_config(self, strategy_name: str, **kwargs: Any) -> dict[str, Any]:
+        cfg = super().get_strategy_config(strategy_name, **kwargs)
+        cfg["bench_weight"] = self.bench_weight
+        return cfg
+
+
 def resolve_decision_engine(
     engine_version: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str = "balanced",
     initial_horizon: int = 5,
     dead_capital_weight: float = 3.0,
+    bench_weight: float = 0.15,
 ) -> BaseDecisionEngine:
     """Instantiate and return the appropriate DecisionEngine implementation."""
     if isinstance(engine_version, BaseDecisionEngine):
@@ -1180,6 +1473,21 @@ def resolve_decision_engine(
             initial_horizon=initial_horizon,
             dead_capital_weight=dead_capital_weight,
         )
+    elif clean in ("v1.2", "v12", "v1.2.0", "balanced_v12"):
+        return DecisionEngineV12(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+        )
+    elif clean.startswith("v1.2_"):
+        strat = clean.replace("v1.2_", "")
+        return DecisionEngineV12(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+        )
     elif clean.startswith("v1.1_"):
         strat = clean.replace("v1.1_", "")
         return DecisionEngineV11(initial_strategy=strat, initial_horizon=initial_horizon)
@@ -1201,9 +1509,17 @@ def resolve_decision_engine(
                     lineup_penalty_weight=w_val,
                     dead_capital_weight=dead_capital_weight,
                 )
+            if base == "v12":
+                return DecisionEngineV12(
+                    initial_strategy=initial_strategy,
+                    initial_horizon=initial_horizon,
+                    lineup_penalty_weight=w_val,
+                    dead_capital_weight=dead_capital_weight,
+                    bench_weight=bench_weight,
+                )
         except ValueError:
             pass
     raise ValueError(
-        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v1.1.5', 'v0.9_w<float>'"
+        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v1.1.5', 'v1.2', 'v0.9_w<float>'"
     )
 

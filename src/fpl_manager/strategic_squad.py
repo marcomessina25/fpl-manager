@@ -22,7 +22,7 @@ import itertools
 import math
 from typing import Any
 
-from .models import Position, is_departed_from_premier_league
+from .models import Position, is_departed_from_premier_league, is_long_term_unavailable
 from .optimizer import LEGAL_FORMATIONS, PlayerOptInfo, get_player_profile_value, validate_risk_profile
 from .rules import Player, validate_squad, validate_starting_lineup
 
@@ -85,10 +85,11 @@ class StrategicConstraints:
             and (
                 getattr(pool_by_id[pid], "status", "a") == "u"
                 or is_departed_from_premier_league(pool_by_id[pid])
+                or is_long_term_unavailable(pool_by_id[pid])
             )
         ]
         if departed_locked:
-            errors.append(f"Departed player IDs cannot be locked: {departed_locked}")
+            errors.append(f"Departed player IDs cannot be locked (or unavailable): {departed_locked}")
 
         locked_players = [pool_by_id[pid] for pid in self.locked_player_ids if pid in pool_by_id]
 
@@ -498,6 +499,7 @@ def solve_strategic_squad_exact_reference(
         if p.id not in excluded_set
         and getattr(p, "status", "a") != "u"
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
         and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
@@ -704,6 +706,7 @@ def solve_strategic_squad(
         if p.id not in excluded_set
         and getattr(p, "status", "a") != "u"
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
         and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 

@@ -14,7 +14,7 @@ from .expected_points import (
     project_multi_gameweek_profiles,
 )
 from .fixtures import analyze_team_fixtures, get_current_gameweek
-from .models import Position, is_departed_from_premier_league
+from .models import Position, is_departed_from_premier_league, is_long_term_unavailable
 from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
@@ -193,6 +193,7 @@ def suggest_transfers(
         if p.id not in squad_set
         and p.status in ("a", "d")
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
 
     top_results, total_evaluated = solve_transfers(
@@ -275,7 +276,9 @@ def suggest_wildcard(
     candidate_pool = [
         p
         for p in players_map.values()
-        if p.status in ("a", "d") and not is_departed_from_premier_league(p)
+        if p.status in ("a", "d")
+        and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
     result = solve_wildcard(
         candidate_pool=candidate_pool,

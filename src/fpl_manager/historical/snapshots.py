@@ -36,6 +36,7 @@ def _parse_kickoff(kickoff_str: str | None) -> datetime | None:
 
 
 _DEPARTURES_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
+_UNAVAILABILITY_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
 
 
 def load_departures_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
@@ -52,10 +53,25 @@ def load_departures_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
     return {}
 
 
+def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
+    global _UNAVAILABILITY_REGISTRY_CACHE
+    if _UNAVAILABILITY_REGISTRY_CACHE is not None:
+        return _UNAVAILABILITY_REGISTRY_CACHE
+    reg_file = data_dir / "unavailability_registry.json"
+    if reg_file.exists():
+        try:
+            _UNAVAILABILITY_REGISTRY_CACHE = json.loads(reg_file.read_text(encoding="utf-8"))
+            return _UNAVAILABILITY_REGISTRY_CACHE
+        except Exception:
+            return {}
+    return {}
+
+
 def build_historical_snapshot(
     season_dir: Path,
     gameweek: int,
     apply_departures: bool = True,
+    apply_unavailability: bool = True,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
     
@@ -72,6 +88,7 @@ def build_historical_snapshot(
     deadlines = manifest.get("deadlines", {})
     deadline_time = deadlines.get(str(gameweek), deadlines.get(gameweek, ""))
     dep_registry = load_departures_registry(season_dir.parent).get(season, {}) if apply_departures else {}
+    unavail_registry = load_unavailability_registry(season_dir.parent).get(season, {}) if apply_unavailability else {}
 
     teams_data = json.loads((season_dir / "teams.json").read_text(encoding="utf-8"))
     teams = [
@@ -263,11 +280,18 @@ def build_historical_snapshot(
 
         pid_str = str(pid)
         dep_entry = dep_registry.get(pid_str) or dep_registry.get(pid)
+        unavail_entry = unavail_registry.get(pid_str) or unavail_registry.get(pid)
         if dep_entry and gameweek >= dep_entry.get("departure_gw", 1):
             status = "u"
             chance_next = 0
             chance_this = 0
             news_text = f"Transferred / departed: {dep_entry.get('reason', 'left Premier League')}"
+        elif unavail_entry and unavail_entry.get("start_gw", 1) <= gameweek <= unavail_entry.get("end_gw", 38):
+            reason_lower = unavail_entry.get("reason", "").lower()
+            status = "s" if ("suspen" in reason_lower or "ban" in reason_lower) else "i"
+            chance_next = 0
+            chance_this = 0
+            news_text = f"Unavailable: {unavail_entry.get('reason')}"
         elif status == "a" and finished_gws >= 3 and mins == 0:
             # Player consistently not playing across completed gameweeks (1..N-1)
             status = "d"

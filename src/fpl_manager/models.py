@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 from enum import IntEnum
+import json
+from pathlib import Path
+from typing import Any
 
 
 class Position(IntEnum):
@@ -47,6 +50,7 @@ class PlayerEligibilityStatus:
     status_code: str
     news: str
     dead_capital_penalty: float
+    is_long_term_unavailable: bool = False
 
 
 DEPARTURE_KEYWORDS: tuple[str, ...] = (
@@ -65,6 +69,42 @@ DEPARTURE_KEYWORDS: tuple[str, ...] = (
     "retired",
     "sold to",
 )
+
+UNAVAILABILITY_KEYWORDS: tuple[str, ...] = (
+    "suspended",
+    "suspension",
+    "banned",
+    "ban",
+    "acl",
+    "anterior cruciate ligament",
+    "cruciate ligament",
+    "ruptured ligament",
+    "season-ending",
+    "out for the season",
+    "out for season",
+    "surgery",
+    "indefinitely",
+)
+
+_UNAVAILABILITY_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
+
+
+def _get_unavailability_registry() -> dict[str, dict[str, Any]]:
+    global _UNAVAILABILITY_REGISTRY_CACHE
+    if _UNAVAILABILITY_REGISTRY_CACHE is not None:
+        return _UNAVAILABILITY_REGISTRY_CACHE
+    base_paths = [
+        Path(__file__).resolve().parent.parent.parent / "data" / "historical" / "unavailability_registry.json",
+        Path("data/historical/unavailability_registry.json"),
+    ]
+    for p in base_paths:
+        if p.exists():
+            try:
+                _UNAVAILABILITY_REGISTRY_CACHE = json.loads(p.read_text(encoding="utf-8"))
+                return _UNAVAILABILITY_REGISTRY_CACHE
+            except Exception:
+                pass
+    return {}
 
 
 def is_departed_from_premier_league(player: object, snapshot: object = None) -> bool:
@@ -116,6 +156,50 @@ def is_departed_from_premier_league(player: object, snapshot: object = None) -> 
     return False
 
 
+def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
+    """Determine whether a player is long-term unavailable (multi-month ban, ACL, out for season).
+
+    Point-in-time criteria:
+    1. Already classified as departed from Premier League.
+    2. Official FPL status == 'u'.
+    3. Registry lookup: player is in unavailability_registry.json for the active season and gameweek.
+    4. Disciplinary or severe injury status ('s' or 'i') with zero chance of playing and explicit long-term absence news.
+    """
+    if is_departed_from_premier_league(player, snapshot=snapshot):
+        return True
+
+    status = getattr(player, "status", None)
+    if status == "u":
+        return True
+
+    pid = getattr(player, "id", getattr(player, "player_id", None))
+
+    # 3. Registry verification
+    if snapshot is not None and pid is not None:
+        season = getattr(snapshot, "season", None)
+        gw = getattr(snapshot, "gameweek", None)
+        if season and gw is not None:
+            reg = _get_unavailability_registry().get(str(season), {})
+            entry = reg.get(str(pid)) or reg.get(pid)
+            if entry and entry.get("start_gw", 1) <= gw <= entry.get("end_gw", 38):
+                return True
+
+    # 4. News / status inspection
+    news = (getattr(player, "news", None) or "").lower()
+    chance_this = getattr(player, "chance_of_playing_this_round", None)
+    chance_next = getattr(player, "chance_of_playing_next_round", None)
+
+    if status == "s":
+        return True
+
+    if status == "i":
+        is_zero_chance = (chance_this == 0 or chance_next == 0 or (chance_this is None and chance_next is None))
+        if is_zero_chance and any(kw in news for kw in UNAVAILABILITY_KEYWORDS):
+            return True
+
+    return False
+
+
 def get_player_eligibility_status(
     player: object,
     snapshot: object = None,
@@ -123,14 +207,17 @@ def get_player_eligibility_status(
 ) -> PlayerEligibilityStatus:
     """Assess eligibility and calculate dead capital penalty for transfer prioritization."""
     departed = is_departed_from_premier_league(player, snapshot=snapshot)
+    long_term_unavail = is_long_term_unavailable(player, snapshot=snapshot)
+    is_dead = departed or long_term_unavail
     price_tenths = getattr(player, "price_tenths", 50)
-    penalty = (dead_capital_weight * (price_tenths / 10.0)) if departed else 0.0
+    penalty = (dead_capital_weight * (price_tenths / 10.0)) if is_dead else 0.0
     return PlayerEligibilityStatus(
         player_id=getattr(player, "id", getattr(player, "player_id", 0)),
         is_in_premier_league=not departed,
         status_code=getattr(player, "status", "a"),
         news=getattr(player, "news", "") or "",
         dead_capital_penalty=penalty,
+        is_long_term_unavailable=long_term_unavail,
     )
 
 
