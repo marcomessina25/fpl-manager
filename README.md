@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.0.1-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.1.5-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -275,7 +275,27 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.0.1 — Canonical Production Release)
+## Current scope (V1.1.5 — Hardening & Multi-Season Ledger Release)
+
+### What's New in V1.1.5
+- **Point-in-Time Premier League Departure Engine (`src/fpl_manager/models.py`, `src/fpl_manager/backtest/decision_engine.py`, `data/historical/departures_registry.json`)**:
+  - Point-in-time detection and resolution of players departing the Premier League mid-season (overseas sales, loans, contract terminations).
+  - Explicit historical departures registry covering departures across 5 historical seasons (`2021-22` through `2025-26`).
+  - Active dead capital recovery: `DecisionEngineV115` detects departed assets in the squad and prioritizes liquidating dead roster slots and stranded bank budget to restore active starting depth.
+  - Zero-false-positive blank gameweek immunity: avoids misclassifying blank gameweek teams (e.g. GW29 postponement / cup blank) as departed players by relying strictly on verified departure dates, FPL player status (`u`), and registry records rather than single-gameweek fixture presence.
+- **Calibrated Seasonal Chip Strategy & Anti-Pathology Guardrails (`src/fpl_manager/chip_strategy.py`)**:
+  - Anti-pathology fixture schedule guards: Free Hit requires `len(fixtures) >= 4` to prevent burning high-value chips in postponed/abandoned gameweeks.
+  - Elimination of forced expiry panics: removed hardcoded forced Wildcard dumps in GW19 / GW37, replaced with dynamic near-expiry qualification thresholds requiring positive expected gain ($\ge 8.0$ net xP over rolling horizon).
+  - Horizon clamping: multi-gameweek lookaheads are strictly clamped to remaining gameweeks in each half-season (`min(39, gw + horizon)`) preventing index out-of-bounds or cross-half-season leakage.
+- **Audited 5-Season Multi-Version Benchmark Ledger (`reports/v115/`)**:
+  - Full reproducible backtests comparing V1.0, V1.1.0, and V1.1.5 across all 5 historical seasons (`2021-22` to `2025-26`).
+  - Comprehensive Track A (No Chips) and Track B (With Chips) ledger isolating pure strategic transfer engine dynamics from chip variance.
+  - Granular comparative documentation in [`reports/v115/multi_version_benchmark/multi_version_comparison.md`](reports/v115/multi_version_benchmark/multi_version_comparison.md) and [`reports/v115/multi_season_summary/multi_season_summary.md`](reports/v115/multi_season_summary/multi_season_summary.md).
+
+### What's New in V1.1.0
+- **Multi-Team Management (`fpl teams`, `fpl team create`, `fpl team switch`, `fpl team info`, `fpl team delete`)**: Manage multiple isolated fantasy teams, switch between them, and persist distinct rosters and financials in `config/teams.json`.
+- **Interactive Web GUI Dashboard (`fpl gui`)**: Local-first browser interface with interactive pitch view, team switcher, multi-gameweek transfer planner, starting lineup builder, chip strategy roadmap visualizer, and strategic LLM advisory chat.
+- **DecisionEngineV11 Strategic Optimization**: Strategic multi-gameweek transfer roll vs spend evaluation, dynamic thresholding, and horizon lookahead.
 
 ### What's New in V1.0.0 & V1.0.1
 - **Release V1.0.1 — Documentation & Codebase Comment Alignment**: Full audit and alignment of all living documentation (`README.md`, `docs/roadmap.md`, `docs/architecture.md`, `docs/expected_points.md`, `docs/optimizer_and_planning.md`), module docstrings across all 51 Python modules, CLI risk/predictor/decision-engine choices (`v1.0.1` / `v1.0` / `v0.9.1`), and `suggest_transfers` risk-profile validation (`validate_risk_profile`).
@@ -310,7 +330,7 @@ fpl advise --persona devil_advocate --provider gemini
 
 ## Roadmap
 
-The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md) and the V1.0 specification in [`docs/v10/v10.md`](docs/v10/v10.md).
+The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md) and the V1.1.5 specification in [`docs/v1.1.5/v115.md`](docs/v1.1.5/v115.md).
 
 ## License
 
