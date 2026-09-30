@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import time
 from typing import Any, Sequence
 
 from ..expected_points import ExpectedPointsProjection, project_player_gameweek
@@ -1702,6 +1703,10 @@ def run_version_comparison_backtest(
                     strat = OptimizerStrategy(max_transfers=1, decision_engine=ver)
 
                 exp_id = f"exp_v12_bench_{season.replace('-', '_')}_{track}_{ver}_gw{actual_end_gw}"
+                total_runs = len(seasons) * len(tracks) * len(versions)
+                cur_idx = len(ledger_records) + 1
+                print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] [{cur_idx:02d}/{total_runs:02d}] {season} | {track} | {ver}...", end="", flush=True)
+                t_sim0 = time.time()
                 sim = run_sequential_simulation(
                     season_dir=season_dir,
                     strategy=strat,
@@ -1713,6 +1718,7 @@ def run_version_comparison_backtest(
                     dead_capital_weight=dead_cap_w,
                     experiment_id=exp_id,
                 )
+                print(f" -> {sim.total_net_points} net pts ({time.time() - t_sim0:.1f}s)", flush=True)
 
                 # Count departure-related transfers
                 departure_tx_count = 0

@@ -1,7 +1,7 @@
 # Multi-Version Historical Benchmark Ledger: V0.9 vs V1.0 vs V1.1 vs V1.1.5 vs V1.2
 
 **Historical Seasons:** 2021-22, 2022-23, 2023-24, 2024-25, 2025-26 (5 seasons evaluated)
-**Evaluation Window:** GW 1–38 | **Predictor:** `v1.0.1` | **Benchmark Date:** 2026-09-29
+**Evaluation Window:** GW 1–38 | **Predictor:** `v1.0.1` | **Benchmark Date:** 2026-09-30
 
 ## 1. Executive Summary: Multi-Season Cross-Version Comparison
 
