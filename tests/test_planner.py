@@ -175,3 +175,46 @@ def test_generate_multi_gameweek_plan_validation_and_risk(planner_test_db: tuple
 
     with pytest.raises(ValueError, match="Invalid risk_profile"):
         generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, risk_profile="unknown")
+
+
+def _incoming_ids(plan: dict) -> set[int]:
+    return {
+        tx["in"]["id"]
+        for step in plan["best_plan"]["gameweek_steps"]
+        for tx in step.get("transfers", [])
+    }
+
+
+def test_generate_multi_gameweek_plan_excludes_long_term_unavailable(
+    planner_test_db: tuple[Path, Path]
+) -> None:
+    db_path, squad_path = planner_test_db
+
+    baseline_in = _incoming_ids(generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, horizon=2))
+    assert baseline_in, "fixture must produce at least one incoming transfer"
+
+    # Drive the exclusion genuinely through PlayerInfo carrying is_long_term_unavailable=True
+    # without monkeypatching (Task A3 / Issue 5). We mark the baseline incoming targets in the
+    # database with a long-term injury marker while preserving status='a', proving that the exclusion
+    # is driven by is_long_term_unavailable(p) rather than status filtering.
+    import sqlite3
+    from fpl_manager.suggest_transfers import load_all_players_meta
+
+    with sqlite3.connect(db_path) as conn:
+        for pid in baseline_in:
+            conn.execute(
+                "UPDATE players SET news = ? WHERE player_id = ?",
+                ("Long-term unavailable: ruptured anterior cruciate ligament (ACL)", pid),
+            )
+        conn.commit()
+
+    # Verify that load_all_players_meta produces genuine PlayerInfo objects with is_long_term_unavailable=True
+    store = SnapshotStore(db_path)
+    players_map, _ = load_all_players_meta(store)
+    for pid in baseline_in:
+        assert players_map[pid].is_long_term_unavailable is True, f"Player {pid} must carry is_long_term_unavailable=True"
+
+    res = generate_multi_gameweek_plan(squad_path=squad_path, database_path=db_path, horizon=2)
+
+    assert _incoming_ids(res).isdisjoint(baseline_in)
+

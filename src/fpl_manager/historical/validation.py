@@ -1,5 +1,6 @@
 """Point-in-time data quality validation and 7-category future-leakage verification for FPL Manager (V1.0.1)."""
 
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
@@ -191,6 +192,13 @@ def validate_season_dataset(season_dir: Path) -> dict[str, Any]:
             continue
         gws_checked += 1
 
+    reg_path = season_dir.parent / "unavailability_registry.json"
+    if reg_path.exists():
+        reg_issues = validate_unavailability_registry(reg_path, season_dir.parent)
+        for issue in reg_issues:
+            if manifest["season"] in issue:
+                issues.append(issue)
+
     return {
         "valid": len(issues) == 0,
         "season": manifest["season"],
@@ -198,3 +206,97 @@ def validate_season_dataset(season_dir: Path) -> dict[str, Any]:
         "gameweeks_verified": gws_checked,
         "issues": issues,
     }
+
+
+def validate_unavailability_registry(
+    registry_path: Path,
+    data_dir: Path,
+) -> list[str]:
+    """Validate hand-curated unavailability registry against gameweek deadlines (structural leakage guard).
+
+    Ensures:
+    1. Every entry has a valid 'known_from' date field (ISO-8601 YYYY-MM-DD or full timestamp).
+    2. 'start_gw' is strictly the first gameweek whose deadline falls after 'known_from' (ordered
+       chronologically by deadline timestamp), ensuring no lookahead bias into historical snapshots.
+    """
+    issues: list[str] = []
+    if not registry_path.exists():
+        return issues
+
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [f"Failed to parse registry {registry_path}: {exc}"]
+
+    if not isinstance(registry, dict):
+        return [f"Registry {registry_path} must be a JSON object."]
+
+    for season, entries in registry.items():
+        if not isinstance(entries, dict) or not entries:
+            continue
+        manifest_path = data_dir / season / "season_manifest.json"
+        if not manifest_path.exists():
+            issues.append(f"Season manifest not found for season '{season}' at {manifest_path}")
+            continue
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            issues.append(f"Failed to read season manifest {manifest_path}: {exc}")
+            continue
+
+        raw_deadlines = manifest.get("deadlines", {})
+        # Sort gameweeks chronologically by deadline timestamp
+        chronological_deadlines: list[tuple[int, str]] = []
+        for gw_str, dl_str in raw_deadlines.items():
+            try:
+                chronological_deadlines.append((int(gw_str), str(dl_str)))
+            except ValueError:
+                continue
+        chronological_deadlines.sort(key=lambda x: x[1])
+
+        for pid_str, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name", f"Player {pid_str}")
+            known_from = entry.get("known_from")
+            if not known_from:
+                issues.append(
+                    f"Registry leakage check failed for {season} player {pid_str} ({name}): "
+                    f"missing required 'known_from' date field."
+                )
+                continue
+
+            try:
+                if "T" in str(known_from):
+                    kf_dt = datetime.fromisoformat(str(known_from).replace("Z", "+00:00"))
+                else:
+                    kf_dt = datetime.fromisoformat(str(known_from) + "T00:00:00+00:00")
+            except (ValueError, TypeError) as exc:
+                issues.append(
+                    f"Registry leakage check failed for {season} player {pid_str} ({name}): "
+                    f"invalid 'known_from' date format '{known_from}': {exc}"
+                )
+                continue
+
+            # Determine the first gameweek whose deadline falls after known_from
+            first_valid_gw = None
+            for gw, dl in chronological_deadlines:
+                try:
+                    dl_dt = datetime.fromisoformat(dl.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if dl_dt > kf_dt:
+                    first_valid_gw = gw
+                    break
+
+            start_gw = entry.get("start_gw")
+            if first_valid_gw is not None and start_gw != first_valid_gw:
+                issues.append(
+                    f"Registry lookahead leakage in {season} player {pid_str} ({name}): "
+                    f"start_gw={start_gw} does not match first post-event deadline gameweek (GW{first_valid_gw}) "
+                    f"for known_from='{known_from}'."
+                )
+
+    return issues
+

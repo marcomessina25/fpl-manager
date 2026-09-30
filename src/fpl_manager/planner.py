@@ -13,7 +13,7 @@ from typing import Any
 
 from .expected_points import ExpectedPointsProjection, project_gameweek, project_multi_gameweek_profiles
 from .fixtures import analyze_team_fixtures, get_current_gameweek
-from .models import Position
+from .models import Position, is_departed_from_premier_league, is_long_term_unavailable
 from .optimizer import PlayerOptInfo, solve_transfers, validate_risk_profile
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
@@ -133,7 +133,13 @@ def generate_multi_gameweek_plan(
     fdr_map = {t["short_name"]: t["avg_difficulty"] for t in fdr_analysis["team_rankings"]}
     ticker_map = {t["short_name"]: t["ticker"] for t in fdr_analysis["team_rankings"]}
 
-    candidate_pool_all = [p for p in players_map.values() if p.status in ("a", "d")]
+    candidate_pool_all = [
+        p
+        for p in players_map.values()
+        if p.status in ("a", "d")
+        and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
+    ]
 
     if initial_squad_ids is not None:
         init_ids = list(initial_squad_ids)
@@ -746,7 +752,12 @@ def plan_multi_gw_exact_reference(
         pool = []
         for p in all_players:
             pr = p_map.get(p.id)
-            if pr and p.status in ("a", "d"):
+            if (
+                pr
+                and p.status in ("a", "d")
+                and not is_departed_from_premier_league(p)
+                and not is_long_term_unavailable(p)
+            ):
                 pool.append(
                     PlayerOptInfo(
                         id=p.id,
@@ -762,6 +773,7 @@ def plan_multi_gw_exact_reference(
                         xp_floor=pr.xp_floor,
                         xp_ceiling=pr.xp_ceiling,
                         standard_deviation=pr.standard_deviation,
+                        is_long_term_unavailable=is_long_term_unavailable(p),
                     )
                 )
         gw_cand_pools[gw] = pool
@@ -811,6 +823,7 @@ def plan_multi_gw_exact_reference(
                     xp_floor=pr.xp_floor if pr else 0.0,
                     xp_ceiling=pr.xp_ceiling if pr else 0.0,
                     standard_deviation=pr.standard_deviation if pr else 0.0,
+                    is_long_term_unavailable=is_long_term_unavailable(p),
                 )
             )
 

@@ -15,7 +15,7 @@ import itertools
 from pathlib import Path
 from typing import Any
 
-from .models import Player, Position, is_departed_from_premier_league
+from .models import Player, Position, is_departed_from_premier_league, is_long_term_unavailable
 from .rules import validate_starting_lineup, validate_squad
 
 LEGAL_FORMATIONS = (
@@ -46,6 +46,8 @@ class PlayerOptInfo:
     xp_ceiling: float = 0.0
     standard_deviation: float = 0.0
     selected_by_percent: float = 0.0
+    news: str = ""
+    is_long_term_unavailable: bool = False
 
 
 RISK_PROFILE_SPECIFICATIONS: dict[str, dict[str, Any]] = {
@@ -169,7 +171,7 @@ def solve_transfers(
     for p in candidate_pool:
         if p.id in squad_id_set:
             continue
-        if getattr(p, "status", "a") in ("i", "s", "u") or is_departed_from_premier_league(p):
+        if getattr(p, "status", "a") in ("i", "s", "u") or is_departed_from_premier_league(p) or is_long_term_unavailable(p):
             continue
         by_pos[p.position].append(p)
 
@@ -277,7 +279,7 @@ def solve_transfers(
                     sum(
                         round(dead_capital_weight * (p.price_tenths / 10.0), 2)
                         for p in sorted_out_combo
-                        if is_departed_from_premier_league(p)
+                        if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
                     )
                     if dead_capital_weight > 0.0
                     else 0.0
@@ -303,6 +305,7 @@ def solve_transfers(
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
                             "is_departed": is_departed_from_premier_league(p),
+                            "is_unavailable": is_long_term_unavailable(p),
                             "status": getattr(p, "status", "a"),
                         }
                         for p in sorted_out_combo
@@ -327,7 +330,7 @@ def solve_transfers(
                     "bank_after_tenths": bank_after,
                     "dead_capital_bonus": round(dead_capital_bonus, 2),
                     "dead_capital_recovered_tenths": sum(
-                        p.price_tenths for p in sorted_out_combo if is_departed_from_premier_league(p)
+                        p.price_tenths for p in sorted_out_combo if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
                     ),
                     "xp_delta": xp_delta,
                     "floor_delta": floor_delta,
@@ -439,6 +442,7 @@ def solve_transfers_exact_reference(
         if p.id not in squad_by_id
         and getattr(p, "status", "a") not in ("i", "s", "u")
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
 
     if len(out_pool) < num_transfers or len(in_pool) < num_transfers:
@@ -475,9 +479,11 @@ def solve_transfers_exact_reference(
         for in_combo in itertools.combinations(in_pool, num_transfers):
             evaluated_combinations += 1
 
-            # 1. Availability check: unavailable players ('i', 's', 'u') or departed cannot be transferred in
+            # 1. Availability check: unavailable players ('i', 's', 'u'), departed, or long-term unavailable cannot be transferred in
             if any(
-                getattr(p, "status", "a") in ("i", "s", "u") or is_departed_from_premier_league(p)
+                getattr(p, "status", "a") in ("i", "s", "u")
+                or is_departed_from_premier_league(p)
+                or is_long_term_unavailable(p)
                 for p in in_combo
             ):
                 continue
@@ -534,7 +540,7 @@ def solve_transfers_exact_reference(
                 sum(
                     round(dead_capital_weight * (p.price_tenths / 10.0), 2)
                     for p in out_combo
-                    if is_departed_from_premier_league(p)
+                    if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
                 )
                 if dead_capital_weight > 0.0
                 else 0.0
@@ -566,6 +572,7 @@ def solve_transfers_exact_reference(
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
                             "is_departed": is_departed_from_premier_league(p),
+                            "is_unavailable": is_long_term_unavailable(p),
                             "status": getattr(p, "status", "a"),
                         }
                         for p in sorted_out
@@ -590,7 +597,7 @@ def solve_transfers_exact_reference(
                     "bank_after_tenths": bank_after,
                     "dead_capital_bonus": round(dead_capital_bonus, 2),
                     "dead_capital_recovered_tenths": sum(
-                        p.price_tenths for p in sorted_out if is_departed_from_premier_league(p)
+                        p.price_tenths for p in sorted_out if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
                     ),
                     "xp_delta": xp_delta,
                     "floor_delta": floor_delta,
@@ -641,6 +648,7 @@ def solve_wildcard(
         if getattr(p, "status", "a") in ("a", "d")
         and getattr(p, "status", "a") != "u"
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
     for p in active_players:

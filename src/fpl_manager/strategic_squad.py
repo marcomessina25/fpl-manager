@@ -22,7 +22,7 @@ import itertools
 import math
 from typing import Any
 
-from .models import Position, is_departed_from_premier_league
+from .models import Position, is_departed_from_premier_league, is_long_term_unavailable
 from .optimizer import LEGAL_FORMATIONS, PlayerOptInfo, get_player_profile_value, validate_risk_profile
 from .rules import Player, validate_squad, validate_starting_lineup
 
@@ -63,6 +63,9 @@ class StrategicConstraints:
     )
     min_bank_tenths: int = 0
     target_gameweeks: tuple[int, ...] = ()
+    # Legacy/opt-in default: 1.0 reproduces pre-V1.2 symmetric scoring. Pass 0.15
+    # explicitly to opt into the V1.2 asymmetric Starting XI vs Bench weighting.
+    bench_weight: float = 1.0
 
     def validate(self, candidate_pool: list[Any]) -> list[str]:
         """Validate constraints for feasibility and raise or return errors."""
@@ -84,10 +87,11 @@ class StrategicConstraints:
             and (
                 getattr(pool_by_id[pid], "status", "a") == "u"
                 or is_departed_from_premier_league(pool_by_id[pid])
+                or is_long_term_unavailable(pool_by_id[pid])
             )
         ]
         if departed_locked:
-            errors.append(f"Departed player IDs cannot be locked: {departed_locked}")
+            errors.append(f"Departed player IDs cannot be locked (or unavailable): {departed_locked}")
 
         locked_players = [pool_by_id[pid] for pid in self.locked_player_ids if pid in pool_by_id]
 
@@ -472,6 +476,7 @@ def solve_strategic_squad_exact_reference(
     constraints: StrategicConstraints,
     strategy: str = "balanced",
     max_evaluations: int = 1_000_000,
+    bench_weight: float | None = None,
 ) -> StrategicCandidate | None:
     """Independent exact brute-force reference solver for bounded synthetic pools.
 
@@ -496,6 +501,7 @@ def solve_strategic_squad_exact_reference(
         if p.id not in excluded_set
         and getattr(p, "status", "a") != "u"
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
         and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
@@ -555,14 +561,29 @@ def solve_strategic_squad_exact_reference(
 
                     legal_count += 1
                     bank_rem = constraints.budget_tenths - total_cost
+                    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 1.0)
 
-                    obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
-                        squad=squad,
-                        strategy=strategy,
-                        horizon_gws=target_gws,
-                        bank_tenths=bank_rem,
-                        preferred_ids=constraints.preferred_player_ids,
-                    )
+                    # Legacy mode matches master exactly: it never passed bench_weight, so the function's
+                    # own default (0.15) applies regardless of the effective bench weight. Mirrors the
+                    # identical rule in solve_strategic_squad so both solvers score on the same objective.
+                    legacy_mode = eff_bench_weight >= 1.0
+                    if legacy_mode:
+                        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+                            squad=squad,
+                            strategy=strategy,
+                            horizon_gws=target_gws,
+                            bank_tenths=bank_rem,
+                            preferred_ids=constraints.preferred_player_ids,
+                        )
+                    else:
+                        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+                            squad=squad,
+                            strategy=strategy,
+                            horizon_gws=target_gws,
+                            bank_tenths=bank_rem,
+                            preferred_ids=constraints.preferred_player_ids,
+                            bench_weight=eff_bench_weight,
+                        )
 
                     if obj_val > best_obj:
                         best_obj = obj_val
@@ -665,6 +686,7 @@ def solve_strategic_squad(
     horizon: int | None = None,
     max_1opt_iterations: int = 50,
     max_2opt_rounds: int = 15,
+    bench_weight: float | None = None,
 ) -> StrategicCandidate:
     """Production heuristic strategic squad optimizer.
 
@@ -699,6 +721,7 @@ def solve_strategic_squad(
         if p.id not in excluded_set
         and getattr(p, "status", "a") != "u"
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
         and (p.id in locked_set or getattr(p, "status", "a") in ("a", "d"))
     ]
 
@@ -708,6 +731,34 @@ def solve_strategic_squad(
 
     def p_score(p: Any) -> float:
         return compute_player_strategic_value(p, strategy, horizon_len=h_len, preferred_ids=pref_set)
+
+    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 1.0)
+    legacy_mode = eff_bench_weight >= 1.0
+    p_score_map = {p.id: p_score(p) for p in eligible_pool}
+
+    def _eval_squad_lineup_score(sq: list[Any]) -> float:
+        by_pos_vals: dict[Position, list[float]] = {pos: [] for pos in Position}
+        for p in sq:
+            by_pos_vals[p.position].append(p_score_map[p.id])
+        for pos in by_pos_vals:
+            by_pos_vals[pos].sort(reverse=True)
+
+        gk = by_pos_vals[Position.GOALKEEPER]
+        defs = by_pos_vals[Position.DEFENDER]
+        mids = by_pos_vals[Position.MIDFIELDER]
+        fwds = by_pos_vals[Position.FORWARD]
+
+        total_sq_val = gk[0] + gk[1] + sum(defs) + sum(mids) + sum(fwds)
+        best_sc = -float("inf")
+
+        for n_def, n_mid, n_fwd in LEGAL_FORMATIONS:
+            st_val = gk[0] + sum(defs[:n_def]) + sum(mids[:n_mid]) + sum(fwds[:n_fwd])
+            cap_val = max(gk[0], defs[0], mids[0], fwds[0])
+            bench_val = total_sq_val - st_val
+            sc = st_val + 0.8 * cap_val + eff_bench_weight * bench_val
+            if sc > best_sc:
+                best_sc = sc
+        return best_sc
 
     # Sort candidates by strategic efficiency (utility / cost) and total utility
     for pos in by_pos:
@@ -806,6 +857,10 @@ def solve_strategic_squad(
     squad_ids = {p.id for p in squad}
 
     # Stage 2: 1-Opt Upgrades (Locked players cannot be replaced)
+    # Legacy mode (effective bench_weight >= 1.0, i.e. V1.1/V1.1.5 non-asymmetric callers) reproduces
+    # master's exact symmetric per-player score-delta search. Asymmetric mode (bench_weight < 1.0,
+    # V1.2 default) evaluates candidate lineups via _eval_squad_lineup_score (best XI + captain + bench).
+    base_lineup_score = None if legacy_mode else _eval_squad_lineup_score(squad)
     improved_1opt = True
     iteration = 0
     while improved_1opt and iteration < max_1opt_iterations:
@@ -818,7 +873,8 @@ def solve_strategic_squad(
             if curr_p.id in locked_set:
                 continue  # Never replace a locked player
 
-            curr_val = p_score(curr_p)
+            if legacy_mode:
+                curr_val = p_score(curr_p)
             for cand in by_pos[curr_p.position]:
                 if cand.id in squad_ids:
                     continue
@@ -827,24 +883,35 @@ def solve_strategic_squad(
                     continue
                 if cand.team_id != curr_p.team_id and t_counts.get(cand.team_id, 0) >= constraints.max_players_per_club:
                     continue
-                delta_val = p_score(cand) - curr_val
+
+                if legacy_mode:
+                    delta_val = p_score(cand) - curr_val
+                    new_score = None
+                else:
+                    squad[i] = cand
+                    new_score = _eval_squad_lineup_score(squad)
+                    squad[i] = curr_p
+                    delta_val = new_score - base_lineup_score
+
                 if delta_val > best_gain:
                     best_gain = delta_val
-                    best_swap = (i, curr_p, cand, delta_cost)
+                    best_swap = (i, curr_p, cand, delta_cost, new_score)
 
         if best_swap:
-            i, curr_p, cand, delta_cost = best_swap
+            i, curr_p, cand, delta_cost, new_score = best_swap
             squad_ids.remove(curr_p.id)
             squad_ids.add(cand.id)
             t_counts[curr_p.team_id] -= 1
             t_counts[cand.team_id] = t_counts.get(cand.team_id, 0) + 1
             squad[i] = cand
             current_cost += delta_cost
+            if not legacy_mode:
+                base_lineup_score = new_score
             improved_1opt = True
 
     # Stage 3: 2-Opt Cross-Position Swaps
     cands_pos = {
-        pos: sorted(by_pos[pos], key=p_score, reverse=True)[:30]
+        pos: sorted(by_pos[pos], key=p_score, reverse=True)[:(30 if legacy_mode else 25)]
         for pos in Position
     }
 
@@ -869,7 +936,8 @@ def solve_strategic_squad(
                 t_counts[p1.team_id] -= 1
                 t_counts[p2.team_id] -= 1
                 base_cost = current_cost - p1.price_tenths - p2.price_tenths
-                base_val = p_score(p1) + p_score(p2)
+                if legacy_mode:
+                    base_val = p_score(p1) + p_score(p2)
 
                 for c1 in cands_pos[p1.position]:
                     if c1.id in squad_ids and c1.id not in (p1.id, p2.id):
@@ -888,10 +956,21 @@ def solve_strategic_squad(
                         new_cost = base_cost + c1.price_tenths + c2.price_tenths
                         if new_cost > effective_budget:
                             continue
-                        gain = (p_score(c1) + p_score(c2)) - base_val
+
+                        if legacy_mode:
+                            gain = (p_score(c1) + p_score(c2)) - base_val
+                            cand_score = None
+                        else:
+                            squad[i] = c1
+                            squad[j] = c2
+                            cand_score = _eval_squad_lineup_score(squad)
+                            squad[i] = p1
+                            squad[j] = p2
+                            gain = cand_score - base_lineup_score
+
                         if gain > best_2gain:
                             best_2gain = gain
-                            best_2swap = (i, j, p1, p2, c1, c2, new_cost)
+                            best_2swap = (i, j, p1, p2, c1, c2, new_cost, cand_score)
 
                     t_counts[c1.team_id] -= 1
 
@@ -899,7 +978,7 @@ def solve_strategic_squad(
                 t_counts[p2.team_id] += 1
 
         if best_2swap:
-            i, j, p1, p2, c1, c2, new_cost = best_2swap
+            i, j, p1, p2, c1, c2, new_cost, new_score = best_2swap
             squad_ids.remove(p1.id)
             squad_ids.remove(p2.id)
             squad_ids.add(c1.id)
@@ -911,6 +990,8 @@ def solve_strategic_squad(
             squad[i] = c1
             squad[j] = c2
             current_cost = new_cost
+            if not legacy_mode:
+                base_lineup_score = new_score
             improved_2opt = True
 
     # Rule validation of finalized 15-player squad
@@ -928,15 +1009,27 @@ def solve_strategic_squad(
     if not val.is_valid:
         raise RuntimeError(f"Optimized squad failed FPL rules: {'; '.join(val.errors)}")
 
-    # Objective and Lineup Evaluation
+    # Objective and Lineup Evaluation.
+    # Legacy mode matches master exactly: it never passed bench_weight, so the function's
+    # own default (0.15) applies regardless of the search-phase effective bench weight.
     bank_rem = constraints.budget_tenths - current_cost
-    obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
-        squad=squad,
-        strategy=strategy,
-        horizon_gws=target_gws,
-        bank_tenths=bank_rem,
-        preferred_ids=pref_set,
-    )
+    if legacy_mode:
+        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+            squad=squad,
+            strategy=strategy,
+            horizon_gws=target_gws,
+            bank_tenths=bank_rem,
+            preferred_ids=pref_set,
+        )
+    else:
+        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+            squad=squad,
+            strategy=strategy,
+            horizon_gws=target_gws,
+            bank_tenths=bank_rem,
+            preferred_ids=pref_set,
+            bench_weight=eff_bench_weight,
+        )
 
     def serialize(p: Any, role: str) -> dict[str, Any]:
         return {
@@ -1096,8 +1189,15 @@ def measure_heuristic_optimality_gap(
     Reports:
     - exact_optimum: objective value from exact reference solver
     - heuristic_value: objective value from production heuristic solver
-    - absolute_gap: exact_optimum - heuristic_value
+    - absolute_gap: exact_optimum - heuristic_value (signed; should be >= 0 for a correct heuristic)
     - relative_gap: (exact_optimum - heuristic_value) / |exact_optimum| (if non-zero)
+
+    Raises:
+        RuntimeError: if heuristic_value exceeds exact_optimum by more than a small floating-point
+            tolerance. Since the exact solver enumerates every legal squad, no heuristic can
+            legitimately beat it; a positive gap here means the two solvers were scored on
+            different objectives (e.g. mismatched bench_weight handling) or one has a bug. This
+            condition is never silently clamped to zero.
     """
     exact_cand = solve_strategic_squad_exact_reference(
         candidate_pool=candidate_pool,
@@ -1115,7 +1215,17 @@ def measure_heuristic_optimality_gap(
 
     exact_obj = float(exact_cand.total_objective_value)
     heur_obj = float(heur_cand.total_objective_value)
-    abs_gap = round(max(0.0, exact_obj - heur_obj), 4)
+
+    _OPTIMALITY_TOLERANCE = 1e-6
+    if heur_obj - exact_obj > _OPTIMALITY_TOLERANCE:
+        raise RuntimeError(
+            "Heuristic solver value exceeds the exact reference optimum, which is impossible for a "
+            "correctly scored objective: exact_optimum="
+            f"{exact_obj!r}, heuristic_value={heur_obj!r}. This indicates the two solvers were scored "
+            "on different objectives (e.g. mismatched bench_weight handling) or a solver bug."
+        )
+
+    abs_gap = round(exact_obj - heur_obj, 4)
     rel_gap = round(abs_gap / abs(exact_obj), 4) if exact_obj != 0.0 else 0.0
 
     return {

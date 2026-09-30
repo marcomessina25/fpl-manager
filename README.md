@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.1.5-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.2-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -275,7 +275,45 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.1.5 — Hardening & Multi-Season Ledger Release)
+## Current scope (V1.2 — Strategic Squad Balancing & Long-Term Unavailability)
+
+### What's New in V1.2
+- **Asymmetric Starting XI vs Bench Squad Balancing (`src/fpl_manager/strategic_squad.py`)**:
+  - `solve_strategic_squad` scores candidate swaps with an asymmetric lineup objective (`1.0×` starters, `0.15×` bench) instead of a flat 15-player sum, so the solver stops trading a premium starter for a marginally better bench player that scores nothing on matchday.
+  - `bench_weight` is parameterized on `StrategicConstraints` and **defaults to `1.0` (legacy symmetric mode)**. Only `DecisionEngineV12` and the V1.2 backtest entry points opt in to `0.15`, which is what keeps every pre-V1.2 call site reproducing its canonical `master` behaviour.
+- **Lineup-Aware Transfer Evaluation (`DecisionEngineV12` in `src/fpl_manager/backtest/decision_engine.py`)**:
+  - Transfers are scored on their net effect on **Starting XI** expected points rather than raw squad totals, preventing free transfers and hits from being burned on sideways bench swaps.
+- **Long-Term Unavailability Modeling (`data/historical/unavailability_registry.json`, `src/fpl_manager/models.py`)**:
+  - Point-in-time registry of multi-month bans and long-term injuries, with machine-checkable `known_from` dates asserted against gameweek deadlines to guarantee zero lookahead leakage.
+  - The verdict is computed once at snapshot creation and propagated as an explicit boolean through `HistoricalPlayerState` → `ExpectedPointsProjection` → `PlayerInfo` → `PlayerOptInfo` — no `datetime.now()` dependency and no free-text `news` parsing as a transport mechanism.
+  - `build_historical_snapshot(..., apply_unavailability=False)` defaults to `False`, gating hindsight registry data out of all pre-V1.2 measurement paths.
+- **Audited 5-Season Multi-Version Benchmark Ledger (`reports/v12/`)**:
+  - Reproducible Track A (no chips) and Track B (with chips) comparison of V0.9, V1.0, V1.1, V1.1.5 and V1.2 across `2021-22`–`2025-26`.
+  - V0.9–V1.1.5 reproduce their canonical `master` ledgers with **0.0 point drift**.
+
+### V1.2 Measured Results & Methodological Disclosure
+
+| Version | Track A Mean Net | Track B Mean Net |
+|---|---:|---:|
+| V1.0 | **2,048.4** (±205.2) | **2,108.0** (±178.9) |
+| V1.1 | 1,983.0 (±122.4) | 2,010.0 (±177.0) |
+| V1.1.5 | 1,980.4 (±145.2) | 2,007.8 (±170.7) |
+| V1.2 | 2,025.8 (±122.0) | 2,050.2 (±151.7) |
+
+- **V1.2 recovers +45.4 pts vs V1.1.5 in Track A** and posts the lowest cross-season variance of any version (±122.0).
+- **V1.2 does not meet its own exit criterion** of ≥ 2,050 Track A net points, and still trails V1.0 by 22.6 pts (Track A) and 57.8 pts (Track B). This is recorded rather than tuned away; achieving the target is formally deferred to V1.2.5.
+- **Where the gain actually comes from (measured by ablation, not asserted):**
+
+  | Pillar | Mechanism | Contribution |
+  |---|---|---:|
+  | Pillar 1 | Asymmetric bench weighting | **+24.2 pts/season** |
+  | Pillar 2 | Long-term unavailability registry | **+0.0 pts/season** |
+  | Pillar 3 | Lineup-aware transfer evaluation | **+21.2 pts/season** |
+
+- **Pillar 2 is implemented and verified inert.** Running V1.2 with an empty registry reproduces all five seasons exactly. The signal is live and point-in-time correct (15–17 players flagged per gameweek in 2023-24), but it cannot change an outcome: unavailable players are excluded from the purchase pool, so they never enter a squad, while the dead-capital penalty only applies to players already held. The two mechanisms mutually pre-empt each other. V1.2.5 owns resolving this.
+- Full specification, per-season tables and ablation detail: [`docs/v1.2/v12.md`](docs/v1.2/v12.md). Next milestone: [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md) with the execution plan in [`docs/v1.2.5/v125_implementation_plan.md`](docs/v1.2.5/v125_implementation_plan.md).
+
+## Previous scope (V1.1.5 — Hardening & Multi-Season Ledger Release)
 
 ### What's New in V1.1.5
 - **Point-in-Time Premier League Departure Engine (`src/fpl_manager/models.py`, `src/fpl_manager/backtest/decision_engine.py`, `data/historical/departures_registry.json`)**:
@@ -330,7 +368,7 @@ fpl advise --persona devil_advocate --provider gemini
 
 ## Roadmap
 
-The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md) and the V1.1.5 specification in [`docs/v1.1.5/v115.md`](docs/v1.1.5/v115.md).
+The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the current V1.2 specification in [`docs/v1.2/v12.md`](docs/v1.2/v12.md), and the next milestone in [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md) with its [execution plan](docs/v1.2.5/v125_implementation_plan.md).
 
 ## License
 

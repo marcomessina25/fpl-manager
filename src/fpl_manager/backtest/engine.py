@@ -11,7 +11,7 @@ from ..expected_points import ExpectedPointsProjection
 from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
-from ..models import is_departed_from_premier_league
+from ..models import is_departed_from_premier_league, is_long_term_unavailable
 from ..rules import validate_starting_lineup
 from .decision_engine import BaseDecisionEngine, DecisionEngineV08, DecisionEngineV09, resolve_decision_engine
 from .strategies import BacktestStrategy
@@ -401,14 +401,15 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
-    apply_dep = (dec_engine.version == "v1.1.5")
+    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2"))
+    apply_unavail = (dec_engine.version == "v1.2")
 
     # 1. Initialize squad at start_gw
-    init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep)
+    init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        if dec_engine.version in ("v1.1", "v1.1.5") or initial_strategy is not None:
+        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2") or initial_strategy is not None:
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -419,14 +420,26 @@ def run_sequential_simulation(
                     horizon=chosen_initial_horizon,
                     predictor_version=predictor_version,
                     apply_departures=apply_dep,
+                    apply_unavailability=apply_unavail,
                 )
                 if dec_engine.version == "v1.1.5":
                     strat_players = [
-                        p for p in strat_players if not is_departed_from_premier_league(p, init_snap)
+                        p for p in strat_players
+                        if not is_departed_from_premier_league(p, init_snap)
                     ]
+                elif dec_engine.version == "v1.2":
+                    strat_players = [
+                        p for p in strat_players
+                        if not is_departed_from_premier_league(p, init_snap)
+                        and not is_long_term_unavailable(p, init_snap)
+                    ]
+                # Only DecisionEngineV12 defines a bench_weight attribute (0.15 asymmetric);
+                # every other engine falls back to the legacy symmetric default of 1.0.
+                bench_w = getattr(dec_engine, "bench_weight", 1.0)
                 c = StrategicConstraints(
                     budget_tenths=1000,
                     target_gameweeks=tuple(range(start_gw, min(39, start_gw + chosen_initial_horizon))),
+                    bench_weight=bench_w,
                 )
                 cand = solve_strategic_squad(
                     candidate_pool=strat_players,
@@ -434,6 +447,7 @@ def run_sequential_simulation(
                     strategy=chosen_initial_strategy,
                     mode="initial",
                     horizon=chosen_initial_horizon,
+                    bench_weight=bench_w,
                 )
                 squad_ids = list(cand.player_ids)
                 purchase_prices = {p.id: p.price_tenths for p in strat_players if p.id in squad_ids}
@@ -468,7 +482,7 @@ def run_sequential_simulation(
 
     # 2. Sequential simulation loop
     for gw in range(start_gw, end_gw + 1):
-        snapshot = build_historical_snapshot(season_dir, gw, apply_departures=apply_dep)
+        snapshot = build_historical_snapshot(season_dir, gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)
         projections = reconstruct_features_and_project(snapshot, predictor_version=predictor_version)
         proj_map = {p.player_id: p for p in projections}
         player_positions = {p.player_id: p.position for p in projections}

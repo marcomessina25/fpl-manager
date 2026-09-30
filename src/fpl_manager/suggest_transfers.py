@@ -6,6 +6,7 @@ and squad selling-price rules with the combinatorial optimizers in `fpl_manager.
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,12 @@ from .expected_points import (
     project_multi_gameweek_profiles,
 )
 from .fixtures import analyze_team_fixtures, get_current_gameweek
-from .models import Position, is_departed_from_premier_league
+from .models import (
+    Position,
+    evaluate_long_term_unavailable,
+    is_departed_from_premier_league,
+    is_long_term_unavailable,
+)
 from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
@@ -54,6 +60,7 @@ class PlayerInfo:
     horizon_xp: float = 0.0
     horizon_floor: float = 0.0
     horizon_ceiling: float = 0.0
+    is_long_term_unavailable: bool = False
 
 
 def load_all_players_meta(
@@ -76,7 +83,8 @@ def load_all_players_meta(
 
         players_rows = connection.execute(
             """
-            SELECT player_id, web_name, position_id, team_id, price_tenths, status, total_points
+            SELECT player_id, web_name, position_id, team_id, price_tenths, status, total_points,
+                   news, chance_of_playing_next_round, chance_of_playing_this_round
             FROM players
             WHERE snapshot_id = ?
             """,
@@ -84,7 +92,7 @@ def load_all_players_meta(
         ).fetchall()
 
     players_map: dict[int, PlayerInfo] = {}
-    for p_id, web_name, pos_id, t_id, price, status, pts in players_rows:
+    for p_id, web_name, pos_id, t_id, price, status, pts, news, chance_next, chance_this in players_rows:
         t_short = team_map.get(t_id, f"T{t_id}")
         prof = profiles_map.get(p_id) if profiles_map else None
         if isinstance(prof, MultiGameweekProfile):
@@ -137,6 +145,9 @@ def load_all_players_meta(
             horizon_xp=p_horizon_xp,
             horizon_floor=p_horizon_floor,
             horizon_ceiling=p_horizon_ceil,
+            is_long_term_unavailable=evaluate_long_term_unavailable(
+                status, news, chance_this, chance_next, datetime.now(timezone.utc)
+            ),
         )
 
     return players_map, team_map
@@ -193,6 +204,7 @@ def suggest_transfers(
         if p.id not in squad_set
         and p.status in ("a", "d")
         and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
 
     top_results, total_evaluated = solve_transfers(
@@ -275,7 +287,9 @@ def suggest_wildcard(
     candidate_pool = [
         p
         for p in players_map.values()
-        if p.status in ("a", "d") and not is_departed_from_premier_league(p)
+        if p.status in ("a", "d")
+        and not is_departed_from_premier_league(p)
+        and not is_long_term_unavailable(p)
     ]
     result = solve_wildcard(
         candidate_pool=candidate_pool,
