@@ -135,9 +135,10 @@ These were identified during review and consciously left alone. Flag them in the
 
 ## 4. Definition of done for V1.2
 
-- [ ] Task A: all three tests discriminate; leakage guard added.
-- [ ] Task B: benchmark regenerated; **all four predecessor versions reproduce their `master` ledgers exactly**.
-- [ ] Task C: spec and roadmap reflect the real numbers; Pillar 4 target explicitly met, or explicitly deferred to V1.2.5 with justification.
-- [ ] Full suite green in the `fpl` env.
-- [ ] Known risks in §3 carried into the PR description.
-- [ ] Each task committed and pushed separately.
+- [x] Task A: all three tests discriminate; leakage guard added (Commit `d7a130e`).
+- [x] Task B: benchmark regenerated; **all four predecessor versions reproduce their `master` ledgers exactly** (Commit `8f1cb55`).
+- [x] Task C: spec and roadmap reflect the real numbers; Pillar 4 target explicitly met, or explicitly deferred to V1.2.5 with justification (Commit `0eed07e`).
+- [x] Full suite green in the `fpl` env (401 passed in 111.45s).
+- [x] Known risks in §3 carried into the PR description (`pr_text.txt`).
+- [x] Each task committed and pushed separately.
+
