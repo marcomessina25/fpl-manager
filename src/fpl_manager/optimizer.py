@@ -47,6 +47,7 @@ class PlayerOptInfo:
     standard_deviation: float = 0.0
     selected_by_percent: float = 0.0
     news: str = ""
+    is_long_term_unavailable: bool = False
 
 
 RISK_PROFILE_SPECIFICATIONS: dict[str, dict[str, Any]] = {

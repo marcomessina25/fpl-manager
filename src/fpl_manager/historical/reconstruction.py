@@ -97,6 +97,7 @@ def reconstruct_features_and_project(
             days_since_prev_fixture=days_prev,
             matches_last_7_days=m7,
             predictor_version=predictor_version,
+            is_long_term_unavailable=p.is_long_term_unavailable,
         )
         projections.append(proj)
 

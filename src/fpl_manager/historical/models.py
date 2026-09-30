@@ -41,6 +41,7 @@ class HistoricalPlayerState:
     consecutive_zero_mins: int = 0
     recent_starts: tuple[int, ...] = ()
     recent_minutes: tuple[int, ...] = ()
+    is_long_term_unavailable: bool = False
 
 
 @dataclass(frozen=True, slots=True)

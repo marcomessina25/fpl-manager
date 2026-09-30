@@ -205,43 +205,43 @@ def is_departed_from_premier_league(player: object, snapshot: object = None) -> 
     return False
 
 
-def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
-    """Determine whether a player is long-term unavailable (expected return > 35 days away).
+def evaluate_long_term_unavailable(
+    status: str | None,
+    news: str | None,
+    chance_this: int | None,
+    chance_next: int | None,
+    reference_dt: datetime,
+) -> bool:
+    """Point-in-time heuristic verdict for long-term unavailability from raw signals.
 
-    Point-in-time criteria:
-    1. Already classified as departed from Premier League, or official FPL status == 'u'.
-    2. Registry marker: `build_historical_snapshot` stamps registry-applied players' news with
-       a "Long-term unavailable: <reason>" prefix (see historical/snapshots.py); such a marker
-       is always treated as long-term regardless of status.
+    This is the shared core used both by `is_long_term_unavailable`'s fallback path (for raw
+    live-API objects with no precomputed verdict) and by `build_historical_snapshot` (to compute
+    the verdict once, at snapshot-build time, using the gameweek deadline as `reference_dt`
+    instead of wall-clock "now"). Criteria:
+    1. Official FPL status == 'u' (unavailable / departed) -> True.
+    2. Registry marker: news starting with "Long-term unavailable:" (stamped by
+       `build_historical_snapshot` for registry-applied players) -> True regardless of status.
     3. For status 's' (suspended) or 'i' (injured) with zero chance of playing:
        a. If the news contains a parseable expected-return date, long-term iff that date is
-          more than 35 days after the point-in-time reference date (the snapshot's deadline
-          if available, otherwise "now").
+          more than 35 days after `reference_dt`.
        b. Else if status == 'i' and the news contains a severe long-term injury keyword
           (ACL, cruciate ligament, out for the season, indefinitely, ...) -> True.
        c. Else if status == 's' and the news indicates a long ban ("indefinitely" or an
           "N-month(s)" phrasing) -> True.
        d. Otherwise False (e.g. a short suspension or a bare "Suspended" with no other signal).
+    4. Otherwise False.
     """
-    if is_departed_from_premier_league(player, snapshot=snapshot):
-        return True
-
-    status = getattr(player, "status", None)
     if status == "u":
         return True
 
-    news = (getattr(player, "news", None) or "")
-    news_lower = news.lower()
+    news_lower = (news or "").lower()
 
-    # 2. Registry marker stamped by build_historical_snapshot when apply_unavailability=True.
     if news_lower.startswith("long-term unavailable:"):
         return True
 
     if status not in ("s", "i"):
         return False
 
-    chance_this = getattr(player, "chance_of_playing_this_round", None)
-    chance_next = getattr(player, "chance_of_playing_next_round", None)
     is_zero_chance = (
         chance_this == 0
         or chance_next == 0
@@ -250,7 +250,6 @@ def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
     if not is_zero_chance:
         return False
 
-    reference_dt = _reference_datetime(snapshot)
     return_date = _parse_return_date(news_lower, reference_dt)
     if return_date is not None:
         return (return_date - reference_dt).days > 35
@@ -264,6 +263,50 @@ def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
     if _MONTHS_BAN_RE.search(news_lower):
         return True
     return False
+
+
+def is_long_term_unavailable(player: object, snapshot: object = None) -> bool:
+    """Determine whether a player is long-term unavailable (expected return > 35 days away).
+
+    Point-in-time criteria:
+    0. Precomputed verdict short-circuit: if `player` carries an `is_long_term_unavailable`
+       boolean attribute (stamped once, at the correct point in time, by
+       `build_historical_snapshot` and carried through every derived object -
+       `ExpectedPointsProjection`, `PlayerInfo`, `PlayerOptInfo`), that verdict is authoritative
+       and returned immediately. This avoids re-deriving the signal from free-text `news` (which
+       is not reliably transported to derived objects) and avoids any wall-clock dependency for
+       historical/backtest objects that already have a point-in-time-correct verdict baked in.
+    1. Already classified as departed from Premier League, or official FPL status == 'u'.
+    2. Registry marker: `build_historical_snapshot` stamps registry-applied players' news with
+       a "Long-term unavailable: <reason>" prefix (see historical/snapshots.py); such a marker
+       is always treated as long-term regardless of status.
+    3. For status 's' (suspended) or 'i' (injured) with zero chance of playing:
+       a. If the news contains a parseable expected-return date, long-term iff that date is
+          more than 35 days after the point-in-time reference date (the snapshot's deadline
+          if available, otherwise "now").
+       b. Else if status == 'i' and the news contains a severe long-term injury keyword
+          (ACL, cruciate ligament, out for the season, indefinitely, ...) -> True.
+       c. Else if status == 's' and the news indicates a long ban ("indefinitely" or an
+          "N-month(s)" phrasing) -> True.
+       d. Otherwise False (e.g. a short suspension or a bare "Suspended" with no other signal).
+
+    NOTE: criteria 1-3 (the heuristic fallback) are only reached for objects with no precomputed
+    verdict (e.g. raw live-API `Player` objects); they are never reached for historical/backtest
+    objects once criterion 0 fires.
+    """
+    flag = getattr(player, "is_long_term_unavailable", None)
+    if isinstance(flag, bool):
+        return flag
+
+    if is_departed_from_premier_league(player, snapshot=snapshot):
+        return True
+
+    status = getattr(player, "status", None)
+    news = getattr(player, "news", None) or ""
+    chance_this = getattr(player, "chance_of_playing_this_round", None)
+    chance_next = getattr(player, "chance_of_playing_next_round", None)
+    reference_dt = _reference_datetime(snapshot)
+    return evaluate_long_term_unavailable(status, news, chance_this, chance_next, reference_dt)
 
 
 def get_player_eligibility_status(

@@ -63,7 +63,9 @@ class StrategicConstraints:
     )
     min_bank_tenths: int = 0
     target_gameweeks: tuple[int, ...] = ()
-    bench_weight: float = 0.15
+    # Legacy/opt-in default: 1.0 reproduces pre-V1.2 symmetric scoring. Pass 0.15
+    # explicitly to opt into the V1.2 asymmetric Starting XI vs Bench weighting.
+    bench_weight: float = 1.0
 
     def validate(self, candidate_pool: list[Any]) -> list[str]:
         """Validate constraints for feasibility and raise or return errors."""
@@ -559,7 +561,7 @@ def solve_strategic_squad_exact_reference(
 
                     legal_count += 1
                     bank_rem = constraints.budget_tenths - total_cost
-                    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 0.15)
+                    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 1.0)
 
                     obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
                         squad=squad,
@@ -717,7 +719,7 @@ def solve_strategic_squad(
     def p_score(p: Any) -> float:
         return compute_player_strategic_value(p, strategy, horizon_len=h_len, preferred_ids=pref_set)
 
-    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 0.15)
+    eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 1.0)
     legacy_mode = eff_bench_weight >= 1.0
     p_score_map = {p.id: p_score(p) for p in eligible_pool}
 

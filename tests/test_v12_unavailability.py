@@ -6,25 +6,33 @@ Verifies:
 3. Strict exclusion from buy-side candidate pools (transfers, initial squad, wildcard).
 4. Priority offloading via dead capital penalty.
 5. DecisionEngineV12 integration and Lineup-Aware Transfer Evaluation.
+6. Issue 1 regression guard: the precomputed `is_long_term_unavailable` verdict survives the
+   full snapshot -> ExpectedPointsProjection -> PlayerInfo -> PlayerOptInfo chain.
+7. Issue 3 regression guard: objects carrying a precomputed verdict are immune to wall-clock
+   ("now") drift - the verdict is point-in-time-correct and reproducible.
 """
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 
+from fpl_manager import models as models_module
 from fpl_manager.backtest.decision_engine import (
     DecisionEngineV12,
     resolve_decision_engine,
 )
+from fpl_manager.backtest.strategic_analysis import load_historical_strategic_players
 from fpl_manager.historical.models import (
     HistoricalGameweekSnapshot,
     HistoricalPlayerState,
 )
+from fpl_manager.historical.reconstruction import reconstruct_features_and_project
 from fpl_manager.historical.snapshots import build_historical_snapshot
 from fpl_manager.models import (
     Player,
     PlayerEligibilityStatus,
     Position,
+    evaluate_long_term_unavailable,
     get_player_eligibility_status,
     is_departed_from_premier_league,
     is_long_term_unavailable,
@@ -43,7 +51,7 @@ class TestHistoricalUnavailabilityRegistry:
             pytest.skip("Historical data directory not found")
 
         # GW1: Suspended
-        snap_gw1 = build_historical_snapshot(season_dir, 1)
+        snap_gw1 = build_historical_snapshot(season_dir, 1, apply_unavailability=True)
         toney_gw1 = next(p for p in snap_gw1.players if p.player_id == 117)
         assert toney_gw1.status == "s"
         assert toney_gw1.chance_of_playing_next_round == 0
@@ -53,12 +61,12 @@ class TestHistoricalUnavailabilityRegistry:
         assert is_departed_from_premier_league(toney_gw1, snap_gw1) is False
 
         # GW20: Still suspended
-        snap_gw20 = build_historical_snapshot(season_dir, 20)
+        snap_gw20 = build_historical_snapshot(season_dir, 20, apply_unavailability=True)
         toney_gw20 = next(p for p in snap_gw20.players if p.player_id == 117)
         assert is_long_term_unavailable(toney_gw20, snap_gw20) is True
 
         # GW21: Ban ended, eligible to play
-        snap_gw21 = build_historical_snapshot(season_dir, 21)
+        snap_gw21 = build_historical_snapshot(season_dir, 21, apply_unavailability=True)
         toney_gw21 = next(p for p in snap_gw21.players if p.player_id == 117)
         assert is_long_term_unavailable(toney_gw21, snap_gw21) is False
 
@@ -69,12 +77,12 @@ class TestHistoricalUnavailabilityRegistry:
             pytest.skip("Historical data directory not found")
 
         # GW9: Active before ban
-        snap_gw9 = build_historical_snapshot(season_dir, 9)
+        snap_gw9 = build_historical_snapshot(season_dir, 9, apply_unavailability=True)
         tonali_gw9 = next(p for p in snap_gw9.players if p.player_id == 429)
         assert is_long_term_unavailable(tonali_gw9, snap_gw9) is False
 
         # GW10: Banned
-        snap_gw10 = build_historical_snapshot(season_dir, 10)
+        snap_gw10 = build_historical_snapshot(season_dir, 10, apply_unavailability=True)
         tonali_gw10 = next(p for p in snap_gw10.players if p.player_id == 429)
         assert tonali_gw10.status == "s"
         assert is_long_term_unavailable(tonali_gw10, snap_gw10) is True
@@ -88,11 +96,11 @@ class TestHistoricalUnavailabilityRegistry:
         if not season_dir.exists():
             pytest.skip("Historical data directory not found")
 
-        snap_gw23 = build_historical_snapshot(season_dir, 23)
+        snap_gw23 = build_historical_snapshot(season_dir, 23, apply_unavailability=True)
         greenwood_gw23 = next(p for p in snap_gw23.players if p.player_id == 289)
         assert is_long_term_unavailable(greenwood_gw23, snap_gw23) is False
 
-        snap_gw24 = build_historical_snapshot(season_dir, 24)
+        snap_gw24 = build_historical_snapshot(season_dir, 24, apply_unavailability=True)
         greenwood_gw24 = next(p for p in snap_gw24.players if p.player_id == 289)
         assert is_long_term_unavailable(greenwood_gw24, snap_gw24) is True
 
@@ -105,12 +113,12 @@ class TestHistoricalUnavailabilityRegistry:
         if not season_dir.exists():
             pytest.skip("Historical data directory not found")
 
-        snap_gw1 = build_historical_snapshot(season_dir, 1)
+        snap_gw1 = build_historical_snapshot(season_dir, 1, apply_unavailability=True)
         for pid in (585, 51):
             p_gw1 = next(p for p in snap_gw1.players if p.player_id == pid)
             assert is_long_term_unavailable(p_gw1, snap_gw1) is False
 
-        snap_gw2 = build_historical_snapshot(season_dir, 2)
+        snap_gw2 = build_historical_snapshot(season_dir, 2, apply_unavailability=True)
         for pid in (585, 51):
             p_gw2 = next(p for p in snap_gw2.players if p.player_id == pid)
             assert is_long_term_unavailable(p_gw2, snap_gw2) is True
@@ -121,7 +129,7 @@ class TestHistoricalUnavailabilityRegistry:
         if not season_dir.exists():
             pytest.skip("Historical data directory not found")
 
-        snap = build_historical_snapshot(season_dir, 5)
+        snap = build_historical_snapshot(season_dir, 5, apply_unavailability=True)
         acl_ids = [585, 51, 35, 201]  # Timber, Mings, Buendia, Fofana
         for pid in acl_ids:
             p = next(player for player in snap.players if player.player_id == pid)
@@ -296,7 +304,11 @@ class TestOptimizerUnavailabilityIntegration:
             PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=20, expected_points=3.0)
             for i in range(1, 15)
         ]
-        # 15th player has ruptured ACL
+        # 15th player has ruptured ACL. `is_long_term_unavailable` is set explicitly here because
+        # PlayerOptInfo is a derived/opt-in object: since the V1.2 fix, its `news` text is no
+        # longer the transport mechanism for this signal (see `is_long_term_unavailable` in
+        # models.py) - production code computes this flag once at snapshot-build time and
+        # carries it through explicitly, exactly as done here.
         squad.append(
             PlayerOptInfo(
                 id=15,
@@ -309,6 +321,7 @@ class TestOptimizerUnavailabilityIntegration:
                 total_points=30,
                 expected_points=0.0,
                 news="Ruptured anterior cruciate ligament (ACL) - out for season",
+                is_long_term_unavailable=True,
             )
         )
         cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=75, status="a", total_points=40, expected_points=4.5)
@@ -327,6 +340,8 @@ class TestOptimizerUnavailabilityIntegration:
         assert len(recs) > 0
         out_id = recs[0]["outgoing"][0]["id"]
         assert out_id == 15, "Should immediately liquidate ACL victim with dead capital bonus"
+        assert recs[0]["outgoing"][0]["is_unavailable"] is True
+        assert recs[0]["dead_capital_bonus"] > 0, "Dead capital bonus must actually apply (Issue 1 regression guard)"
 
     def test_solve_transfers_short_suspension_gets_no_dead_capital_bonus(self) -> None:
         """A squad player serving a short (1-match) suspension is not dead capital:
@@ -479,4 +494,204 @@ class TestDecisionEngineV12Integration:
         )
         # Must be rejected because 0.15 * (2.2 - 1.5) = 0.105 < 0.50
         assert moves == [], "Sideways bench swap should be rejected under lineup-aware evaluation"
+
+
+class TestIssue1SignalWiringRegression:
+    """Permanent regression guard for Issue 1: the long-term-unavailability verdict computed by
+    `build_historical_snapshot` for a registry-flagged player must survive every hop of the
+    production pipeline (raw snapshot -> ExpectedPointsProjection -> PlayerInfo -> PlayerOptInfo)
+    without being silently dropped, so `DecisionEngineV12.decide_transfers`'s dead-capital gate
+    (and `solve_transfers(dead_capital_weight=...)`) actually see it.
+    """
+
+    SEASON_DIR = Path("data/historical/2023-24")
+    GAMEWEEK = 12
+    # Registry player_ids active at GW12 in data/historical/unavailability_registry.json["2023-24"].
+    REGISTRY_PLAYER_IDS = (117, 429, 585, 51, 35, 201)
+
+    def test_flag_survives_snapshot_to_projection_to_player_info_to_opt_info(self) -> None:
+        if not self.SEASON_DIR.exists():
+            pytest.skip("Historical data directory not found")
+
+        snapshot = build_historical_snapshot(self.SEASON_DIR, self.GAMEWEEK, apply_unavailability=True)
+        raw_by_id = {p.player_id: p for p in snapshot.players}
+
+        projections = reconstruct_features_and_project(snapshot, predictor_version="v1.0.1")
+        proj_by_id = {p.player_id: p for p in projections}
+
+        player_infos, _team_map = load_historical_strategic_players(
+            self.SEASON_DIR, self.GAMEWEEK, apply_unavailability=True
+        )
+        info_by_id = {p.id: p for p in player_infos}
+
+        for pid in self.REGISTRY_PLAYER_IDS:
+            raw = raw_by_id[pid]
+            proj = proj_by_id[pid]
+            info = info_by_id[pid]
+
+            # 1. Raw snapshot player carries the precomputed verdict.
+            assert raw.is_long_term_unavailable is True, f"player {pid}: raw snapshot flag not set"
+
+            # 2. ExpectedPointsProjection (historical/reconstruction.py) preserves it.
+            assert proj.is_long_term_unavailable is True, f"player {pid}: projection dropped the flag"
+
+            # 3. PlayerInfo (backtest/strategic_analysis.py) preserves it.
+            assert info.is_long_term_unavailable is True, f"player {pid}: PlayerInfo dropped the flag"
+
+            # 4. PlayerOptInfo, built exactly as DecisionEngineV12.decide_transfers builds it
+            #    (backtest/decision_engine.py opt_map construction), preserves it.
+            opt = PlayerOptInfo(
+                id=proj.player_id,
+                name=proj.web_name,
+                position=proj.position,
+                team_id=proj.team_id,
+                team_short=proj.team_short,
+                price_tenths=proj.price_tenths,
+                status=proj.status,
+                total_points=0,
+                expected_points=proj.expected_points,
+                expected_minutes=proj.expected_minutes,
+                xp_floor=proj.xp_floor,
+                xp_ceiling=proj.xp_ceiling,
+                standard_deviation=proj.standard_deviation,
+                is_long_term_unavailable=getattr(proj, "is_long_term_unavailable", False),
+            )
+            assert opt.is_long_term_unavailable is True, f"player {pid}: PlayerOptInfo dropped the flag"
+
+            # 5. The module-level predicate, and DecisionEngineV12's dead-capital gate, both see it.
+            assert is_long_term_unavailable(opt, snapshot) is True, f"player {pid}: is_long_term_unavailable() lost the signal"
+            engine = DecisionEngineV12()
+            assert engine._is_dead_capital(opt, snapshot) is True, f"player {pid}: DecisionEngineV12 does not flag as dead capital"
+
+
+class TestIssue3DeterminismRegression:
+    """Permanent regression guard for Issue 3: an object carrying a precomputed
+    `is_long_term_unavailable` boolean must return that same verdict regardless of what
+    wall-clock "now" happens to be, because `is_long_term_unavailable()` short-circuits on the
+    precomputed flag before ever calling `_reference_datetime`.
+    """
+
+    def test_precomputed_flag_is_immune_to_reference_datetime_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A precomputed True verdict, carried on a plain object with no `news`/status signal at
+        # all: if the short-circuit were bypassed, the heuristic fallback would have nothing to
+        # go on and could not possibly reproduce True, so this also proves the short-circuit -
+        # not the heuristic - is what's firing.
+        flagged_true = HistoricalPlayerState(
+            player_id=1,
+            web_name="Flagged True",
+            position=Position.DEFENDER,
+            team_id=1,
+            price_tenths=50,
+            status="a",
+            chance_of_playing_next_round=None,
+            chance_of_playing_this_round=None,
+            total_points=0,
+            minutes=0,
+            starts=0,
+            expected_goals=0.0,
+            expected_assists=0.0,
+            expected_goal_involvements=0.0,
+            expected_goals_conceded=0.0,
+            expected_goals_per_90=0.0,
+            expected_assists_per_90=0.0,
+            expected_goals_conceded_per_90=0.0,
+            clean_sheets_per_90=0.0,
+            bps=0,
+            ict_index=0.0,
+            form=0.0,
+            points_per_game=0.0,
+            selected_by_percent=0.0,
+            news="",
+            is_long_term_unavailable=True,
+        )
+        flagged_false = HistoricalPlayerState(
+            player_id=2,
+            web_name="Flagged False",
+            position=Position.DEFENDER,
+            team_id=1,
+            price_tenths=50,
+            status="i",
+            chance_of_playing_next_round=0,
+            chance_of_playing_this_round=0,
+            total_points=0,
+            minutes=0,
+            starts=0,
+            expected_goals=0.0,
+            expected_assists=0.0,
+            expected_goal_involvements=0.0,
+            expected_goals_conceded=0.0,
+            expected_goals_per_90=0.0,
+            expected_assists_per_90=0.0,
+            expected_goals_conceded_per_90=0.0,
+            clean_sheets_per_90=0.0,
+            bps=0,
+            ict_index=0.0,
+            form=0.0,
+            points_per_game=0.0,
+            selected_by_percent=0.0,
+            # Status/chance signals that WOULD heuristically resolve True (severe injury keyword,
+            # zero chance of playing) if the short-circuit were bypassed.
+            news="Ruptured ACL - out for the season",
+            is_long_term_unavailable=False,
+        )
+
+        candidate_dates = [
+            datetime(2020, 1, 1, tzinfo=timezone.utc),
+            datetime(2023, 6, 15, tzinfo=timezone.utc),
+            datetime(2026, 9, 30, tzinfo=timezone.utc),
+            datetime(2030, 12, 31, tzinfo=timezone.utc),
+        ]
+        for fake_now in candidate_dates:
+            monkeypatch.setattr(models_module, "_reference_datetime", lambda snapshot=None, _dt=fake_now: _dt)
+            assert is_long_term_unavailable(flagged_true) is True, (
+                f"Precomputed True verdict changed when _reference_datetime()={fake_now}"
+            )
+            assert is_long_term_unavailable(flagged_false) is False, (
+                f"Precomputed False verdict changed when _reference_datetime()={fake_now}"
+            )
+
+    def test_raw_object_without_precomputed_flag_still_uses_reference_datetime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Sanity check: the heuristic fallback path (for objects with no precomputed flag, e.g.
+        raw live-API `Player` objects) is NOT immune to `_reference_datetime` - this is expected
+        and confirms the short-circuit in the previous test is what provides the immunity, not
+        some accidental removal of date-sensitivity everywhere.
+        """
+        reference = datetime(2024, 1, 10, tzinfo=timezone.utc)
+        return_date = reference + timedelta(days=60)
+        news = f"Suspended until {return_date.day} {return_date.strftime('%B')} {return_date.year}"
+        p = Player(
+            id=999,
+            name="Wall Clock Sensitive",
+            position=Position.MIDFIELDER,
+            team_id=1,
+            price_tenths=60,
+            status="s",
+            chance_of_playing_this_round=0,
+            news=news,
+        )
+
+        # "Now" is far before the return date: > 35 days away -> long-term.
+        monkeypatch.setattr(models_module, "_reference_datetime", lambda snapshot=None: reference)
+        assert is_long_term_unavailable(p) is True
+
+        # "Now" is only 10 days before the return date: <= 35 days away -> NOT long-term.
+        monkeypatch.setattr(models_module, "_reference_datetime", lambda snapshot=None: return_date - timedelta(days=10))
+        assert is_long_term_unavailable(p) is False
+
+    def test_evaluate_long_term_unavailable_used_by_snapshot_builder_is_reference_dt_driven(self) -> None:
+        """Direct unit test of the shared heuristic helper: identical status/news/chance inputs
+        yield different verdicts purely as a function of the explicit `reference_dt` argument,
+        proving `build_historical_snapshot` can compute a reproducible, point-in-time-correct
+        verdict using the gameweek deadline instead of wall-clock "now".
+        """
+        news = "Expected back 15 October"
+        near_reference = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        far_reference = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+        near_verdict = evaluate_long_term_unavailable("i", news, 0, 0, near_reference)
+        far_verdict = evaluate_long_term_unavailable("i", news, 0, 0, far_reference)
+
+        assert near_verdict is False, "15 Oct is <=35 days after 1 Oct reference -> not long-term"
+        assert far_verdict is True, "15 Oct is >35 days after 1 Jun reference -> long-term"
+
 

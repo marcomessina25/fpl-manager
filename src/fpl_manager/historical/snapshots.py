@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..models import _reference_datetime, evaluate_long_term_unavailable
 from .models import (
     GameweekOutcome,
     HistoricalFixture,
@@ -33,6 +34,15 @@ def _parse_kickoff(kickoff_str: str | None) -> datetime | None:
         return dt
     except Exception:
         return None
+
+
+class _DeadlineOnly:
+    """Minimal shim exposing `deadline_time` for `models._reference_datetime`."""
+
+    __slots__ = ("deadline_time",)
+
+    def __init__(self, deadline_time: str) -> None:
+        self.deadline_time = deadline_time
 
 
 _DEPARTURES_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
@@ -71,7 +81,10 @@ def build_historical_snapshot(
     season_dir: Path,
     gameweek: int,
     apply_departures: bool = True,
-    apply_unavailability: bool = True,
+    # Legacy/opt-in default: False avoids leaking the hand-curated, hindsight
+    # unavailability_registry.json into pre-V1.2 measurement paths. Pass True
+    # explicitly to reproduce V1.2 behavior.
+    apply_unavailability: bool = False,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
     
@@ -87,6 +100,10 @@ def build_historical_snapshot(
     season = manifest["season"]
     deadlines = manifest.get("deadlines", {})
     deadline_time = deadlines.get(str(gameweek), deadlines.get(gameweek, ""))
+    # Point-in-time reference for long-term-unavailability heuristics: the gameweek deadline
+    # itself, NOT wall-clock "now" (see `_reference_datetime`), so backtest results are
+    # reproducible regardless of the calendar date the benchmark is executed.
+    reference_dt = _reference_datetime(_DeadlineOnly(deadline_time) if deadline_time else None)
     dep_registry = load_departures_registry(season_dir.parent).get(season, {}) if apply_departures else {}
     unavail_registry = load_unavailability_registry(season_dir.parent).get(season, {}) if apply_unavailability else {}
 
@@ -286,15 +303,28 @@ def build_historical_snapshot(
             chance_next = 0
             chance_this = 0
             news_text = f"Transferred / departed: {dep_entry.get('reason', 'left Premier League')}"
+            # A departure is definitionally long-term unavailable (see `is_long_term_unavailable`
+            # criterion 1). Computed here, once, so the verdict survives every downstream hop.
+            is_ltu = True
         elif unavail_entry and unavail_entry.get("start_gw", 1) <= gameweek <= unavail_entry.get("end_gw", 38):
             reason_lower = unavail_entry.get("reason", "").lower()
             status = "s" if ("suspen" in reason_lower or "ban" in reason_lower) else "i"
             chance_next = 0
             chance_this = 0
             news_text = f"Long-term unavailable: {unavail_entry.get('reason')}"
+            # Registry match: authoritative long-term-unavailable verdict (Pillar 2). The news
+            # prefix above is kept only for human readability; the verdict itself is transported
+            # explicitly via this boolean, not parsed back out of the text.
+            is_ltu = True
         elif status == "a" and finished_gws >= 3 and mins == 0:
             # Player consistently not playing across completed gameweeks (1..N-1)
             status = "d"
+            is_ltu = False
+        else:
+            # No registry/departure match: fall back to the point-in-time heuristic, using the
+            # gameweek deadline (not wall-clock "now") as the reference date so the verdict is
+            # reproducible regardless of when the backtest is executed.
+            is_ltu = evaluate_long_term_unavailable(status, news_text, chance_this, chance_next, reference_dt)
 
         players_list.append(
             HistoricalPlayerState(
@@ -330,6 +360,7 @@ def build_historical_snapshot(
                 consecutive_zero_mins=consec_zero,
                 recent_starts=tuple(p_starts_list[-5:]),
                 recent_minutes=tuple(p_mins_list[-5:]),
+                is_long_term_unavailable=is_ltu,
             )
         )
 

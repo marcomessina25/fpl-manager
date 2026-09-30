@@ -318,6 +318,7 @@ class DecisionEngineV08(BaseDecisionEngine):
                 xp_floor=p.xp_floor,
                 xp_ceiling=p.xp_ceiling,
                 standard_deviation=p.standard_deviation,
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
             )
 
         squad_set = set(current_squad_ids)
@@ -697,6 +698,7 @@ class DecisionEngineV09(BaseDecisionEngine):
                 xp_floor=p.xp_floor,
                 xp_ceiling=p.xp_ceiling,
                 standard_deviation=p.standard_deviation,
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
             )
 
         squad_set = set(current_squad_ids)
@@ -858,6 +860,7 @@ class DecisionEngineV11(DecisionEngineV10):
                     expected_minutes=xm,
                     total_points=p.total_points,
                     status=p.status,
+                    is_long_term_unavailable=p.is_long_term_unavailable,
                 )
                 candidate_pool.append(p_info)
 
@@ -975,6 +978,7 @@ class DecisionEngineV115(DecisionEngineV11):
                     expected_minutes=xm,
                     total_points=p.total_points,
                     status=p.status,
+                    is_long_term_unavailable=p.is_long_term_unavailable,
                 )
                 candidate_pool.append(p_info)
 
@@ -1091,6 +1095,7 @@ class DecisionEngineV115(DecisionEngineV11):
                 xp_floor=p.xp_floor,
                 xp_ceiling=p.xp_ceiling,
                 standard_deviation=p.standard_deviation,
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
             )
 
         squad_set = set(current_squad_ids)
@@ -1285,6 +1290,7 @@ class DecisionEngineV12(DecisionEngineV115):
                     expected_minutes=xm,
                     total_points=p.total_points,
                     status=p.status,
+                    is_long_term_unavailable=p.is_long_term_unavailable,
                 )
                 candidate_pool.append(p_info)
 
@@ -1364,6 +1370,7 @@ class DecisionEngineV12(DecisionEngineV115):
                 xp_floor=p.xp_floor,
                 xp_ceiling=p.xp_ceiling,
                 standard_deviation=p.standard_deviation,
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
             )
 
         squad_set = set(current_squad_ids)

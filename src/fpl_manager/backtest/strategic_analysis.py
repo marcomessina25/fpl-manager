@@ -159,7 +159,10 @@ def load_historical_strategic_players(
     horizon: int = 5,
     predictor_version: str = "v1.0.1",
     apply_departures: bool = True,
-    apply_unavailability: bool = True,
+    # Legacy/opt-in default: False avoids leaking the hand-curated, hindsight
+    # unavailability_registry.json into pre-V1.2 measurement paths. Pass True
+    # explicitly to reproduce V1.2 behavior.
+    apply_unavailability: bool = False,
 ) -> tuple[list[PlayerInfo], dict[int, str]]:
     """Construct multi-gameweek PlayerInfo pool strictly from pre-gameweek point-in-time data.
     
@@ -233,6 +236,7 @@ def load_historical_strategic_players(
                 minutes_last_5=p.minutes_last_5,
                 consecutive_zero_mins=p.consecutive_zero_mins,
                 predictor_version=predictor_version,
+                is_long_term_unavailable=p.is_long_term_unavailable,
             )
             tot_xp += proj.expected_points
             tot_xm += proj.expected_minutes
@@ -266,6 +270,7 @@ def load_historical_strategic_players(
                 horizon_xp=round(tot_xp, 2),
                 horizon_floor=round(tot_floor, 2),
                 horizon_ceiling=round(tot_ceil, 2),
+                is_long_term_unavailable=p.is_long_term_unavailable,
             )
         )
 
@@ -409,6 +414,7 @@ def generate_baseline_initial_squad(
                     standard_deviation=p.standard_deviation,
                     gw_xp=float(max(1, p.total_points)),
                     horizon_xp=float(max(1, p.total_points)),
+                    is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
                 )
                 for p in players
                 if getattr(p, "status", "a") != "u"
@@ -439,6 +445,7 @@ def generate_baseline_initial_squad(
                 standard_deviation=p.standard_deviation,
                 gw_xp=getattr(p, "gw_xp", p.expected_points),
                 horizon_xp=getattr(p, "gw_xp", p.expected_points),
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
             )
             for p in players
             if getattr(p, "status", "a") != "u"

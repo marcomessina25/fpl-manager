@@ -433,7 +433,9 @@ def run_sequential_simulation(
                         if not is_departed_from_premier_league(p, init_snap)
                         and not is_long_term_unavailable(p, init_snap)
                     ]
-                bench_w = getattr(dec_engine, "bench_weight", 0.15 if dec_engine.version == "v1.2" else 1.0)
+                # Only DecisionEngineV12 defines a bench_weight attribute (0.15 asymmetric);
+                # every other engine falls back to the legacy symmetric default of 1.0.
+                bench_w = getattr(dec_engine, "bench_weight", 1.0)
                 c = StrategicConstraints(
                     budget_tenths=1000,
                     target_gameweeks=tuple(range(start_gw, min(39, start_gw + chosen_initial_horizon))),

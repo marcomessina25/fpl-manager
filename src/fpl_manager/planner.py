@@ -773,6 +773,7 @@ def plan_multi_gw_exact_reference(
                         xp_floor=pr.xp_floor,
                         xp_ceiling=pr.xp_ceiling,
                         standard_deviation=pr.standard_deviation,
+                        is_long_term_unavailable=is_long_term_unavailable(p),
                     )
                 )
         gw_cand_pools[gw] = pool
@@ -822,6 +823,7 @@ def plan_multi_gw_exact_reference(
                     xp_floor=pr.xp_floor if pr else 0.0,
                     xp_ceiling=pr.xp_ceiling if pr else 0.0,
                     standard_deviation=pr.standard_deviation if pr else 0.0,
+                    is_long_term_unavailable=is_long_term_unavailable(p),
                 )
             )
 

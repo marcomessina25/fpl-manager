@@ -23,11 +23,12 @@ See `docs/expected_points.md` for full mathematical documentation.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 from typing import Any
 
-from .models import Position
+from .models import Position, evaluate_long_term_unavailable
 from .storage import SnapshotStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +81,7 @@ class ExpectedPointsProjection:
     sub_probability: float = 0.0
     regime: str = "STARTER"
     model_metadata: dict[str, str] | None = None
+    is_long_term_unavailable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,10 +441,29 @@ def project_player_gameweek(
     matches_last_7_days: int = 0,
     predictor_version: str = "v0.9",
     model_metadata: dict[str, str] | None = None,
+    is_long_term_unavailable: bool | None = None,
 ) -> ExpectedPointsProjection:
-    """Compute expected points projection for a single player in a specific gameweek."""
+    """Compute expected points projection for a single player in a specific gameweek.
+
+    `is_long_term_unavailable`: pass the point-in-time-correct precomputed verdict (e.g. from
+    `HistoricalPlayerState.is_long_term_unavailable`) when projecting from a historical snapshot,
+    so the signal survives into the returned `ExpectedPointsProjection` without needing to be
+    re-derived from `news` later. If omitted (None), it is derived here from `status`/`news`/
+    the chance-of-playing fields using "now" as the reference date, matching live-API semantics.
+    """
     base_xp = calculate_base_xp(price_tenths, total_points, finished_matches)
     avail = calculate_availability(status, chance_of_playing_next_round)
+    resolved_is_long_term_unavailable = (
+        is_long_term_unavailable
+        if is_long_term_unavailable is not None
+        else evaluate_long_term_unavailable(
+            status,
+            news,
+            chance_of_playing_this_round,
+            chance_of_playing_next_round,
+            datetime.now(timezone.utc),
+        )
+    )
 
     pred_clean = predictor_version.lower()
     if pred_clean in ("v0.7", "v07"):
@@ -643,6 +664,7 @@ def project_player_gameweek(
         sub_probability=prob_sub,
         regime=regime_str,
         model_metadata=meta_dict,
+        is_long_term_unavailable=resolved_is_long_term_unavailable,
     )
 
 
