@@ -320,25 +320,22 @@ V1.2 ships a registry that provably changes nothing. Three honest options — **
 
 ### Task 10 — PR preparation
 
-Azure DevOps — `gh` does not apply. Produce:
+Remote is **GitHub** (`marcomessina25/fpl-manager`), so `gh` / the GitHub compare URL apply — not Azure DevOps tooling.
 
 1. Title, < 70 chars.
-2. Body: `## Summary` + `## Test plan`. **Hard limit 4000 chars — measure, never estimate:**
-   ```powershell
-   python -c "import pathlib,sys; b=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'); lf=len(b); crlf=len(b.replace(chr(10),chr(13)+chr(10))); print(f'LF {lf} / CRLF {crlf} ({4000-crlf:+d})', 'OVER' if crlf>=4000 else 'ok')" pr_text.txt
-   ```
-   Judge the **CRLF** number and leave ~100 chars margin — a body measured at 3941 on LF arrived as 4013 and truncated.
-3. Prefilled URL:
-   ```
-   https://dev.azure.com/trackman/<project>/_git/<repo>/pullrequestcreate?sourceRef=<urlencoded-source>&targetRef=<urlencoded-target>
-   ```
-4. **Stacked-branch check** — if V1.2 has not merged, target `v12`, not `master`:
+2. Body: `## Summary` + `## Test plan`. GitHub allows a large body, but keep it scannable — lead with the measured benchmark table and the pillar ablation.
+3. **Stacked-branch check** — if V1.2 has not merged, target `v12`, not `master`, or the diff swallows V1.2's 17 commits:
    ```powershell
    git rev-list --count v12..v125; git rev-list --count master..v125
    ```
    Differing counts ⇒ target `v12`.
-5. Only run `az repos pr create` if the `azure-devops` extension is **already** installed (`az extension list`). Never install it for this.
-6. Carry forward the §7 risks below.
+4. Create with `gh pr create --base <target> --head v125 --title "..." --body-file pr_text.txt`, or open the compare URL:
+   ```
+   https://github.com/marcomessina25/fpl-manager/compare/<target>...v125
+   ```
+   `pr_text.txt` is already gitignored — keep using it as the scratch body file.
+5. Carry forward the §7 risks below, and state plainly whether the Track A / Track B targets were met.
+
 
 ---
 
@@ -400,5 +397,5 @@ The five predecessor columns must never change. They are the drift alarm.
 - [ ] Per-pillar ablation table published in `reports/v125/` and `v125.md`.
 - [ ] Full suite green (≥ 401 passing).
 - [ ] `v125.md` and `roadmap.md` reflect measured outcomes, not targets.
-- [ ] PR body measured at < 4000 chars **CRLF**; correct target branch; risks carried forward.
+- [ ] PR body leads with the measured benchmark and ablation tables; correct target branch (`v12` if V1.2 is unmerged); risks carried forward.
 - [ ] Each task committed and pushed separately.
