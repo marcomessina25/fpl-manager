@@ -1792,7 +1792,7 @@ def run_version_comparison_backtest(
         starting_state_policy="multi_version_controlled",
         starting_state_predictor_version="v1.0.1",
         evaluation_predictor_version="v1.0.1",
-        decision_engine_version="v0.9,v1.0,v1.1,v1.1.5",
+        decision_engine_version=",".join(versions),
         strategic_solver_version="v1.1.5-hardened",
         objective="balanced",
         horizon=5,

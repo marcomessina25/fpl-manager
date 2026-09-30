@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-30T16:35:52.182629+00:00",
+  "timestamp": "2026-09-30T19:00:21.407995+00:00",
   "versions": [
     "v0.9",
     "v1.0",
@@ -21,14 +21,14 @@
   "gameweek_range": "GW 1–38",
   "smoke_test": false,
   "provenance": {
-    "experiment_id": "exp_multi_version_benchmark_2021_22,2022_23,2023_24,2024_25,2025_26_gw1_b2e8ab73e40133f9",
+    "experiment_id": "exp_multi_version_benchmark_2021_22,2022_23,2023_24,2024_25,2025_26_gw1_e58712790b03e7ab",
     "season": "2021-22,2022-23,2023-24,2024-25,2025-26",
     "gameweek": 1,
     "decision_deadline": "2021-22,2022-23,2023-24,2024-25,2025-26-gw1-pre-deadline",
     "starting_state_policy": "multi_version_controlled",
     "starting_state_predictor_version": "v1.0.1",
     "evaluation_predictor_version": "v1.0.1",
-    "decision_engine_version": "v0.9,v1.0,v1.1,v1.1.5",
+    "decision_engine_version": "v0.9,v1.0,v1.1,v1.1.5,v1.2",
     "strategic_solver_version": "v1.1.5-hardened",
     "objective": "balanced",
     "horizon": 5,
@@ -36,13 +36,13 @@
       "budget_tenths": 1000
     },
     "random_seed": 42,
-    "configuration_hash": "b2e8ab73e40133f9",
+    "configuration_hash": "e58712790b03e7ab",
     "dataset_version": "historical-fpl-v1",
     "fallback_used": false,
     "fallback_reason": null,
-    "requested_engine": "v0.9,v1.0,v1.1,v1.1.5",
-    "actual_engine": "v0.9,v1.0,v1.1,v1.1.5",
-    "created_at": "2026-09-30T16:35:52.182629+00:00"
+    "requested_engine": "v0.9,v1.0,v1.1,v1.1.5,v1.2",
+    "actual_engine": "v0.9,v1.0,v1.1,v1.1.5,v1.2",
+    "created_at": "2026-09-30T19:00:21.407995+00:00"
   },
   "version_aggregates": {
     "v0.9": {

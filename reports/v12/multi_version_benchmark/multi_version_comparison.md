@@ -79,7 +79,7 @@
 
 ## 3. Decision & Experiment Integrity (Pillar 3)
 
-- **Provenance Hash:** `b2e8ab73e40133f9`
+- **Provenance Hash:** `e58712790b03e7ab`
 - **Fallback Guarantee:** Zero silent fallbacks. All runs validated with explicit version confirmation.
 - **Point-in-Time Integrity:** Strict pre-gameweek feature snapshots with zero future leakage.
 - **Seasonal Chip Invariant:** Independent 2-window allocation (GW 1–19, GW 20–38) with strict GW 19 expiration.
