@@ -1582,11 +1582,14 @@ V1.2 focuses on closing the performance gap between V1.0 (canonical single-gamew
 1. **Strategic Squad Balancing (Starting XI vs Bench Weighting):**
    - Implemented asymmetric starting XI vs bench weighting in the multi-week objective ($1.0\times$ for starters, $0.15\times$ for bench substitutes), concentrating budget into active starting firepower while preserving playing security.
 2. **Long-Term Unavailability Modeling:**
-   - Explicit return-date ($>35$ days) and severe absence parsing (ACL tears, multi-month disciplinary bans) with point-in-time registry integration, purchase exclusion, and dead-capital liquidation prioritization.
+   - Precomputed boolean unavailability signal evaluated point-in-time at snapshot creation and propagated immutably through `ExpectedPointsProjection` $\to$ `PlayerInfo` $\to$ `PlayerOptInfo`, eliminating wall-clock dependencies and fragile news-string transport mechanisms.
+   - Machine-checkable `known_from` dates on all historical registry entries asserted against gameweek deadlines to guarantee zero structural lookahead leakage.
+   - Purchase exclusion in candidate pools and dead-capital liquidation prioritization (`dead_capital_weight=3.0`).
 3. **Lineup-Aware Transfer Evaluation:**
    - Candidate moves evaluated on Starting XI lineup delta rather than raw unweighted 15-player squad totals.
 4. **Verified Predecessor Baseline Parity:**
-   - Legacy mode guards ensure that V0.9, V1.0, V1.1, and V1.1.5 reproduce their exact canonical master branch ledgers with 0.0 pt drift.
+   - Safe architectural defaults (`bench_weight=1.0`, `apply_unavailability=False`) ensure that V0.9, V1.0, V1.1, and V1.1.5 reproduce their exact canonical master branch ledgers with 0.0 pt drift across all call sites.
+   - Formally deferred the $\ge 2,050$ Track A exit criterion to V1.2.5 (`docs/v1.2.5/v125.md`).
 
 ---
 
