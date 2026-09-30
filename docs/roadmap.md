@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.1.5 is completed, validated, and merged into master. **V1.2 (`v12`) is implemented, verified, and PR-ready**, delivering Strategic Squad Balancing (Starting XI vs Bench asymmetric weighting), Lineup-Aware Transfer Planning, Long-Term Unavailability Modeling, and verified baseline parity (+45.4 pts vs V1.1.5 in Track A). The next milestone is **V1.2.5 (`v125`)** (Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement) designed to close the remaining gap to V1.0 before proceeding to V1.3 (Multi-Provider LLM Expansion).
+**Current baseline:** V1.1.5 is completed, validated, and merged into master. **V1.2 (`v12`) is implemented, verified, and PR-ready**, delivering Strategic Squad Balancing (Starting XI vs Bench asymmetric weighting), Lineup-Aware Transfer Planning, Long-Term Unavailability Modeling, and verified baseline parity (+45.4 pts vs V1.1.5 in Track A). Ablation attributes that gain to asymmetric bench weighting (+24.2) and lineup-aware transfers (+21.2); the unavailability registry is implemented but contributes +0.0 and is verified inert. The next milestone is **V1.2.5 (`v125`)** (Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement) designed to close the remaining gap to V1.0 and resolve the inert unavailability mechanism before proceeding to V1.3 (Multi-Provider LLM Expansion).
 
 ---
 
@@ -1574,17 +1574,18 @@ Eliminate dead capital from players transferred out of the Premier League, preve
 
 # 20. V1.2 — Strategic Squad Balancing & Long-Term Unavailability
 
-**Status:** Implemented, verified, and PR-ready on branch `v12`. Dual-track audited 5-season ledger: Track A 2,025.8 pts (lowest variance $\pm 122.0$; $+45.4$ pts vs V1.1.5); Track B 2,050.2 pts ($+42.4$ pts vs V1.1.5). Full baseline parity verified across V0.9–V1.1.5 (0.0 drift). Full specification and results: [`docs/v1.2/v12.md`](v1.2/v12.md).
+**Status:** Implemented, verified, and PR-ready on branch `v12`. Dual-track audited 5-season ledger: Track A 2,025.8 pts (lowest variance $\pm 122.0$; $+45.4$ pts vs V1.1.5); Track B 2,050.2 pts ($+42.4$ pts vs V1.1.5). Full baseline parity verified across V0.9–V1.1.5 (0.0 drift). **Ablation shows the gain comes from Pillar 1 (+24.2) and Pillar 3 (+21.2); the long-term unavailability registry (Pillar 2) contributes +0.0 pts/season and is verified inert.** Full specification and results: [`docs/v1.2/v12.md`](v1.2/v12.md).
 
 V1.2 focuses on closing the performance gap between V1.0 (canonical single-gameweek decision engine) and V1.1 (strategic squad construction), while integrating first-class support for long-term player unavailability.
 
 ### Core Deliverables:
 1. **Strategic Squad Balancing (Starting XI vs Bench Weighting):**
    - Implemented asymmetric starting XI vs bench weighting in the multi-week objective ($1.0\times$ for starters, $0.15\times$ for bench substitutes), concentrating budget into active starting firepower while preserving playing security.
-2. **Long-Term Unavailability Modeling:**
+2. **Long-Term Unavailability Modeling (implemented; verified inert):**
    - Precomputed boolean unavailability signal evaluated point-in-time at snapshot creation and propagated immutably through `ExpectedPointsProjection` $\to$ `PlayerInfo` $\to$ `PlayerOptInfo`, eliminating wall-clock dependencies and fragile news-string transport mechanisms.
    - Machine-checkable `known_from` dates on all historical registry entries asserted against gameweek deadlines to guarantee zero structural lookahead leakage.
    - Purchase exclusion in candidate pools and dead-capital liquidation prioritization (`dead_capital_weight=3.0`).
+   - **Measured contribution: +0.0 pts/season across all 5 seasons.** Purchase exclusion pre-empts the dead-capital penalty (an excluded player never enters the squad, so the penalty never has a subject), leaving the two mechanisms unable to interact. Resolving or removing this is owned by V1.2.5.
 3. **Lineup-Aware Transfer Evaluation:**
    - Candidate moves evaluated on Starting XI lineup delta rather than raw unweighted 15-player squad totals.
 4. **Verified Predecessor Baseline Parity:**
@@ -1595,7 +1596,7 @@ V1.2 focuses on closing the performance gap between V1.0 (canonical single-gamew
 
 # 21. V1.2.5 — Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement
 
-**Status:** Planned / Architectural Specification Complete. Target Branch: `v125`. Specification: [`docs/v1.2.5/v125.md`](v1.2.5/v125.md).
+**Status:** Planned / Architectural Specification Complete. Target Branch: `v125`. Specification: [`docs/v1.2.5/v125.md`](v1.2.5/v125.md). Execution plan: [`docs/v1.2.5/v125_implementation_plan.md`](v1.2.5/v125_implementation_plan.md).
 
 V1.2.5 directly addresses the remaining 22.6 pt Track A and 57.8 pt Track B deficits against V1.0 identified in the audited 5-season benchmark, targeting $\ge \mathbf{2,060.0}$ Track A net pts and $\ge \mathbf{2,110.0}$ Track B net pts.
 
@@ -1610,6 +1611,8 @@ V1.2.5 directly addresses the remaining 22.6 pt Track A and 57.8 pt Track B defi
    - Automatically weight multi-fixture gameweeks to load up on double gameweek assets (e.g. DGW34/37) ahead of deadlines.
 5. **Dynamic Chip-Aware Bench Weighting:**
    - Dynamically scale `bench_weight`: $0.05\times$ for Free Hit (maximum starter budget concentration), $1.00\times$ for Bench Boost, and $0.60\times$ in pre-BB accumulation windows, closing the chip realization deficit.
+6. **Resolution of the Inert Long-Term Unavailability Mechanism (inherited from V1.2):**
+   - V1.2's unavailability registry measures **+0.0 pts/season** because purchase exclusion pre-empts the dead-capital penalty. V1.2.5 must explicitly either make the mechanism bite, remove it, or justify retaining it on a live-API path — with a per-pillar ablation table published as a release requirement.
 
 ---
 
