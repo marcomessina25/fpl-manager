@@ -563,14 +563,27 @@ def solve_strategic_squad_exact_reference(
                     bank_rem = constraints.budget_tenths - total_cost
                     eff_bench_weight = bench_weight if bench_weight is not None else getattr(constraints, "bench_weight", 1.0)
 
-                    obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
-                        squad=squad,
-                        strategy=strategy,
-                        horizon_gws=target_gws,
-                        bank_tenths=bank_rem,
-                        preferred_ids=constraints.preferred_player_ids,
-                        bench_weight=eff_bench_weight,
-                    )
+                    # Legacy mode matches master exactly: it never passed bench_weight, so the function's
+                    # own default (0.15) applies regardless of the effective bench weight. Mirrors the
+                    # identical rule in solve_strategic_squad so both solvers score on the same objective.
+                    legacy_mode = eff_bench_weight >= 1.0
+                    if legacy_mode:
+                        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+                            squad=squad,
+                            strategy=strategy,
+                            horizon_gws=target_gws,
+                            bank_tenths=bank_rem,
+                            preferred_ids=constraints.preferred_player_ids,
+                        )
+                    else:
+                        obj_val, scores, lineup_meta = evaluate_strategic_squad_objective(
+                            squad=squad,
+                            strategy=strategy,
+                            horizon_gws=target_gws,
+                            bank_tenths=bank_rem,
+                            preferred_ids=constraints.preferred_player_ids,
+                            bench_weight=eff_bench_weight,
+                        )
 
                     if obj_val > best_obj:
                         best_obj = obj_val
@@ -1176,8 +1189,15 @@ def measure_heuristic_optimality_gap(
     Reports:
     - exact_optimum: objective value from exact reference solver
     - heuristic_value: objective value from production heuristic solver
-    - absolute_gap: exact_optimum - heuristic_value
+    - absolute_gap: exact_optimum - heuristic_value (signed; should be >= 0 for a correct heuristic)
     - relative_gap: (exact_optimum - heuristic_value) / |exact_optimum| (if non-zero)
+
+    Raises:
+        RuntimeError: if heuristic_value exceeds exact_optimum by more than a small floating-point
+            tolerance. Since the exact solver enumerates every legal squad, no heuristic can
+            legitimately beat it; a positive gap here means the two solvers were scored on
+            different objectives (e.g. mismatched bench_weight handling) or one has a bug. This
+            condition is never silently clamped to zero.
     """
     exact_cand = solve_strategic_squad_exact_reference(
         candidate_pool=candidate_pool,
@@ -1195,7 +1215,17 @@ def measure_heuristic_optimality_gap(
 
     exact_obj = float(exact_cand.total_objective_value)
     heur_obj = float(heur_cand.total_objective_value)
-    abs_gap = round(max(0.0, exact_obj - heur_obj), 4)
+
+    _OPTIMALITY_TOLERANCE = 1e-6
+    if heur_obj - exact_obj > _OPTIMALITY_TOLERANCE:
+        raise RuntimeError(
+            "Heuristic solver value exceeds the exact reference optimum, which is impossible for a "
+            "correctly scored objective: exact_optimum="
+            f"{exact_obj!r}, heuristic_value={heur_obj!r}. This indicates the two solvers were scored "
+            "on different objectives (e.g. mismatched bench_weight handling) or a solver bug."
+        )
+
+    abs_gap = round(exact_obj - heur_obj, 4)
     rel_gap = round(abs_gap / abs(exact_obj), 4) if exact_obj != 0.0 else 0.0
 
     return {

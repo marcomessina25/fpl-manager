@@ -695,3 +695,122 @@ class TestIssue3DeterminismRegression:
         assert far_verdict is True, "15 Oct is >35 days after 1 Jun reference -> long-term"
 
 
+class TestIssue7RegistryValidation:
+    """Permanent regression guard for Issue 7: `load_unavailability_registry` must not silently
+    swallow a corrupt registry file, and both the positive and negative (absent/invalid) results
+    must be cached so a full benchmark does not re-read and re-parse the file on every one of
+    ~1900 `build_historical_snapshot` calls.
+
+    `load_unavailability_registry` and `load_departures_registry` use a MODULE-LEVEL cache
+    (`_UNAVAILABILITY_REGISTRY_CACHE` / `_DEPARTURES_REGISTRY_CACHE`), so every test here resets
+    both globals before and after running via the `_reset_registry_caches` fixture, to avoid
+    contaminating other tests in this file (and the rest of the suite) that call
+    `build_historical_snapshot` with real data.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_registry_caches(self):
+        import fpl_manager.historical.snapshots as snapshots_module
+
+        snapshots_module._UNAVAILABILITY_REGISTRY_CACHE = None
+        snapshots_module._DEPARTURES_REGISTRY_CACHE = None
+        yield
+        snapshots_module._UNAVAILABILITY_REGISTRY_CACHE = None
+        snapshots_module._DEPARTURES_REGISTRY_CACHE = None
+
+    def test_absent_registry_file_returns_empty_dict_without_raising(self, tmp_path: Path) -> None:
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        # tmp_path has no unavailability_registry.json at all: a genuinely absent registry is a
+        # legitimate no-op (the registry is optional).
+        result = load_unavailability_registry(tmp_path)
+        assert result == {}
+
+    def test_malformed_json_registry_raises_value_error_naming_the_file(self, tmp_path: Path) -> None:
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text("{not valid json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="unavailability_registry.json"):
+            load_unavailability_registry(tmp_path)
+
+    def test_string_start_gw_is_coerced_to_int(self, tmp_path: Path) -> None:
+        """Implementation choice: `start_gw`/`end_gw` are coerced via `int(...)` at load time
+        rather than rejected outright, so a numeric-looking string (e.g. from hand-edited JSON)
+        is accepted and normalized to an int. Only values that cannot be coerced (e.g. non-numeric
+        strings) raise `ValueError`.
+        """
+        import json as json_module
+
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(
+            json_module.dumps({"2023-24": {"117": {"start_gw": "24", "end_gw": 30, "reason": "test"}}}),
+            encoding="utf-8",
+        )
+
+        result = load_unavailability_registry(tmp_path)
+        entry = result["2023-24"]["117"]
+        assert entry["start_gw"] == 24
+        assert isinstance(entry["start_gw"], int)
+        assert entry["end_gw"] == 30
+
+    def test_non_coercible_start_gw_raises_value_error(self, tmp_path: Path) -> None:
+        import json as json_module
+
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(
+            json_module.dumps({"2023-24": {"117": {"start_gw": "not-a-number", "end_gw": 30, "reason": "test"}}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="non-integer"):
+            load_unavailability_registry(tmp_path)
+
+    def test_start_gw_greater_than_end_gw_raises_value_error(self, tmp_path: Path) -> None:
+        import json as json_module
+
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(
+            json_module.dumps({"2023-24": {"117": {"start_gw": 30, "end_gw": 10, "reason": "test"}}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="invalid gameweek window"):
+            load_unavailability_registry(tmp_path)
+
+    def test_negative_result_is_cached(self, tmp_path: Path) -> None:
+        """An absent registry file must be cached so it is not re-stat'd/re-parsed on every
+        `build_historical_snapshot` call in a full benchmark."""
+        import fpl_manager.historical.snapshots as snapshots_module
+        from fpl_manager.historical.snapshots import load_unavailability_registry
+
+        load_unavailability_registry(tmp_path)
+        assert snapshots_module._UNAVAILABILITY_REGISTRY_CACHE == {}
+
+        # Even if a valid file now appears, the cached negative result is returned (proving the
+        # cache is actually populated and consulted, not just coincidentally empty).
+        import json as json_module
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(json_module.dumps({"2023-24": {"117": {"start_gw": 1, "end_gw": 5}}}), encoding="utf-8")
+        result = load_unavailability_registry(tmp_path)
+        assert result == {}
+
+    def test_departures_registry_negative_result_is_also_cached(self, tmp_path: Path) -> None:
+        """Same caching bug existed in `load_departures_registry`; verify the fix without
+        altering its existing silent-failure behavior (see inline note in the implementation)."""
+        import fpl_manager.historical.snapshots as snapshots_module
+        from fpl_manager.historical.snapshots import load_departures_registry
+
+        result = load_departures_registry(tmp_path)
+        assert result == {}
+        assert snapshots_module._DEPARTURES_REGISTRY_CACHE == {}
+
+

@@ -57,24 +57,96 @@ def load_departures_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
     if reg_file.exists():
         try:
             _DEPARTURES_REGISTRY_CACHE = json.loads(reg_file.read_text(encoding="utf-8"))
-            return _DEPARTURES_REGISTRY_CACHE
         except Exception:
-            return {}
-    return {}
+            # Note (Issue 7 follow-up): unlike the unavailability registry, a malformed
+            # departures registry is deliberately still swallowed here to preserve existing
+            # behavior. Only the missing-cache bug is fixed (the negative result must be
+            # cached too, or every one of ~1900 build_historical_snapshot calls in a full
+            # benchmark re-reads and re-parses this file). Raising on corruption here is
+            # left as a follow-up rather than bundled into this fix.
+            _DEPARTURES_REGISTRY_CACHE = {}
+    else:
+        _DEPARTURES_REGISTRY_CACHE = {}
+    return _DEPARTURES_REGISTRY_CACHE
 
 
 def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
+    """Load and validate the hand-curated unavailability registry.
+
+    A genuinely absent file is a legitimate no-op (the registry is optional) and returns
+    `{}`. A present-but-corrupt file (invalid JSON, unreadable, or failing shape/window
+    validation) is a configuration error and raises `ValueError` naming the offending file,
+    rather than silently degrading V1.2 behavior back to V1.1.5. Both outcomes are cached
+    (module-level `_UNAVAILABILITY_REGISTRY_CACHE`) so the file is not re-stat'd and
+    re-parsed on every one of the ~1900 `build_historical_snapshot` calls in a full
+    benchmark run.
+    """
     global _UNAVAILABILITY_REGISTRY_CACHE
     if _UNAVAILABILITY_REGISTRY_CACHE is not None:
         return _UNAVAILABILITY_REGISTRY_CACHE
     reg_file = data_dir / "unavailability_registry.json"
-    if reg_file.exists():
-        try:
-            _UNAVAILABILITY_REGISTRY_CACHE = json.loads(reg_file.read_text(encoding="utf-8"))
-            return _UNAVAILABILITY_REGISTRY_CACHE
-        except Exception:
-            return {}
-    return {}
+    if not reg_file.exists():
+        _UNAVAILABILITY_REGISTRY_CACHE = {}
+        return _UNAVAILABILITY_REGISTRY_CACHE
+
+    try:
+        raw_text = reg_file.read_text(encoding="utf-8")
+        raw_registry = json.loads(raw_text)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"Failed to load unavailability registry file {reg_file}: {exc}"
+        ) from exc
+
+    if not isinstance(raw_registry, dict):
+        raise ValueError(
+            f"Unavailability registry file {reg_file} must contain a JSON object at the top level, "
+            f"got {type(raw_registry).__name__}"
+        )
+
+    validated: dict[str, dict[str, Any]] = {}
+    for season, season_entries in raw_registry.items():
+        if not isinstance(season_entries, dict):
+            raise ValueError(
+                f"Unavailability registry {reg_file}: season '{season}' must map to a JSON object, "
+                f"got {type(season_entries).__name__}"
+            )
+        validated_season: dict[str, Any] = {}
+        for player_id, entry in season_entries.items():
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"Unavailability registry {reg_file}: season '{season}' player '{player_id}' entry "
+                    f"must be a JSON object, got {type(entry).__name__}"
+                )
+            start_gw_raw = entry.get("start_gw", 1)
+            end_gw_raw = entry.get("end_gw", 38)
+            try:
+                start_gw = int(start_gw_raw)
+                end_gw = int(end_gw_raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Unavailability registry {reg_file}: season '{season}' player '{player_id}' has a "
+                    f"non-integer start_gw/end_gw ({start_gw_raw!r}/{end_gw_raw!r}): {exc}"
+                ) from exc
+            if not (1 <= start_gw <= end_gw <= 38):
+                raise ValueError(
+                    f"Unavailability registry {reg_file}: season '{season}' player '{player_id}' has an "
+                    f"invalid gameweek window start_gw={start_gw}, end_gw={end_gw} "
+                    "(must satisfy 1 <= start_gw <= end_gw <= 38)"
+                )
+            reason = entry.get("reason", "")
+            if not isinstance(reason, str):
+                raise ValueError(
+                    f"Unavailability registry {reg_file}: season '{season}' player '{player_id}' has a "
+                    f"non-string reason: {reason!r}"
+                )
+            coerced_entry = dict(entry)
+            coerced_entry["start_gw"] = start_gw
+            coerced_entry["end_gw"] = end_gw
+            validated_season[player_id] = coerced_entry
+        validated[season] = validated_season
+
+    _UNAVAILABILITY_REGISTRY_CACHE = validated
+    return _UNAVAILABILITY_REGISTRY_CACHE
 
 
 def build_historical_snapshot(
