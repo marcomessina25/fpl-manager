@@ -66,25 +66,89 @@ def _create_balancing_test_pool() -> list[PlayerOptInfo]:
     return pool
 
 
-def test_asymmetric_weighting_favors_super_premium() -> None:
-    """Under bench_weight=0.15, the solver must include super-premium assets (FWD_Haaland, MID_Super)
-    by economizing on the bench rather than building a flat, balanced bench.
-    """
-    pool = _create_balancing_test_pool()
-    constraints = StrategicConstraints(budget_tenths=1000, bench_weight=0.15)
-    cand = solve_strategic_squad(pool, constraints, strategy="balanced", horizon=5)
+def _create_divergence_test_pool() -> list[PlayerOptInfo]:
+    """Create a synthetic pool where asymmetric (0.15) and symmetric (1.0) weighting diverge.
 
-    assert len(cand.starters) == 11
-    assert len(cand.bench) == 4
-    starter_ids = {p["id"] for p in cand.starters}
+    The pool presents a structural trade-off:
+    - Asymmetric mode (0.15) economizes heavily on the bench (cheap fodder) to fund a
+      super-premium starting asset (MID_HaalandClass, £14.0m) plus strong starters.
+    - Symmetric mode (1.0) values bench points equally to starters, so it invests in mid-priced
+      bench coverage (e.g. £5.0m defenders, £6.5m forward) and foregoes the super-premium starting asset.
+    """
+    gkps = [
+        PlayerOptInfo(id=1, name="GKP_Star", position=Position.GOALKEEPER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=40, expected_points=5.0),
+        PlayerOptInfo(id=2, name="GKP_Fodder", position=Position.GOALKEEPER, team_id=2, team_short="T2", price_tenths=40, status="a", total_points=10, expected_points=1.0),
+        PlayerOptInfo(id=3, name="GKP_Mid", position=Position.GOALKEEPER, team_id=3, team_short="T3", price_tenths=45, status="a", total_points=25, expected_points=3.8),
+    ]
+    defs = [
+        PlayerOptInfo(id=11, name="DEF_Star1", position=Position.DEFENDER, team_id=4, team_short="T4", price_tenths=55, status="a", total_points=40, expected_points=5.0),
+        PlayerOptInfo(id=12, name="DEF_Star2", position=Position.DEFENDER, team_id=5, team_short="T5", price_tenths=55, status="a", total_points=40, expected_points=5.0),
+        PlayerOptInfo(id=13, name="DEF_Star3", position=Position.DEFENDER, team_id=6, team_short="T6", price_tenths=55, status="a", total_points=40, expected_points=5.0),
+        PlayerOptInfo(id=14, name="DEF_Mid1", position=Position.DEFENDER, team_id=7, team_short="T7", price_tenths=50, status="a", total_points=35, expected_points=4.2),
+        PlayerOptInfo(id=15, name="DEF_Mid2", position=Position.DEFENDER, team_id=8, team_short="T8", price_tenths=50, status="a", total_points=35, expected_points=4.2),
+        PlayerOptInfo(id=16, name="DEF_Fodder1", position=Position.DEFENDER, team_id=9, team_short="T9", price_tenths=40, status="a", total_points=15, expected_points=1.5),
+        PlayerOptInfo(id=17, name="DEF_Fodder2", position=Position.DEFENDER, team_id=10, team_short="T10", price_tenths=40, status="a", total_points=15, expected_points=1.5),
+    ]
+    mids = [
+        PlayerOptInfo(id=21, name="MID_HaalandClass", position=Position.MIDFIELDER, team_id=11, team_short="T11", price_tenths=140, status="a", total_points=100, expected_points=12.0),
+        PlayerOptInfo(id=22, name="MID_Star1", position=Position.MIDFIELDER, team_id=12, team_short="T12", price_tenths=85, status="a", total_points=70, expected_points=7.5),
+        PlayerOptInfo(id=23, name="MID_Star2", position=Position.MIDFIELDER, team_id=13, team_short="T13", price_tenths=85, status="a", total_points=70, expected_points=7.5),
+        PlayerOptInfo(id=24, name="MID_Mid1", position=Position.MIDFIELDER, team_id=14, team_short="T14", price_tenths=70, status="a", total_points=55, expected_points=6.5),
+        PlayerOptInfo(id=25, name="MID_Mid2", position=Position.MIDFIELDER, team_id=15, team_short="T15", price_tenths=70, status="a", total_points=55, expected_points=6.5),
+        PlayerOptInfo(id=26, name="MID_Fodder1", position=Position.MIDFIELDER, team_id=16, team_short="T16", price_tenths=45, status="a", total_points=20, expected_points=2.0),
+        PlayerOptInfo(id=27, name="MID_Fodder2", position=Position.MIDFIELDER, team_id=17, team_short="T17", price_tenths=45, status="a", total_points=20, expected_points=2.0),
+    ]
+    fwds = [
+        PlayerOptInfo(id=31, name="FWD_Star1", position=Position.FORWARD, team_id=18, team_short="T18", price_tenths=80, status="a", total_points=65, expected_points=7.5),
+        PlayerOptInfo(id=32, name="FWD_Star2", position=Position.FORWARD, team_id=19, team_short="T19", price_tenths=80, status="a", total_points=65, expected_points=7.5),
+        PlayerOptInfo(id=33, name="FWD_Fodder1", position=Position.FORWARD, team_id=20, team_short="T20", price_tenths=45, status="a", total_points=15, expected_points=1.8),
+        PlayerOptInfo(id=34, name="FWD_Mid", position=Position.FORWARD, team_id=1, team_short="T1", price_tenths=65, status="a", total_points=45, expected_points=5.5),
+    ]
+    return gkps + defs + mids + fwds
+
+
+def test_asymmetric_weighting_favors_super_premium() -> None:
+    """Under bench_weight=0.15, the solver must produce a squad that genuinely diverges from
+    bench_weight=1.0 (legacy mode), concentrating more budget in the starting XI and economizing
+    on the bench rather than building a flat, balanced bench.
+    """
+    pool = _create_divergence_test_pool()
+
+    # V1.2 asymmetric mode
+    constraints_asym = StrategicConstraints(budget_tenths=1000, bench_weight=0.15)
+    cand_asym = solve_strategic_squad(pool, constraints_asym, strategy="balanced", horizon=5, bench_weight=0.15)
+
+    # Legacy symmetric mode (reproduces master)
+    constraints_leg = StrategicConstraints(budget_tenths=1000, bench_weight=1.0)
+    cand_leg = solve_strategic_squad(pool, constraints_leg, strategy="balanced", horizon=5, bench_weight=1.0)
+
+    assert len(cand_asym.starters) == 11
+    assert len(cand_asym.bench) == 4
+    starter_ids_asym = {p["id"] for p in cand_asym.starters}
 
     # Must prioritize super premiums in the starting XI
-    assert 31 in starter_ids, "FWD_Haaland (14.0m) should be in starting XI under asymmetric weighting"
-    assert 21 in starter_ids, "MID_Super (12.5m) should be in starting XI under asymmetric weighting"
+    assert 21 in starter_ids_asym, "MID_HaalandClass (14.0m) should be in starting XI under asymmetric weighting"
 
-    # Check bench cost is disciplined (less than £20.0m)
-    bench_cost = sum(p["price_tenths"] for p in cand.bench) / 10.0
-    assert bench_cost <= 18.0, f"Expected bench cost <= £18.0m, got £{bench_cost:.1f}m"
+    # Squad compositions must diverge between asymmetric and symmetric modes (Issue 5 discrimination guard)
+    assert sorted(cand_asym.player_ids) != sorted(cand_leg.player_ids), (
+        "Asymmetric and legacy symmetric modes must produce different squads"
+    )
+
+    # Check that asymmetric weighting concentrates more budget into the starting XI
+    asym_st_cost = sum(p["price_tenths"] for p in cand_asym.starters) / 10.0
+    leg_st_cost = sum(p["price_tenths"] for p in cand_leg.starters) / 10.0
+    assert asym_st_cost > leg_st_cost, (
+        f"Asymmetric squad should concentrate more budget in starting XI (£{asym_st_cost:.1f}m) "
+        f"than symmetric legacy squad (£{leg_st_cost:.1f}m)"
+    )
+
+    # Check bench cost is disciplined (less than £18.0m) and strictly less than symmetric mode bench
+    asym_bench_cost = sum(p["price_tenths"] for p in cand_asym.bench) / 10.0
+    leg_bench_cost = sum(p["price_tenths"] for p in cand_leg.bench) / 10.0
+    assert asym_bench_cost <= 18.0, f"Expected bench cost <= £18.0m, got £{asym_bench_cost:.1f}m"
+    assert asym_bench_cost < leg_bench_cost, (
+        f"Asymmetric bench cost (£{asym_bench_cost:.1f}m) should be lower than symmetric bench (£{leg_bench_cost:.1f}m)"
+    )
 
 
 def test_bench_weight_parameter_override() -> None:

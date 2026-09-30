@@ -13,6 +13,7 @@ Verifies:
 """
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import pytest
 
@@ -302,13 +303,27 @@ class TestOptimizerUnavailabilityIntegration:
     def test_solve_transfers_prioritizes_offloading_unavailable_squad_player(self) -> None:
         squad = [
             PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=20, expected_points=3.0)
-            for i in range(1, 15)
+            for i in range(1, 14)
         ]
-        # 15th player has ruptured ACL. `is_long_term_unavailable` is set explicitly here because
-        # PlayerOptInfo is a derived/opt-in object: since the V1.2 fix, its `news` text is no
-        # longer the transport mechanism for this signal (see `is_long_term_unavailable` in
-        # models.py) - production code computes this flag once at snapshot-build time and
-        # carries it through explicitly, exactly as done here.
+        # 14th player: fit, available squad player with lowest xP (0.1) and price 80 tenths (£8.0m).
+        squad.append(
+            PlayerOptInfo(
+                id=14,
+                name="Bench Fit",
+                position=Position.DEFENDER,
+                team_id=1,
+                team_short="T1",
+                price_tenths=80,
+                status="a",
+                total_points=20,
+                expected_points=0.1,
+            )
+        )
+        # 15th player has ruptured ACL (price 80 tenths, £8.0m) with slightly higher xP (0.5) than player 14.
+        # `is_long_term_unavailable` is set explicitly here because PlayerOptInfo is a derived/opt-in object:
+        # since the V1.2 fix, its `news` text is no longer the transport mechanism for this signal (see
+        # `is_long_term_unavailable` in models.py) - production code computes this flag once at snapshot-build
+        # time and carries it through explicitly.
         squad.append(
             PlayerOptInfo(
                 id=15,
@@ -319,13 +334,33 @@ class TestOptimizerUnavailabilityIntegration:
                 price_tenths=80,
                 status="i",
                 total_points=30,
-                expected_points=0.0,
+                expected_points=0.5,
                 news="Ruptured anterior cruciate ligament (ACL) - out for season",
                 is_long_term_unavailable=True,
             )
         )
         cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=75, status="a", total_points=40, expected_points=4.5)
 
+        # 1. Verification that the test discriminates (Issue 5 guard):
+        # When dead-capital logic is disabled (dead_capital_weight=0.0), pure xP delta prioritizes
+        # selling Player 14 (4.5 - 0.1 = +4.4 xP) over ACL Victim (4.5 - 0.5 = +4.0 xP).
+        recs_no_dc, _ = solve_transfers(
+            num_transfers=1,
+            squad_players=squad,
+            candidate_pool=[cand],
+            bank_tenths=10,
+            free_transfers=1,
+            selling_prices={p.id: p.price_tenths for p in squad},
+            fdr_map={},
+            ticker_map={},
+            dead_capital_weight=0.0,
+        )
+        assert len(recs_no_dc) > 0
+        assert recs_no_dc[0]["outgoing"][0]["id"] == 14, "Without dead capital weight, pure xP must offload Player 14"
+        assert recs_no_dc[0]["dead_capital_bonus"] == 0.0
+
+        # 2. When dead-capital bonus is enabled (dead_capital_weight=3.0), the bonus (+24.0) overcomes
+        # the small xP deficit and prioritizes liquidating the unavailable ACL victim immediately.
         recs, _ = solve_transfers(
             num_transfers=1,
             squad_players=squad,
@@ -339,9 +374,9 @@ class TestOptimizerUnavailabilityIntegration:
         )
         assert len(recs) > 0
         out_id = recs[0]["outgoing"][0]["id"]
-        assert out_id == 15, "Should immediately liquidate ACL victim with dead capital bonus"
+        assert out_id == 15, "Should liquidate ACL victim when dead capital bonus is active"
         assert recs[0]["outgoing"][0]["is_unavailable"] is True
-        assert recs[0]["dead_capital_bonus"] > 0, "Dead capital bonus must actually apply (Issue 1 regression guard)"
+        assert recs[0]["dead_capital_bonus"] > 0, "Dead capital bonus must actually apply (Issue 1 & 5 regression guard)"
 
     def test_solve_transfers_short_suspension_gets_no_dead_capital_bonus(self) -> None:
         """A squad player serving a short (1-match) suspension is not dead capital:
@@ -812,5 +847,71 @@ class TestIssue7RegistryValidation:
         result = load_departures_registry(tmp_path)
         assert result == {}
         assert snapshots_module._DEPARTURES_REGISTRY_CACHE == {}
+
+
+class TestRegistryStructuralLeakageValidation:
+    """Task A4 / Issue 5: Structural leakage guard validating unavailability registry entries
+    against real-world gameweek deadlines.
+    """
+
+    def test_production_registry_passes_leakage_validation(self) -> None:
+        """The actual production unavailability registry must contain known_from dates for all
+        entries and have zero deadline lookahead leakage across all historical seasons."""
+        from fpl_manager.historical.validation import validate_unavailability_registry
+
+        reg_path = Path("data/historical/unavailability_registry.json")
+        data_dir = Path("data/historical")
+        if not reg_path.exists() or not data_dir.exists():
+            pytest.skip("Historical data directory not found")
+
+        issues = validate_unavailability_registry(reg_path, data_dir)
+        assert issues == [], f"Production registry has leakage issues: {issues}"
+
+    def test_missing_known_from_field_is_flagged(self, tmp_path: Path) -> None:
+        """Entries without known_from must be flagged as validation failures."""
+        from fpl_manager.historical.validation import validate_unavailability_registry
+
+        data_dir = Path("data/historical")
+        if not data_dir.exists():
+            pytest.skip("Historical data directory not found")
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(
+            json.dumps({"2023-24": {"117": {"start_gw": 1, "end_gw": 20, "reason": "test"}}}),
+            encoding="utf-8",
+        )
+        issues = validate_unavailability_registry(reg_file, data_dir)
+        assert len(issues) == 1
+        assert "missing required 'known_from'" in issues[0]
+
+    def test_lookahead_start_gw_is_flagged(self, tmp_path: Path) -> None:
+        """If an event occurred on 2023-08-12 (after GW1 deadline 2023-08-11), setting start_gw=1
+        is lookahead leakage and must be flagged."""
+        from fpl_manager.historical.validation import validate_unavailability_registry
+
+        data_dir = Path("data/historical")
+        if not data_dir.exists():
+            pytest.skip("Historical data directory not found")
+
+        reg_file = tmp_path / "unavailability_registry.json"
+        reg_file.write_text(
+            json.dumps({
+                "2023-24": {
+                    "585": {
+                        "name": "Jurrien Timber",
+                        "known_from": "2023-08-12",
+                        "start_gw": 1,  # Lookahead! GW1 deadline was 2023-08-11, should be GW2
+                        "end_gw": 37,
+                        "reason": "ruptured ACL",
+                    }
+                }
+            }),
+            encoding="utf-8",
+        )
+        issues = validate_unavailability_registry(reg_file, data_dir)
+        assert len(issues) == 1
+        assert "Registry lookahead leakage" in issues[0]
+        assert "start_gw=1 does not match first post-event deadline gameweek (GW2)" in issues[0]
+
 
 

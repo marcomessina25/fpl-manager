@@ -2,6 +2,7 @@
   "2021-22": {
     "289": {
       "name": "Mason Greenwood",
+      "known_from": "2022-01-30",
       "start_gw": 24,
       "end_gw": 38,
       "reason": "suspended indefinitely by club"
@@ -10,6 +11,7 @@
   "2022-23": {
     "150": {
       "name": "Armando Broja",
+      "known_from": "2022-12-11",
       "start_gw": 17,
       "end_gw": 38,
       "reason": "ruptured anterior cruciate ligament (ACL)"
@@ -18,36 +20,42 @@
   "2023-24": {
     "117": {
       "name": "Ivan Toney",
+      "known_from": "2023-05-17",
       "start_gw": 1,
       "end_gw": 20,
       "reason": "8-month FA suspension (betting rules breach)"
     },
     "429": {
       "name": "Sandro Tonali",
+      "known_from": "2023-10-26",
       "start_gw": 10,
       "end_gw": 38,
       "reason": "10-month FIGC / FIFA suspension"
     },
     "585": {
       "name": "Jurrien Timber",
+      "known_from": "2023-08-12",
       "start_gw": 2,
       "end_gw": 37,
       "reason": "ruptured anterior cruciate ligament (ACL)"
     },
     "51": {
       "name": "Tyrone Mings",
+      "known_from": "2023-08-12",
       "start_gw": 2,
       "end_gw": 38,
       "reason": "severe knee injury (ACL)"
     },
     "35": {
       "name": "Emiliano Buendia",
+      "known_from": "2023-08-09",
       "start_gw": 1,
       "end_gw": 38,
       "reason": "ruptured anterior cruciate ligament (ACL)"
     },
     "201": {
       "name": "Wesley Fofana",
+      "known_from": "2023-07-18",
       "start_gw": 1,
       "end_gw": 38,
       "reason": "ruptured anterior cruciate ligament (ACL)"
@@ -56,6 +64,7 @@
   "2024-25": {
     "417": {
       "name": "Sandro Tonali",
+      "known_from": "2023-10-26",
       "start_gw": 1,
       "end_gw": 2,
       "reason": "serving conclusion of 10-month suspension"
