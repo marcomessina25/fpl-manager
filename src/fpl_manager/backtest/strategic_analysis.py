@@ -1696,7 +1696,7 @@ def run_version_comparison_backtest(
         for track in tracks:
             use_chips = (track == "track_b_with_chips")
             for ver in versions:
-                dead_cap_w = 3.0 if ver in ("v1.1.5", "v1.2") else 0.0
+                dead_cap_w = 3.0 if ver in ("v1.1.5", "v1.2", "v1.2.5") else 0.0
                 if ver == "v0.9":
                     strat: BacktestStrategy = SimpleXpStrategy(decision_engine="v0.9")
                 else:
@@ -1839,6 +1839,7 @@ def run_version_comparison_backtest(
             "v1.1": "Strategic Squad Optimization (Multi-GW Init)",
             "v1.1.5": "Departure Engine + Dead Capital Offload + Seasonal Chips",
             "v1.2": "Strategic Squad Balancing (XI vs Bench) + Unavailability Modeling",
+            "v1.2.5": "Lineup-Aware Refinements + Churn Suppression + Multi-Horizon",
         }
         for ver in versions:
             m = version_aggregates.get(ver, {}).get("track_a_no_chips", {})

@@ -401,15 +401,15 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
-    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2"))
-    apply_unavail = (dec_engine.version == "v1.2")
+    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5"))
+    apply_unavail = (dec_engine.version in ("v1.2", "v1.2.5"))
 
     # 1. Initialize squad at start_gw
     init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2") or initial_strategy is not None:
+        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5") or initial_strategy is not None:
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -427,13 +427,13 @@ def run_sequential_simulation(
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                     ]
-                elif dec_engine.version == "v1.2":
+                elif dec_engine.version in ("v1.2", "v1.2.5"):
                     strat_players = [
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                         and not is_long_term_unavailable(p, init_snap)
                     ]
-                # Only DecisionEngineV12 defines a bench_weight attribute (0.15 asymmetric);
+                # Only DecisionEngineV12 and V125 define a bench_weight attribute (0.15 asymmetric);
                 # every other engine falls back to the legacy symmetric default of 1.0.
                 bench_w = getattr(dec_engine, "bench_weight", 1.0)
                 c = StrategicConstraints(

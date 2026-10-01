@@ -1460,6 +1460,36 @@ class DecisionEngineV12(DecisionEngineV115):
         return cfg
 
 
+class DecisionEngineV125(DecisionEngineV12):
+    """V1.2.5 Strategic Decision Engine with Lineup-Aware Transfer Evaluation Refinements.
+
+    Features:
+    - Inherits V1.2 Asymmetric Squad Balancing & Unavailability Modeling.
+    - Pillar 1: Candidate Pool Expansion & Direct Lineup Scoring (max_results expansion).
+    - Pillar 2: Goalkeeper Churn Suppression & Role-Specific Transfer Hurdles.
+    - Pillar 3: Multi-Gameweek Discounted Lineup Horizon (H=3, gamma=0.75).
+    - Pillar 4: Double / Blank Gameweek Awareness.
+    - Pillar 5: Dynamic Chip-Aware Bench Weighting.
+    - Pillar 6: Resolution of Inert Long-Term Unavailability Modeling.
+    """
+
+    @property
+    def version(self) -> str:
+        return "v1.2.5"
+
+    @property
+    def name(self) -> str:
+        return (
+            f"V1.2.5 Strategic Decision Engine ({self.initial_strategy}, "
+            f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
+            f"bench_w={self.bench_weight})"
+        )
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.2.5"
+
+
 def resolve_decision_engine(
     engine_version: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str = "balanced",
@@ -1492,6 +1522,21 @@ def resolve_decision_engine(
             initial_strategy=strat,
             initial_horizon=initial_horizon,
             dead_capital_weight=dead_capital_weight,
+        )
+    elif clean in ("v1.2.5", "v125", "v1.2.5.0", "balanced_v125"):
+        return DecisionEngineV125(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+        )
+    elif clean.startswith("v1.2.5_"):
+        strat = clean.replace("v1.2.5_", "")
+        return DecisionEngineV125(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
         )
     elif clean in ("v1.2", "v12", "v1.2.0", "balanced_v12"):
         return DecisionEngineV12(
@@ -1537,9 +1582,17 @@ def resolve_decision_engine(
                     dead_capital_weight=dead_capital_weight,
                     bench_weight=bench_weight,
                 )
+            if base == "v125":
+                return DecisionEngineV125(
+                    initial_strategy=initial_strategy,
+                    initial_horizon=initial_horizon,
+                    lineup_penalty_weight=w_val,
+                    dead_capital_weight=dead_capital_weight,
+                    bench_weight=bench_weight,
+                )
         except ValueError:
             pass
     raise ValueError(
-        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v1.1.5', 'v1.2', 'v0.9_w<float>'"
+        f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v1.1.5', 'v1.2', 'v1.2.5', 'v0.9_w<float>'"
     )
 
