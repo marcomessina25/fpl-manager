@@ -564,3 +564,83 @@ class TestDoubleBlankGameweekAwareness:
         assert proj.expected_points == 0.0
 
 
+class TestDynamicChipAwareBenchWeighting:
+    """Validate Pillar 5: Dynamic Chip-Aware Bench Weighting."""
+
+    def test_bench_boost_weight_does_not_trigger_legacy_symmetric_mode(self) -> None:
+        """Enforce that Bench Boost bench_weight (0.99) does not trip legacy symmetric mode (>= 1.0)."""
+        from fpl_manager.strategic_squad import StrategicConstraints
+
+        # Passing 0.99 must maintain asymmetric mode
+        c = StrategicConstraints(budget_tenths=1000, bench_weight=0.99)
+        assert c.bench_weight < 1.0, f"bench_weight must be < 1.0 to avoid legacy mode trap, got {c.bench_weight}"
+
+    def test_free_hit_concentrates_budget_in_starting_xi(self) -> None:
+        """Free Hit (bench_weight=0.05) concentrates funds in the starting XI rather than the bench."""
+        from fpl_manager.strategic_squad import StrategicConstraints, solve_strategic_squad
+        from fpl_manager.suggest_transfers import PlayerInfo
+
+        pool = []
+        pid = 1
+        # GKs: 1 premium (6.0m, 8.0 xp), 1 fodder (4.0m, 0.0 xp)
+        pool.append(PlayerInfo(pid, "GK1", Position.GOALKEEPER, 1, "T1", 60, "a", 100, expected_points=8.0, expected_minutes=90)); pid += 1
+        pool.append(PlayerInfo(pid, "GK2", Position.GOALKEEPER, 2, "T2", 40, "a", 0, expected_points=0.0, expected_minutes=0)); pid += 1
+        # DEFs: 3 prems (7.0m, 7.0m, 6.5m), 2 fodders (4.0m, 4.0m)
+        for cost, xp in [(70, 7.0), (70, 7.0), (65, 6.5), (40, 0.0), (40, 0.0)]:
+            pool.append(PlayerInfo(pid, f"DEF{pid}", Position.DEFENDER, pid, f"T{pid}", cost, "a", 100, expected_points=xp, expected_minutes=90 if xp > 0 else 0)); pid += 1
+        # MIDs: 4 prems (13.0m, 10.5m, 9.5m, 8.5m), 1 fodder (4.5m)
+        for cost, xp in [(130, 13.0), (105, 10.5), (95, 9.5), (85, 8.5), (45, 0.0)]:
+            pool.append(PlayerInfo(pid, f"MID{pid}", Position.MIDFIELDER, pid, f"T{pid}", cost, "a", 100, expected_points=xp, expected_minutes=90 if xp > 0 else 0)); pid += 1
+        # FWDs: 2 prems (14.0m, 8.0m), 1 fodder (4.5m)
+        for cost, xp in [(140, 14.0), (80, 8.0), (45, 0.0)]:
+            pool.append(PlayerInfo(pid, f"FWD{pid}", Position.FORWARD, pid, f"T{pid}", cost, "a", 100, expected_points=xp, expected_minutes=90 if xp > 0 else 0)); pid += 1
+
+        # Budget = 111.0m (1110 tenths) allows all 15 candidates to be legally chosen
+        c = StrategicConstraints(budget_tenths=1110, target_gameweeks=(1,), bench_weight=0.05)
+        cand = solve_strategic_squad(pool, c, strategy="balanced", mode="free_hit", horizon=1, bench_weight=0.05)
+        starters_cost = sum(p["price_tenths"] for p in cand.starters)
+        bench_cost = sum(p["price_tenths"] for p in cand.bench)
+        assert starters_cost >= 835, f"Expected starting XI cost >= £83.5m (835 tenths), got {starters_cost/10.0}m"
+        assert bench_cost == 165, f"Expected bench to hold minimum £16.5m fodder, got {bench_cost/10.0}m"
+
+    def test_bench_boost_squad_has_fifteen_playing_assets(self) -> None:
+        """Under bench_weight=0.99, all 15 squad members are prioritized for playing expected points."""
+        from fpl_manager.strategic_squad import StrategicConstraints, solve_strategic_squad
+        from fpl_manager.suggest_transfers import PlayerInfo
+
+        pool = []
+        pid = 1
+        for pos, quota, costs in [
+            (Position.GOALKEEPER, 2, [50, 45]),
+            (Position.DEFENDER, 5, [60, 55, 50, 45, 45]),
+            (Position.MIDFIELDER, 5, [100, 85, 75, 65, 55]),
+            (Position.FORWARD, 3, [90, 75, 60]),
+        ]:
+            for cost in costs:
+                pool.append(PlayerInfo(pid, f"P{pid}", pos, pid, f"T{pid}", cost, "a", 50, expected_points=4.0, expected_minutes=90))
+                pid += 1
+
+        c = StrategicConstraints(budget_tenths=1000, target_gameweeks=(1,), bench_weight=0.99)
+        cand = solve_strategic_squad(pool, c, strategy="balanced", mode="wildcard", horizon=1, bench_weight=0.99)
+        assert len(cand.starters) == 11
+        assert len(cand.bench) == 4
+        for p in cand.squad:
+            assert p["expected_points"] >= 3.0
+
+    def test_track_a_unaffected_by_chip_bench_weighting(self) -> None:
+        """Track A simulation must use standard bench_weight=0.15 regardless of chip state."""
+        from pathlib import Path
+        import pytest
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2023-24")
+        if not season_dir.exists():
+            pytest.skip("2023-24 data missing")
+
+        strat = OptimizerStrategy(max_transfers=1, allow_hits=False, decision_engine="v1.2.5")
+        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", use_chips=False)
+        assert res.total_net_points == 2193, f"Track A 2023-24 should be 2193, got {res.total_net_points}"
+
+
+

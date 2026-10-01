@@ -1715,6 +1715,77 @@ class DecisionEngineV125(DecisionEngineV12):
             return max(min_net_gain, hurdle)
         return max(min_net_gain, self.outfield_min_net_gain)
 
+    def initialize_squad(
+        self,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+        budget_tenths: int = 1000,
+        bench_weight: float | None = None,
+        mode: str | None = None,
+    ) -> tuple[list[int], dict[int, int], int]:
+        """Select ideal initial 15-player squad with dynamic chip-aware bench weighting (Pillar 5)."""
+        from ..strategic_squad import StrategicConstraints, solve_strategic_squad
+        from ..suggest_transfers import PlayerInfo
+
+        try:
+            proj_map = {p.player_id: p for p in projections}
+            candidate_pool = []
+            eff_bench_weight = bench_weight if bench_weight is not None else self.bench_weight
+            eff_mode = mode if mode is not None else ("initial" if snapshot.gameweek == 1 else "wildcard")
+            eff_horizon = 1 if eff_mode == "free_hit" else max(1, min(39, snapshot.gameweek + self.initial_horizon) - snapshot.gameweek)
+
+            for p in snapshot.players:
+                if self._is_dead_capital(p, snapshot):
+                    continue
+                proj = proj_map.get(p.player_id)
+                xp = proj.expected_points if proj else 0.0
+                xm = proj.expected_minutes if proj else 0.0
+                flr = proj.xp_floor if proj and proj.xp_floor > 0 else xp
+                ceil = proj.xp_ceiling if proj and proj.xp_ceiling > 0 else xp
+                p_info = PlayerInfo(
+                    id=p.player_id,
+                    name=p.web_name,
+                    position=p.position,
+                    team_short=next((t.get("short_name", f"T{p.team_id}") for t in snapshot.teams if t["team_id"] == p.team_id), f"T{p.team_id}"),
+                    team_id=p.team_id,
+                    price_tenths=p.price_tenths,
+                    expected_points=xp,
+                    gw_xp=xp,
+                    horizon_xp=xp * eff_horizon,
+                    xp_floor=flr,
+                    xp_ceiling=ceil,
+                    horizon_floor=flr * eff_horizon,
+                    horizon_ceiling=ceil * eff_horizon,
+                    expected_minutes=xm,
+                    total_points=p.total_points,
+                    status=p.status,
+                    is_long_term_unavailable=p.is_long_term_unavailable,
+                )
+                candidate_pool.append(p_info)
+
+            target_gws = (snapshot.gameweek,) if eff_mode == "free_hit" else tuple(range(snapshot.gameweek, snapshot.gameweek + eff_horizon))
+            constraints = StrategicConstraints(
+                budget_tenths=budget_tenths,
+                target_gameweeks=target_gws,
+                bench_weight=eff_bench_weight,
+            )
+            cand = solve_strategic_squad(
+                candidate_pool=candidate_pool,
+                constraints=constraints,
+                strategy=self.initial_strategy,
+                mode=eff_mode,
+                horizon=eff_horizon,
+                bench_weight=eff_bench_weight,
+            )
+            squad_ids = list(cand.player_ids)
+            purchase_prices = {p.id: p.price_tenths for p in candidate_pool if p.id in squad_ids}
+            bank = max(0, budget_tenths - sum(purchase_prices.values()))
+            return squad_ids, purchase_prices, bank
+        except Exception as exc:
+            self.fallback_occurred = True
+            self.fallback_reason = str(exc)
+            return super().initialize_squad(snapshot, projections, budget_tenths=budget_tenths)
+
     def decide_transfers(
         self,
         strategy_name: str,
