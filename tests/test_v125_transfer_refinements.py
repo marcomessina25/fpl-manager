@@ -639,7 +639,7 @@ class TestDynamicChipAwareBenchWeighting:
             pytest.skip("2023-24 data missing")
 
         strat = OptimizerStrategy(max_transfers=1, allow_hits=False, decision_engine="v1.2.5")
-        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", use_chips=False)
+        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", predictor_version="v1.0.1", use_chips=False)
         assert res.total_net_points == 2193, f"Track A 2023-24 should be 2193, got {res.total_net_points}"
 
 
@@ -658,7 +658,7 @@ class TestResolveInertUnavailabilityMechanism:
             pytest.skip("2023-24 data missing")
 
         strat = OptimizerStrategy(max_transfers=1, allow_hits=False, decision_engine="v1.2.5")
-        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", use_chips=False)
+        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", predictor_version="v1.0.1", use_chips=False)
         # 2023-24 Track A is exactly 2193 with or without the registry
         assert res.total_net_points == 2193
 

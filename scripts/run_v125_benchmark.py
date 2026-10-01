@@ -23,6 +23,7 @@ def main():
         smoke_test=False,
         save_report=True,
         output_dir=REPORTS_DIR,
+        verbose=True,
     )
     elapsed = time.time() - t0
     print(f"\n==========================================")
