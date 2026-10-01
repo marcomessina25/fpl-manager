@@ -402,7 +402,7 @@ def run_sequential_simulation(
         strategy.decision_engine = dec_engine
 
     apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5"))
-    apply_unavail = (dec_engine.version in ("v1.2", "v1.2.5"))
+    apply_unavail = (dec_engine.version == "v1.2")
 
     # 1. Initialize squad at start_gw
     init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)

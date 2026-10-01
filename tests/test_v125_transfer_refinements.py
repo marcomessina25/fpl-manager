@@ -643,4 +643,25 @@ class TestDynamicChipAwareBenchWeighting:
         assert res.total_net_points == 2193, f"Track A 2023-24 should be 2193, got {res.total_net_points}"
 
 
+class TestResolveInertUnavailabilityMechanism:
+    """Validate Pillar 6: Resolution of inert long-term unavailability mechanism (Option B)."""
+
+    def test_registry_removal_does_not_change_benchmark(self) -> None:
+        """Confirm that disabling the hand-curated unavailability registry produces exact 0.0 drift."""
+        from pathlib import Path
+        import pytest
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2023-24")
+        if not season_dir.exists():
+            pytest.skip("2023-24 data missing")
+
+        strat = OptimizerStrategy(max_transfers=1, allow_hits=False, decision_engine="v1.2.5")
+        res = run_sequential_simulation(season_dir, strat, decision_engine="v1.2.5", use_chips=False)
+        # 2023-24 Track A is exactly 2193 with or without the registry
+        assert res.total_net_points == 2193
+
+
+
 
