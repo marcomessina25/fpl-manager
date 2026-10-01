@@ -478,3 +478,89 @@ class TestMultiGameweekHorizon:
         assert len(forward_projs[22]) > 0
 
 
+class TestDoubleBlankGameweekAwareness:
+    """Validate Pillar 4: Double / Blank Gameweek Awareness."""
+
+    def test_double_gameweek_player_projects_two_fixtures(self) -> None:
+        """When a team has two scheduled fixtures in a gameweek, xP is computed for both and summed."""
+        import pytest
+        from fpl_manager.expected_points import project_player_gameweek
+
+        two_fixes = [
+            {"opponent_id": 2, "opponent_short": "T2", "is_home": True, "fdr": 2},
+            {"opponent_id": 3, "opponent_short": "T3", "is_home": False, "fdr": 3},
+        ]
+        proj = project_player_gameweek(
+            player_id=10,
+            web_name="Salah",
+            position=Position.MIDFIELDER,
+            team_id=1,
+            team_short="LIV",
+            price_tenths=130,
+            status="a",
+            total_points=100,
+            finished_matches=10,
+            gameweek=34,
+            team_fixtures_in_gw=two_fixes,
+            minutes=900,
+            starts=10,
+            chance_of_playing_next_round=100,
+            chance_of_playing_this_round=100,
+            expected_goals=8.0,
+            expected_assists=5.0,
+            expected_goal_involvements=13.0,
+            expected_goals_conceded=10.0,
+            expected_goals_per_90=0.8,
+            expected_assists_per_90=0.5,
+            expected_goals_conceded_per_90=1.0,
+            clean_sheets_per_90=0.4,
+            bps=250,
+            ict_index=150.0,
+            predictor_version="v1.0.1",
+        )
+
+        assert len(proj.fixtures) == 2
+        fix1_xp = proj.fixtures[0].fixture_xp
+        fix2_xp = proj.fixtures[1].fixture_xp
+        assert fix1_xp > 0.0
+        assert fix2_xp > 0.0
+        assert proj.expected_points == pytest.approx(fix1_xp + fix2_xp, rel=1e-4)
+
+    def test_blank_gameweek_player_projects_zero(self) -> None:
+        """When a team has zero scheduled fixtures in a gameweek, xP is exactly 0.0."""
+        from fpl_manager.expected_points import project_player_gameweek
+
+        zero_fixes = []
+        proj = project_player_gameweek(
+            player_id=10,
+            web_name="Salah",
+            position=Position.MIDFIELDER,
+            team_id=1,
+            team_short="LIV",
+            price_tenths=130,
+            status="a",
+            total_points=100,
+            finished_matches=10,
+            gameweek=29,
+            team_fixtures_in_gw=zero_fixes,
+            minutes=900,
+            starts=10,
+            chance_of_playing_next_round=100,
+            chance_of_playing_this_round=100,
+            expected_goals=8.0,
+            expected_assists=5.0,
+            expected_goal_involvements=13.0,
+            expected_goals_conceded=10.0,
+            expected_goals_per_90=0.8,
+            expected_assists_per_90=0.5,
+            expected_goals_conceded_per_90=1.0,
+            clean_sheets_per_90=0.4,
+            bps=250,
+            ict_index=150.0,
+            predictor_version="v1.0.1",
+        )
+
+        assert len(proj.fixtures) == 0
+        assert proj.expected_points == 0.0
+
+
