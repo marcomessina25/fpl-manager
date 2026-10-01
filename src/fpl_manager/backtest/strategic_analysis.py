@@ -1720,16 +1720,20 @@ def run_version_comparison_backtest(
                 )
                 print(f" -> {sim.total_net_points} net pts ({time.time() - t_sim0:.1f}s)", flush=True)
 
-                # Count departure-related transfers
+                # Count departure-related and goalkeeper transfers
                 departure_tx_count = 0
+                gk_tx_count = 0
                 for gw_res in sim.history:
                     if gw_res.transfers:
                         try:
                             gw_snap = build_historical_snapshot(season_dir, gw_res.gameweek)
                             for out_id, _ in gw_res.transfers:
                                 p_out = next((p for p in gw_snap.players if p.player_id == out_id), None)
-                                if p_out and is_departed_from_premier_league(p_out, gw_snap):
-                                    departure_tx_count += 1
+                                if p_out:
+                                    if is_departed_from_premier_league(p_out, gw_snap):
+                                        departure_tx_count += 1
+                                    if p_out.position == Position.GOALKEEPER:
+                                        gk_tx_count += 1
                         except Exception:
                             pass
 
@@ -1748,6 +1752,7 @@ def run_version_comparison_backtest(
                     "bench_regret_points": sim.total_bench_regret_points,
                     "zero_min_starters": sim.total_zero_min_starters,
                     "departure_transfers": departure_tx_count,
+                    "goalkeeper_transfers": gk_tx_count,
                     "fallback_occurred": sim.fallback_occurred,
                     "fallback_reason": sim.fallback_reason,
                     "configuration_hash": sim.configuration_hash,

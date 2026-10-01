@@ -1450,11 +1450,22 @@ class DecisionEngineV12(DecisionEngineV115):
                 else:
                     net_gain = rec.get("score", rec.get("xp_delta", 0.0))
 
-                if net_gain > best_gain:
+                hurdle = self._get_transfer_hurdle(out_list, opt_map, proj_map, min_net_gain)
+                if net_gain >= hurdle and net_gain > best_gain:
                     best_gain = net_gain
                     best_moves = list(zip(out_list, in_list))
 
         return best_moves
+
+    def _get_transfer_hurdle(
+        self,
+        out_list: list[int],
+        opt_map: dict[int, Any],
+        proj_map: dict[int, Any],
+        min_net_gain: float,
+    ) -> float:
+        """Derive minimum net gain hurdle for candidate transfer. Defaults to min_net_gain."""
+        return min_net_gain
 
     def get_strategy_config(self, strategy_name: str, **kwargs: Any) -> dict[str, Any]:
         cfg = super().get_strategy_config(strategy_name, **kwargs)
@@ -1483,6 +1494,9 @@ class DecisionEngineV125(DecisionEngineV12):
         dead_capital_weight: float = 3.0,
         bench_weight: float = 0.15,
         max_results: int = 25,
+        gk_min_net_gain: float = 1.50,
+        outfield_min_net_gain: float = 0.50,
+        gk_play_probability_floor: float = 0.50,
     ) -> None:
         super().__init__(
             initial_strategy=initial_strategy,
@@ -1492,6 +1506,29 @@ class DecisionEngineV125(DecisionEngineV12):
             bench_weight=bench_weight,
             max_results=max_results,
         )
+        self.gk_min_net_gain = gk_min_net_gain
+        self.outfield_min_net_gain = outfield_min_net_gain
+        self.gk_play_probability_floor = gk_play_probability_floor
+
+    def _get_transfer_hurdle(
+        self,
+        out_list: list[int],
+        opt_map: dict[int, Any],
+        proj_map: dict[int, Any],
+        min_net_gain: float,
+    ) -> float:
+        """Enforce role-specific transfer hurdle (1.50 for healthy GKP vs 0.50 for outfield/injured GKP)."""
+        has_gk = any(getattr(opt_map.get(pid), "position", None) == Position.GOALKEEPER for pid in out_list)
+        if has_gk:
+            gk_insecure = all(
+                getattr(proj_map.get(pid), "play_probability", 1.0) < self.gk_play_probability_floor
+                for pid in out_list
+                if getattr(opt_map.get(pid), "position", None) == Position.GOALKEEPER
+            )
+            if gk_insecure:
+                return max(min_net_gain, self.outfield_min_net_gain)
+            return max(min_net_gain, self.gk_min_net_gain)
+        return max(min_net_gain, self.outfield_min_net_gain)
 
     @property
     def version(self) -> str:
