@@ -1221,6 +1221,7 @@ class DecisionEngineV12(DecisionEngineV115):
         lineup_penalty_weight: float = 0.0,
         dead_capital_weight: float = 3.0,
         bench_weight: float = 0.15,
+        max_results: int = 5,
     ) -> None:
         super().__init__(
             initial_strategy=initial_strategy,
@@ -1229,6 +1230,7 @@ class DecisionEngineV12(DecisionEngineV115):
             dead_capital_weight=dead_capital_weight,
         )
         self.bench_weight = bench_weight
+        self.max_results = max_results
 
     def _is_dead_capital(self, player: Any, snapshot: HistoricalGameweekSnapshot) -> bool:
         """V1.2 additionally treats long-term unavailable players (multi-month bans, ACL tears) as dead capital."""
@@ -1425,7 +1427,7 @@ class DecisionEngineV12(DecisionEngineV115):
                 fdr_map=fdr_map,
                 ticker_map=ticker_map,
                 risk_profile=risk_profile,
-                max_results=5,
+                max_results=self.max_results,
                 dead_capital_weight=self.dead_capital_weight,
             )
             for rec in recs:
@@ -1473,6 +1475,24 @@ class DecisionEngineV125(DecisionEngineV12):
     - Pillar 6: Resolution of Inert Long-Term Unavailability Modeling.
     """
 
+    def __init__(
+        self,
+        initial_strategy: str = "balanced",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+        dead_capital_weight: float = 3.0,
+        bench_weight: float = 0.15,
+        max_results: int = 25,
+    ) -> None:
+        super().__init__(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            lineup_penalty_weight=lineup_penalty_weight,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            max_results=max_results,
+        )
+
     @property
     def version(self) -> str:
         return "v1.2.5"
@@ -1482,7 +1502,7 @@ class DecisionEngineV125(DecisionEngineV12):
         return (
             f"V1.2.5 Strategic Decision Engine ({self.initial_strategy}, "
             f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
-            f"bench_w={self.bench_weight})"
+            f"bench_w={self.bench_weight}, max_results={self.max_results})"
         )
 
     @property
