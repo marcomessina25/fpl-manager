@@ -290,3 +290,191 @@ class TestGoalkeeperChurnSuppression:
 
         assert moves == [(1, 99)], f"Injured GK swap should be allowed despite gain < 1.50, got {moves}"
 
+
+class TestMultiGameweekHorizon:
+    """Validate Pillar 3: Multi-gameweek discounted lineup horizon (H=3, gamma=0.75)."""
+
+    def test_multi_horizon_prefers_sustained_fixtures_over_single_week_spike(self) -> None:
+        """Player A spikes in GW10 (8.0) but collapses in GW11/12 (2.0, 2.0).
+        Player B is consistent across all 3 gameweeks (6.0, 6.0, 6.0).
+        H=1 prefers Player A (8.0 > 6.0).
+        H=3 (gamma=0.75) prefers Player B (13.875 > 10.625).
+        """
+        from fpl_manager.backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
+
+        class MockPlayer:
+            def __init__(self, pid: int, pos: Position, xp: float):
+                self.id = pid
+                self.position = pos
+                self.expected_points = xp
+
+        base_squad = [
+            MockPlayer(1, Position.GOALKEEPER, 4.0),
+            MockPlayer(2, Position.GOALKEEPER, 1.0),
+            MockPlayer(11, Position.DEFENDER, 5.0),
+            MockPlayer(12, Position.DEFENDER, 5.0),
+            MockPlayer(13, Position.DEFENDER, 5.0),
+            MockPlayer(14, Position.DEFENDER, 1.5),
+            MockPlayer(15, Position.DEFENDER, 1.0),
+            MockPlayer(21, Position.MIDFIELDER, 10.0),
+            MockPlayer(22, Position.MIDFIELDER, 7.5),
+            MockPlayer(23, Position.MIDFIELDER, 7.0),
+            MockPlayer(24, Position.MIDFIELDER, 6.5),
+            # Position 25 will be filled by candidate A or B
+            MockPlayer(31, Position.FORWARD, 11.0),
+            MockPlayer(32, Position.FORWARD, 7.0),
+            MockPlayer(33, Position.FORWARD, 1.5),
+        ]
+
+        player_a = MockPlayer(91, Position.MIDFIELDER, 8.0)
+        player_b = MockPlayer(92, Position.MIDFIELDER, 6.0)
+
+        squad_a = base_squad + [player_a]
+        squad_b = base_squad + [player_b]
+
+        projections_by_gw = {
+            10: {p.id: p.expected_points for p in base_squad} | {91: 8.0, 92: 6.0},
+            11: {p.id: p.expected_points for p in base_squad} | {91: 2.0, 92: 6.0},
+            12: {p.id: p.expected_points for p in base_squad} | {91: 2.0, 92: 6.0},
+        }
+
+        # Horizon H=1: evaluates only GW10
+        score_a_h1 = _evaluate_squad_multi_horizon_lineup_xp(squad_a, projections_by_gw, horizon=1, gamma=0.75)
+        score_b_h1 = _evaluate_squad_multi_horizon_lineup_xp(squad_b, projections_by_gw, horizon=1, gamma=0.75)
+        assert score_a_h1 > score_b_h1, f"At H=1 Player A should win on spike: A={score_a_h1} vs B={score_b_h1}"
+
+        # Horizon H=3: evaluates GW10 + 0.75 * GW11 + 0.5625 * GW12
+        score_a_h3 = _evaluate_squad_multi_horizon_lineup_xp(squad_a, projections_by_gw, horizon=3, gamma=0.75)
+        score_b_h3 = _evaluate_squad_multi_horizon_lineup_xp(squad_b, projections_by_gw, horizon=3, gamma=0.75)
+        assert score_b_h3 > score_a_h3, f"At H=3 Player B should win on sustained returns: B={score_b_h3} vs A={score_a_h3}"
+
+    def test_multi_horizon_holds_premium_through_short_absence(self) -> None:
+        """Haaland is blanking/injured for 1 GW (xP 0.0), returning in GW21 and GW22 (xP 10.0 each).
+        Watkins has steady 5.0 across all 3 GWs.
+        H=1 wants to sell Haaland for Watkins (5.0 > 0.0).
+        H=3 holds Haaland because 0.0 + 0.75*10 + 0.5625*10 = 13.125 > 5.0 + 0.75*5 + 0.5625*5 = 11.5625.
+        """
+        from fpl_manager.backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
+
+        class MockPlayer:
+            def __init__(self, pid: int, pos: Position, xp: float):
+                self.id = pid
+                self.position = pos
+                self.expected_points = xp
+
+        base_squad = [
+            MockPlayer(1, Position.GOALKEEPER, 4.0),
+            MockPlayer(2, Position.GOALKEEPER, 1.0),
+            MockPlayer(11, Position.DEFENDER, 5.0),
+            MockPlayer(12, Position.DEFENDER, 5.0),
+            MockPlayer(13, Position.DEFENDER, 5.0),
+            MockPlayer(14, Position.DEFENDER, 1.5),
+            MockPlayer(15, Position.DEFENDER, 1.0),
+            MockPlayer(21, Position.MIDFIELDER, 10.0),
+            MockPlayer(22, Position.MIDFIELDER, 7.5),
+            MockPlayer(23, Position.MIDFIELDER, 7.0),
+            MockPlayer(24, Position.MIDFIELDER, 6.5),
+            MockPlayer(25, Position.MIDFIELDER, 5.0),
+            # FWDs
+            MockPlayer(31, Position.FORWARD, 7.0),
+            MockPlayer(32, Position.FORWARD, 1.5),
+        ]
+
+        haaland = MockPlayer(9, Position.FORWARD, 0.0)
+        watkins = MockPlayer(10, Position.FORWARD, 5.0)
+
+        squad_hold = base_squad + [haaland]
+        squad_sell = base_squad + [watkins]
+
+        projections_by_gw = {
+            20: {p.id: p.expected_points for p in base_squad} | {9: 0.0, 10: 5.0},
+            21: {p.id: p.expected_points for p in base_squad} | {9: 10.0, 10: 5.0},
+            22: {p.id: p.expected_points for p in base_squad} | {9: 10.0, 10: 5.0},
+        }
+
+        # Under H=1, panic selling Haaland yields positive delta:
+        gain_h1 = (
+            _evaluate_squad_multi_horizon_lineup_xp(squad_sell, projections_by_gw, horizon=1, gamma=0.75)
+            - _evaluate_squad_multi_horizon_lineup_xp(squad_hold, projections_by_gw, horizon=1, gamma=0.75)
+        )
+        assert gain_h1 > 0.0, "Under H=1 selling Haaland for Watkins looks positive"
+
+        # Under H=3, selling Haaland yields NEGATIVE delta (holding wins):
+        gain_h3 = (
+            _evaluate_squad_multi_horizon_lineup_xp(squad_sell, projections_by_gw, horizon=3, gamma=0.75)
+            - _evaluate_squad_multi_horizon_lineup_xp(squad_hold, projections_by_gw, horizon=3, gamma=0.75)
+        )
+        assert gain_h3 < 0.0, f"Under H=3 holding Haaland must beat selling for Watkins: gain={gain_h3}"
+
+    def test_multi_horizon_truncates_at_season_end(self) -> None:
+        """At GW37 with horizon=3, only GW37 and GW38 exist; must truncate cleanly to 2 GWs without error."""
+        from fpl_manager.backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
+
+        class MockPlayer:
+            def __init__(self, pid: int, pos: Position, xp: float):
+                self.id = pid
+                self.position = pos
+                self.expected_points = xp
+
+        squad = [
+            MockPlayer(1, Position.GOALKEEPER, 4.0),
+            MockPlayer(2, Position.GOALKEEPER, 1.0),
+            MockPlayer(11, Position.DEFENDER, 5.0),
+            MockPlayer(12, Position.DEFENDER, 5.0),
+            MockPlayer(13, Position.DEFENDER, 5.0),
+            MockPlayer(14, Position.DEFENDER, 1.5),
+            MockPlayer(15, Position.DEFENDER, 1.0),
+            MockPlayer(21, Position.MIDFIELDER, 10.0),
+            MockPlayer(22, Position.MIDFIELDER, 7.5),
+            MockPlayer(23, Position.MIDFIELDER, 7.0),
+            MockPlayer(24, Position.MIDFIELDER, 6.5),
+            MockPlayer(25, Position.MIDFIELDER, 5.0),
+            MockPlayer(31, Position.FORWARD, 10.0),
+            MockPlayer(32, Position.FORWARD, 7.0),
+            MockPlayer(33, Position.FORWARD, 1.5),
+        ]
+        # Only GW37 and GW38 provided
+        projections_by_gw = {
+            37: {p.id: 5.0 for p in squad},
+            38: {p.id: 6.0 for p in squad},
+        }
+
+        # Asking for horizon=3 should evaluate only the 2 available GWs (no IndexError, no zero fill)
+        score = _evaluate_squad_multi_horizon_lineup_xp(squad, projections_by_gw, horizon=3, gamma=0.75)
+        assert score > 0.0
+
+    def test_multi_horizon_uses_no_future_information(self, monkeypatch) -> None:
+        """Assert forward projections are generated strictly point-in-time from snapshot and scheduled fixtures.
+        Ground truth match outcomes (load_gameweek_outcomes, outcome files) must NEVER be called or accessed.
+        """
+        from pathlib import Path
+        import pytest
+        from fpl_manager.backtest.decision_engine import _get_forward_projections
+        from fpl_manager.historical.snapshots import build_historical_snapshot
+        from fpl_manager.historical.reconstruction import reconstruct_features_and_project
+        import fpl_manager.historical.snapshots as snap_mod
+
+        season_dir = Path("data/historical/2023-24")
+        if not season_dir.exists():
+            pytest.skip("Historical data for 2023-24 not present")
+
+        # Spy/trap: if load_gameweek_outcomes is called, fail immediately
+        def _forbidden_outcomes(*args, **kwargs):
+            raise AssertionError("Leakage violation: load_gameweek_outcomes was called during forward projection!")
+
+        monkeypatch.setattr(snap_mod, "load_gameweek_outcomes", _forbidden_outcomes)
+
+        snapshot = build_historical_snapshot(season_dir, 20, apply_departures=True, apply_unavailability=True)
+        projections = reconstruct_features_and_project(snapshot)
+
+        # Generate forward projections for H=3 (GW20, GW21, GW22)
+        forward_projs = _get_forward_projections(snapshot, projections, horizon=3, season_dir=season_dir)
+
+        assert 20 in forward_projs
+        assert 21 in forward_projs
+        assert 22 in forward_projs
+        assert len(forward_projs[20]) > 0
+        assert len(forward_projs[21]) > 0
+        assert len(forward_projs[22]) > 0
+
+

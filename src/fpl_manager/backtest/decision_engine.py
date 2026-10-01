@@ -6,6 +6,8 @@ the V0.9 participation-aware decision engine, and the V1.0 / V1.0.1 canonical de
 """
 
 from abc import ABC, abstractmethod
+import json
+from pathlib import Path
 from typing import Any
 
 from ..expected_points import ExpectedPointsProjection
@@ -1201,6 +1203,184 @@ def _evaluate_squad_lineup_xp(squad: list[Any], bench_w: float = 0.15) -> float:
     return best_lineup
 
 
+class _PlayerWithXp:
+    __slots__ = ("id", "position", "expected_points")
+
+    def __init__(self, pid: int, position: Position, expected_points: float) -> None:
+        self.id = pid
+        self.position = position
+        self.expected_points = expected_points
+
+
+def _evaluate_squad_multi_horizon_lineup_xp(
+    squad: list[Any],
+    projections_by_gw: dict[int, dict[int, float]],
+    horizon: int = 3,
+    gamma: float = 0.75,
+    bench_w: float = 0.15,
+) -> float:
+    """Evaluate discounted lineup expected points across a rolling multi-gameweek horizon (Pillar 3).
+
+    Delta xP_rolling = sum_{t=0}^{H-1} gamma^t * LineupXP_{GW+t}(S)
+    """
+    if not squad:
+        return 0.0
+
+    if not projections_by_gw:
+        return _evaluate_squad_lineup_xp(squad, bench_w=bench_w)
+
+    sorted_gws = sorted(projections_by_gw.keys())[:max(1, horizon)]
+    if not sorted_gws:
+        return _evaluate_squad_lineup_xp(squad, bench_w=bench_w)
+
+    total_discounted_xp = 0.0
+
+    for t, gw in enumerate(sorted_gws):
+        discount = gamma**t
+        gw_map = projections_by_gw[gw]
+        gw_squad = [
+            _PlayerWithXp(
+                pid=getattr(p, "id", getattr(p, "player_id", 0)),
+                position=p.position,
+                expected_points=gw_map.get(
+                    getattr(p, "id", getattr(p, "player_id", 0)),
+                    getattr(p, "expected_points", 0.0),
+                ),
+            )
+            for p in squad
+        ]
+        lineup_xp = _evaluate_squad_lineup_xp(gw_squad, bench_w=bench_w)
+        total_discounted_xp += discount * lineup_xp
+
+    return total_discounted_xp
+
+
+_HISTORICAL_FIXTURES_BY_GW_CACHE: dict[Path, dict[int, list[dict[str, Any]]]] = {}
+
+
+def _load_historical_fixtures_by_gw(season_dir: Path) -> dict[int, list[dict[str, Any]]]:
+    """Load and index all scheduled fixtures by gameweek for a historical season."""
+    if season_dir in _HISTORICAL_FIXTURES_BY_GW_CACHE:
+        return _HISTORICAL_FIXTURES_BY_GW_CACHE[season_dir]
+    fix_file = season_dir / "fixtures.json"
+    if not fix_file.exists():
+        return {}
+    raw_fixtures: list[dict[str, Any]] = json.loads(fix_file.read_text(encoding="utf-8"))
+    by_gw: dict[int, list[dict[str, Any]]] = {}
+    for fix in raw_fixtures:
+        ev = fix.get("event")
+        if ev is not None:
+            by_gw.setdefault(int(ev), []).append(fix)
+    _HISTORICAL_FIXTURES_BY_GW_CACHE[season_dir] = by_gw
+    return by_gw
+
+
+def _get_forward_projections(
+    snapshot: HistoricalGameweekSnapshot,
+    projections: list[ExpectedPointsProjection],
+    horizon: int = 3,
+    gamma: float = 0.75,
+    season_dir: Path | None = None,
+    needed_pids: set[int] | None = None,
+) -> dict[int, dict[int, float]]:
+    """Produce point-in-time expected points projections across a multi-gameweek rolling horizon (Pillar 3).
+
+    Zero-leakage invariant:
+    - Current and future gameweek projections are computed strictly using player stats known
+      at the gameweek deadline (from `snapshot.players`) and pre-season fixture schedule (`fixtures.json`).
+    - Ground truth match outcomes and future event files are NEVER accessed.
+    """
+    from ..expected_points import DATA_DIRECTORY, project_player_gameweek
+
+    proj_map = {p.player_id: p.expected_points for p in projections}
+    projections_by_gw: dict[int, dict[int, float]] = {snapshot.gameweek: proj_map}
+
+    if horizon <= 1 or not snapshot.players:
+        return projections_by_gw
+
+    target_gws = [gw for gw in range(snapshot.gameweek + 1, min(39, snapshot.gameweek + horizon))]
+    if not target_gws:
+        return projections_by_gw
+
+    if season_dir is None:
+        season_dir = DATA_DIRECTORY / "historical" / snapshot.season
+
+    if not season_dir.exists():
+        return projections_by_gw
+
+    fixtures_by_gw = _load_historical_fixtures_by_gw(season_dir)
+    team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
+
+    predictor_version = "v1.0.1"
+    if projections and projections[0].model_metadata:
+        predictor_version = projections[0].model_metadata.get("predictor_version", "v1.0.1")
+
+    players_to_project = snapshot.players
+    if needed_pids is not None:
+        players_to_project = tuple(p for p in snapshot.players if p.player_id in needed_pids)
+
+    for gw in target_gws:
+        gw_fixes = fixtures_by_gw.get(gw, [])
+        gw_projs: dict[int, float] = {}
+        for p in players_to_project:
+            team_fixes: list[dict[str, Any]] = []
+            for f in gw_fixes:
+                if f["team_h"] == p.team_id:
+                    team_fixes.append({
+                        "opponent_id": f["team_a"],
+                        "opponent_short": team_map.get(f["team_a"], f"T{f['team_a']}"),
+                        "is_home": True,
+                        "fdr": f.get("team_h_difficulty", 3),
+                    })
+                elif f["team_a"] == p.team_id:
+                    team_fixes.append({
+                        "opponent_id": f["team_h"],
+                        "opponent_short": team_map.get(f["team_h"], f"T{f['team_h']}"),
+                        "is_home": False,
+                        "fdr": f.get("team_a_difficulty", 3),
+                    })
+
+            proj = project_player_gameweek(
+                player_id=p.player_id,
+                web_name=p.web_name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=team_map.get(p.team_id, f"T{p.team_id}"),
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=p.total_points,
+                finished_matches=snapshot.finished_gameweeks,
+                gameweek=gw,
+                team_fixtures_in_gw=team_fixes,
+                minutes=p.minutes,
+                starts=p.starts,
+                chance_of_playing_next_round=p.chance_of_playing_next_round,
+                chance_of_playing_this_round=p.chance_of_playing_this_round,
+                expected_goals=p.expected_goals,
+                expected_assists=p.expected_assists,
+                expected_goal_involvements=p.expected_goal_involvements,
+                expected_goals_conceded=p.expected_goals_conceded,
+                expected_goals_per_90=p.expected_goals_per_90,
+                expected_assists_per_90=p.expected_assists_per_90,
+                expected_goals_conceded_per_90=p.expected_goals_conceded_per_90,
+                clean_sheets_per_90=p.clean_sheets_per_90,
+                bps=p.bps,
+                ict_index=p.ict_index,
+                starts_last_3=p.starts_last_3,
+                starts_last_5=p.starts_last_5,
+                minutes_last_3=p.minutes_last_3,
+                minutes_last_5=p.minutes_last_5,
+                consecutive_zero_mins=p.consecutive_zero_mins,
+                predictor_version=predictor_version,
+                is_long_term_unavailable=p.is_long_term_unavailable,
+            )
+            gw_projs[p.player_id] = proj.expected_points
+
+        projections_by_gw[gw] = gw_projs
+
+    return projections_by_gw
+
+
 class DecisionEngineV12(DecisionEngineV115):
     """V1.2 Strategic Decision Engine with Asymmetric Squad Balancing & Lineup-Aware Transfer Evaluation.
 
@@ -1494,9 +1674,11 @@ class DecisionEngineV125(DecisionEngineV12):
         dead_capital_weight: float = 3.0,
         bench_weight: float = 0.15,
         max_results: int = 25,
-        gk_min_net_gain: float = 1.50,
+        gk_min_net_gain: float = 3.00,
         outfield_min_net_gain: float = 0.50,
         gk_play_probability_floor: float = 0.50,
+        horizon: int = 3,
+        gamma: float = 0.75,
     ) -> None:
         super().__init__(
             initial_strategy=initial_strategy,
@@ -1509,6 +1691,8 @@ class DecisionEngineV125(DecisionEngineV12):
         self.gk_min_net_gain = gk_min_net_gain
         self.outfield_min_net_gain = outfield_min_net_gain
         self.gk_play_probability_floor = gk_play_probability_floor
+        self.horizon = horizon
+        self.gamma = gamma
 
     def _get_transfer_hurdle(
         self,
@@ -1517,7 +1701,7 @@ class DecisionEngineV125(DecisionEngineV12):
         proj_map: dict[int, Any],
         min_net_gain: float,
     ) -> float:
-        """Enforce role-specific transfer hurdle (1.50 for healthy GKP vs 0.50 for outfield/injured GKP)."""
+        """Enforce role-specific transfer hurdle (3.0 for healthy GKP at H>=3 vs 0.50 for outfield/injured GKP)."""
         has_gk = any(getattr(opt_map.get(pid), "position", None) == Position.GOALKEEPER for pid in out_list)
         if has_gk:
             gk_insecure = all(
@@ -1527,8 +1711,169 @@ class DecisionEngineV125(DecisionEngineV12):
             )
             if gk_insecure:
                 return max(min_net_gain, self.outfield_min_net_gain)
-            return max(min_net_gain, self.gk_min_net_gain)
+            hurdle = 3.0 if self.horizon >= 3 else self.gk_min_net_gain
+            return max(min_net_gain, hurdle)
         return max(min_net_gain, self.outfield_min_net_gain)
+
+    def decide_transfers(
+        self,
+        strategy_name: str,
+        current_squad_ids: list[int],
+        purchase_prices: dict[int, int],
+        bank_tenths: int,
+        free_transfers: int,
+        snapshot: HistoricalGameweekSnapshot,
+        projections: list[ExpectedPointsProjection],
+        max_transfers: int = 1,
+        allow_hits: bool = True,
+        risk_profile: str = "neutral",
+        min_net_gain: float = 0.50,
+        projections_by_gw: dict[int, dict[int, float]] | None = None,
+    ) -> list[tuple[int, int]]:
+        strat = strategy_name.lower().strip().replace("-", "").replace("_", "").replace(" ", "")
+        if "notransfer" in strat:
+            return []
+
+        if "simplexp" in strat:
+            return super().decide_transfers(
+                strategy_name=strategy_name,
+                current_squad_ids=current_squad_ids,
+                purchase_prices=purchase_prices,
+                bank_tenths=bank_tenths,
+                free_transfers=free_transfers,
+                snapshot=snapshot,
+                projections=projections,
+                max_transfers=max_transfers,
+                allow_hits=allow_hits,
+                risk_profile=risk_profile,
+                min_net_gain=min_net_gain,
+            )
+
+        # Production Optimizer Strategy with Multi-Gameweek Lineup-Aware Evaluation & Dead Capital Offloading
+        from ..optimizer import PlayerOptInfo, solve_transfers
+
+        opt_map: dict[int, PlayerOptInfo] = {}
+        for p in projections:
+            opt_map[p.player_id] = PlayerOptInfo(
+                id=p.player_id,
+                name=p.web_name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=p.team_short,
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=0,
+                expected_points=p.expected_points,
+                expected_minutes=p.expected_minutes,
+                xp_floor=p.xp_floor,
+                xp_ceiling=p.xp_ceiling,
+                standard_deviation=p.standard_deviation,
+                is_long_term_unavailable=getattr(p, "is_long_term_unavailable", False),
+            )
+
+        squad_set = set(current_squad_ids)
+        squad_opt = [opt_map[pid] for pid in current_squad_ids if pid in opt_map]
+        proj_map = {p.player_id: p for p in projections}
+
+        cand_pool = [
+            opt
+            for pid, opt in opt_map.items()
+            if pid not in squad_set
+            and proj_map.get(pid)
+            and proj_map[pid].play_probability >= 0.35
+            and not self._is_dead_capital(opt, snapshot)
+        ]
+
+        selling_prices = {}
+        for pid in current_squad_ids:
+            cur_p = opt_map.get(pid)
+            cur_price = cur_p.price_tenths if cur_p else 50
+            bought = purchase_prices.get(pid, cur_price)
+            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+
+        fdr_map = {}
+        ticker_map = {}
+        for fix in snapshot.fixtures:
+            h_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_h), "")
+            a_team = next((t.get("short_name", "") for t in snapshot.teams if t["team_id"] == fix.team_a), "")
+            if h_team:
+                fdr_map[h_team] = float(fix.team_h_difficulty)
+                ticker_map[h_team] = f"{a_team} (H)"
+            if a_team:
+                fdr_map[a_team] = float(fix.team_a_difficulty)
+                ticker_map[a_team] = f"{h_team} (A)"
+
+        best_moves: list[tuple[int, int]] = []
+        best_gain = min_net_gain
+        k_max = max_transfers if allow_hits else min(max_transfers, free_transfers)
+        if k_max <= 0:
+            return []
+
+        # Point-in-time multi-gameweek projections (Pillar 3)
+        if projections_by_gw is None:
+            needed_pids = set(current_squad_ids) | {p.id for p in cand_pool}
+            projections_by_gw = _get_forward_projections(
+                snapshot=snapshot,
+                projections=projections,
+                horizon=self.horizon,
+                gamma=self.gamma,
+                needed_pids=needed_pids,
+            )
+
+        curr_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+            squad_opt,
+            projections_by_gw,
+            horizon=self.horizon,
+            gamma=self.gamma,
+            bench_w=self.bench_weight,
+        )
+
+        for k in range(1, k_max + 1):
+            recs, _ = solve_transfers(
+                num_transfers=k,
+                squad_players=squad_opt,
+                candidate_pool=cand_pool,
+                bank_tenths=bank_tenths,
+                free_transfers=free_transfers,
+                selling_prices=selling_prices,
+                fdr_map=fdr_map,
+                ticker_map=ticker_map,
+                risk_profile=risk_profile,
+                max_results=self.max_results,
+                dead_capital_weight=self.dead_capital_weight,
+            )
+            for rec in recs:
+                if not allow_hits and rec.get("hit_cost", 0) > 0:
+                    continue
+
+                out_list = [p["id"] for p in rec.get("outgoing", [])]
+                in_list = [p["id"] for p in rec.get("incoming", [])]
+                out_set = set(out_list)
+
+                # Lineup-Aware Multi-Horizon Evaluation (Pillars 1, 2, 3)
+                if len(squad_opt) == 15:
+                    new_squad = [p for p in squad_opt if p.id not in out_set] + [opt_map[pid] for pid in in_list if pid in opt_map]
+                    new_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+                        new_squad,
+                        projections_by_gw,
+                        horizon=self.horizon,
+                        gamma=self.gamma,
+                        bench_w=self.bench_weight,
+                    )
+                    lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
+                    hit_pts = rec.get("transfer_hits", 0) * 4
+                    fdr_gain = rec.get("fdr_improvement", 0.0)
+                    dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
+                    net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
+                else:
+                    net_gain = rec.get("score", rec.get("xp_delta", 0.0))
+
+                hurdle = self._get_transfer_hurdle(out_list, opt_map, proj_map, min_net_gain)
+                if net_gain >= hurdle and net_gain > best_gain:
+                    best_gain = net_gain
+                    best_moves = list(zip(out_list, in_list))
+
+        return best_moves
 
     @property
     def version(self) -> str:
@@ -1539,7 +1884,8 @@ class DecisionEngineV125(DecisionEngineV12):
         return (
             f"V1.2.5 Strategic Decision Engine ({self.initial_strategy}, "
             f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
-            f"bench_w={self.bench_weight}, max_results={self.max_results})"
+            f"bench_w={self.bench_weight}, max_results={self.max_results}, "
+            f"roll_h={self.horizon}, gamma={self.gamma})"
         )
 
     @property
