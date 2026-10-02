@@ -303,9 +303,18 @@ def _build_briefing_markdown(dossier: dict[str, Any]) -> str:
             out_names = ", ".join(p.get("name", "") for p in opt.get("outgoing", []))
             in_names = ", ".join(p.get("name", "") for p in opt.get("incoming", []))
             hit_txt = f" | Hits: -{opt.get('transfer_hits', 0) * 4}pt" if opt.get('transfer_hits', 0) > 0 else ""
+            extra = []
+            if "lineup_xp_delta" in opt:
+                extra.append(f"Lineup ΔxP: {opt['lineup_xp_delta']:+.2f}")
+            rb = opt.get("reason_breakdown", {})
+            if rb.get("summary"):
+                extra.append(rb["summary"])
+            extra_txt = f" | {', '.join(extra)}" if extra else ""
+
+            gain_val = opt.get("lineup_xp_delta", opt.get("net_xp_gain", opt.get("score", 0.0)))
             lines.append(
                 f"- **Option #{idx}**: **{out_names}** ➔ **{in_names}** "
-                f"(Gain: +{opt.get('net_xp_gain', 0.0):.2f} net xP, Bank: £{opt.get('bank_after_tenths', 0) / 10:.1f}m{hit_txt})"
+                f"(Gain: +{gain_val:.2f} net xP, Bank: £{opt.get('bank_after_tenths', 0) / 10:.1f}m{hit_txt}{extra_txt})"
             )
     else:
         lines.append("- No recommended transfers identified under current constraints.")

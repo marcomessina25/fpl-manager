@@ -401,7 +401,7 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
-    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2"))
+    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5"))
     apply_unavail = (dec_engine.version == "v1.2")
 
     # 1. Initialize squad at start_gw
@@ -409,7 +409,7 @@ def run_sequential_simulation(
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2") or initial_strategy is not None:
+        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5") or initial_strategy is not None:
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -427,13 +427,13 @@ def run_sequential_simulation(
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                     ]
-                elif dec_engine.version == "v1.2":
+                elif dec_engine.version in ("v1.2", "v1.2.5"):
                     strat_players = [
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                         and not is_long_term_unavailable(p, init_snap)
                     ]
-                # Only DecisionEngineV12 defines a bench_weight attribute (0.15 asymmetric);
+                # Only DecisionEngineV12 and V125 define a bench_weight attribute (0.15 asymmetric);
                 # every other engine falls back to the legacy symmetric default of 1.0.
                 bench_w = getattr(dec_engine, "bench_weight", 1.0)
                 c = StrategicConstraints(
@@ -503,6 +503,30 @@ def run_sequential_simulation(
         saved_purchase_prices = None
         saved_bank = None
 
+        # Determine dynamic chip-aware bench weight (Pillar 5)
+        eff_bench_weight = getattr(dec_engine, "bench_weight", 0.15)
+        if use_chips and dec_engine.version == "v1.2.5":
+            if current_chip == "free_hit":
+                eff_bench_weight = 0.05
+            elif current_chip == "bench_boost":
+                eff_bench_weight = 0.99
+            elif chip_inventory and "bench_boost" in chip_inventory.available_chips(gw):
+                from .strategic_analysis import load_historical_fixtures
+                fixtures_by_gw = load_historical_fixtures(season_dir)
+                is_near_expiry = (gw in (17, 18) and gw <= 19) or (gw in (35, 36) and gw >= 20)
+                has_upcoming_dgw = False
+                for future_gw in (gw + 1, min(38, gw + 2)):
+                    future_fixes = fixtures_by_gw.get(future_gw, [])
+                    team_counts = {}
+                    for f in future_fixes:
+                        team_counts[f["team_h"]] = team_counts.get(f["team_h"], 0) + 1
+                        team_counts[f["team_a"]] = team_counts.get(f["team_a"], 0) + 1
+                    if any(cnt >= 2 for cnt in team_counts.values()):
+                        has_upcoming_dgw = True
+                        break
+                if is_near_expiry or has_upcoming_dgw:
+                    eff_bench_weight = 0.60
+
         if current_chip in ("wildcard", "free_hit"):
             if current_chip == "free_hit":
                 saved_squad_ids = list(squad_ids)
@@ -519,9 +543,15 @@ def run_sequential_simulation(
             total_funds = bank + sum(selling_prices.values())
 
             try:
-                new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
-                    snapshot, projections, budget_tenths=total_funds
-                )
+                if dec_engine.version == "v1.2.5":
+                    chip_mode = "free_hit" if current_chip == "free_hit" else None
+                    new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
+                        snapshot, projections, budget_tenths=total_funds, bench_weight=eff_bench_weight, mode=chip_mode
+                    )
+                else:
+                    new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
+                        snapshot, projections, budget_tenths=total_funds
+                    )
                 if len(new_squad_ids) == 15:
                     old_set = set(squad_ids)
                     new_set = set(new_squad_ids)
@@ -538,15 +568,22 @@ def run_sequential_simulation(
             hits = 0
             num_transfers = len(chosen_transfers)
         else:
-            # Strategy decides transfers
-            chosen_transfers = strategy.decide_transfers(
-                current_squad_ids=squad_ids,
-                purchase_prices=purchase_prices,
-                bank_tenths=bank,
-                free_transfers=free_transfers,
-                snapshot=snapshot,
-                projections=projections,
-            )
+            # Strategy decides transfers with chip-aware bench weight
+            old_bw = getattr(dec_engine, "bench_weight", 0.15)
+            try:
+                if dec_engine.version == "v1.2.5":
+                    dec_engine.bench_weight = eff_bench_weight
+                chosen_transfers = strategy.decide_transfers(
+                    current_squad_ids=squad_ids,
+                    purchase_prices=purchase_prices,
+                    bank_tenths=bank,
+                    free_transfers=free_transfers,
+                    snapshot=snapshot,
+                    projections=projections,
+                )
+            finally:
+                if dec_engine.version == "v1.2.5":
+                    dec_engine.bench_weight = old_bw
 
             # Apply transfers
             num_transfers = len(chosen_transfers)

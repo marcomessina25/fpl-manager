@@ -212,26 +212,44 @@ def format_lineup_concise(result: dict[str, Any]) -> str:
 def format_suggest_transfers_concise(result: dict[str, Any]) -> str:
     num_tx = result.get("num_transfers", 1)
     risk = result.get("risk_profile", "neutral")
+    engine = result.get("engine", "v1.2.5")
     suggestions = result.get("top_suggestions", [])
     if not suggestions:
         return "No valid transfer options found matching criteria."
 
     risk_label = f" [Risk: {risk}]" if risk != "neutral" else ""
-    lines = [f"Top {num_tx}-Transfer Options ({result.get('total_options_evaluated', 0)} evaluated){risk_label}:"]
+    engine_label = f" [Engine: {engine}]" if engine else ""
+    lines = [f"Top {num_tx}-Transfer Options ({result.get('total_options_evaluated', 0)} evaluated){risk_label}{engine_label}:"]
     for idx, opt in enumerate(suggestions, 1):
-        out_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["outgoing"])
-        in_names = ", ".join(f"{p['name']} ({p['team']})" for p in opt["incoming"])
+        out_names = ", ".join(f"{p['name']} ({p.get('team', '')})" for p in opt["outgoing"])
+        in_names = ", ".join(f"{p['name']} ({p.get('team', '')})" for p in opt["incoming"])
         hit_pts = opt.get("hit_cost", opt.get("transfer_hits", 0) * 4)
         hit_str = f" | Hit: -{hit_pts}pt" if hit_pts > 0 else ""
+        bank_fmt = opt.get("bank_after_fmt", f"£{opt.get('bank_after_tenths', 0) / 10:.1f}m")
+        fdr_gain = opt.get("fdr_improvement", 0.0)
+
+        extra_tags = []
+        if "lineup_xp_delta" in opt:
+            extra_tags.append(f"Lineup ΔxP: {opt['lineup_xp_delta']:+.2f}")
+        rb = opt.get("reason_breakdown", {})
+        if rb.get("pool_expansion_surfaced"):
+            extra_tags.append("Pool Expansion")
+        if rb.get("gk_suppression") and rb["gk_suppression"] != "n/a":
+            extra_tags.append(f"GK: {rb['gk_suppression']}")
+        if rb.get("multi_horizon_gain", 0.0) > 0.5:
+            extra_tags.append(f"Horizon: +{rb['multi_horizon_gain']:.1f}")
+
+        tags_str = f" [{' | '.join(extra_tags)}]" if extra_tags else ""
+
         if "xp_delta" in opt:
             floor_delta = opt.get("floor_delta", 0.0)
             ceil_delta = opt.get("ceiling_delta", 0.0)
-            range_str = f" [Floor: {floor_delta:+.1f}, Ceil: {ceil_delta:+.1f}]"
-            xp_str = f" | xP: {opt['xp_delta']:+.1f}{range_str} (Score: {opt['score']:+.1f})"
+            range_str = f" [Floor: {floor_delta:+.1f}, Ceil: {ceil_delta:+.1f}]" if (floor_delta or ceil_delta) else ""
+            xp_str = f" | xP: {opt['xp_delta']:+.1f}{range_str} (Score: {opt['score']:+.2f})"
         else:
-            xp_str = f" | Score: {opt['score']:+.1f}"
+            xp_str = f" | Score: {opt['score']:+.2f}"
         lines.append(
-            f"  {idx:2d}. Out: {out_names} -> In: {in_names} | Bank: {opt['bank_after_fmt']}{xp_str} | FDR: {opt['fdr_improvement']:+.1f}{hit_str}"
+            f"  {idx:2d}. Out: {out_names} -> In: {in_names} | Bank: {bank_fmt}{xp_str} | FDR: {fdr_gain:+.1f}{hit_str}{tags_str}"
         )
     return "\n".join(lines)
 
@@ -872,6 +890,8 @@ def main(argv: list[str] | None = None) -> None:
 
     risk_choices = ["neutral", "safe", "conservative", "floor", "ceiling", "upside", "differential", "defend_lead", "chase"]
 
+    engine_choices = ["v1.2.5", "v125", "v1.2", "v12", "v1.0", "v1.0.1", "legacy"]
+
     suggest_parser = subcommands.add_parser("suggest-transfers", help="Generate legal 1- to 5-transfer move recommendations")
     suggest_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
     suggest_parser.add_argument("--squad", type=Path, default=DEFAULT_SQUAD_PATH, help="Path to current_squad.json")
@@ -879,6 +899,9 @@ def main(argv: list[str] | None = None) -> None:
     suggest_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     suggest_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
     suggest_parser.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile: neutral (expected xP), safe, conservative/floor, ceiling/upside, differential/chase, or defend_lead")
+    suggest_parser.add_argument("--engine", choices=engine_choices, default="v1.2.5", help="Decision engine version: 'v1.2.5' (Lineup-aware & rolling horizon), 'v1.2', or 'legacy'/'v1.0'")
+    suggest_parser.add_argument("--gamma", type=float, default=0.75, help="Discount factor for rolling horizon (default: 0.75)")
+    suggest_parser.add_argument("--horizon", type=int, default=3, help="Planning horizon in gameweeks for lineup-aware evaluation (default: 3)")
 
     options_parser = subcommands.add_parser("options", help="Alias for `fpl suggest-transfers`")
     options_parser.add_argument("--transfers", type=int, choices=[1, 2, 3, 4, 5], default=1, help="Number of transfers to evaluate (1 to 5, default: 1; optimized with branch-and-bound)")
@@ -887,6 +910,9 @@ def main(argv: list[str] | None = None) -> None:
     options_parser.add_argument("--max-results", type=int, default=15, help="Maximum number of suggestions to return (default: 15)")
     options_parser.add_argument("--gameweeks", type=int, default=5, help="Number of upcoming gameweeks for FDR evaluation (default: 5)")
     options_parser.add_argument("--risk", choices=risk_choices, default="neutral", help="Optimization risk profile")
+    options_parser.add_argument("--engine", choices=engine_choices, default="v1.2.5", help="Decision engine version: 'v1.2.5' (Lineup-aware & rolling horizon), 'v1.2', or 'legacy'/'v1.0'")
+    options_parser.add_argument("--gamma", type=float, default=0.75, help="Discount factor for rolling horizon (default: 0.75)")
+    options_parser.add_argument("--horizon", type=int, default=3, help="Planning horizon in gameweeks for lineup-aware evaluation (default: 3)")
 
     for wc_cmd, wc_help in (
         ("wildcard", "Generate optimal 15-player squad (Wildcard) under budget and team limits"),
@@ -1053,7 +1079,8 @@ def main(argv: list[str] | None = None) -> None:
         "v09_no_regimes", "v09_no_calib", "v09_raw",
     ]
     DECISION_ENGINE_CHOICES = [
-        "v1.1", "v11", "strategic",
+        "v1.2.5", "v125", "v1.2", "v12",
+        "v1.1.5", "v115", "v1.1", "v11", "strategic",
         "v1.0.1", "v1.0", "v101", "v10", "v0.9.1", "v0.9", "v0.8", "v091", "v09", "v08"
     ]
     INITIAL_STRATEGY_CHOICES = [
@@ -1227,6 +1254,9 @@ def main(argv: list[str] | None = None) -> None:
                 num_gameweeks=arguments.gameweeks,
                 risk_profile=getattr(arguments, "risk", "neutral"),
                 report_path=TRANSFERS_REPORT_PATH,
+                engine=getattr(arguments, "engine", "v1.2.5"),
+                gamma=getattr(arguments, "gamma", 0.75),
+                horizon=getattr(arguments, "horizon", 3),
             )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_suggest_transfers_concise(result))
         elif arguments.command in ("wildcard", "free-hit"):

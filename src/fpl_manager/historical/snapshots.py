@@ -45,14 +45,18 @@ class _DeadlineOnly:
         self.deadline_time = deadline_time
 
 
+_DEPARTURES_CACHE_PATH: Path | None = None
 _DEPARTURES_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
+_UNAVAILABILITY_CACHE_PATH: Path | None = None
 _UNAVAILABILITY_REGISTRY_CACHE: dict[str, dict[str, Any]] | None = None
 
 
 def load_departures_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
-    global _DEPARTURES_REGISTRY_CACHE
-    if _DEPARTURES_REGISTRY_CACHE is not None:
+    global _DEPARTURES_REGISTRY_CACHE, _DEPARTURES_CACHE_PATH
+    resolved = data_dir.resolve()
+    if _DEPARTURES_REGISTRY_CACHE is not None and _DEPARTURES_CACHE_PATH == resolved:
         return _DEPARTURES_REGISTRY_CACHE
+    _DEPARTURES_CACHE_PATH = resolved
     reg_file = data_dir / "departures_registry.json"
     if reg_file.exists():
         try:
@@ -81,9 +85,11 @@ def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
     re-parsed on every one of the ~1900 `build_historical_snapshot` calls in a full
     benchmark run.
     """
-    global _UNAVAILABILITY_REGISTRY_CACHE
-    if _UNAVAILABILITY_REGISTRY_CACHE is not None:
+    global _UNAVAILABILITY_REGISTRY_CACHE, _UNAVAILABILITY_CACHE_PATH
+    resolved = data_dir.resolve()
+    if _UNAVAILABILITY_REGISTRY_CACHE is not None and _UNAVAILABILITY_CACHE_PATH == resolved:
         return _UNAVAILABILITY_REGISTRY_CACHE
+    _UNAVAILABILITY_CACHE_PATH = resolved
     reg_file = data_dir / "unavailability_registry.json"
     if not reg_file.exists():
         _UNAVAILABILITY_REGISTRY_CACHE = {}
