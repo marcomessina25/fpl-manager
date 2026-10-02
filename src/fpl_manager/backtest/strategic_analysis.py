@@ -53,6 +53,7 @@ REPORTS_V11_DIR = PROJECT_ROOT / "reports" / "v11"
 REPORTS_V115_DIR = PROJECT_ROOT / "reports" / "v115"
 REPORTS_V12_DIR = PROJECT_ROOT / "reports" / "v12"
 REPORTS_V125_DIR = PROJECT_ROOT / "reports" / "v125"
+REPORTS_V13_DIR = PROJECT_ROOT / "reports" / "v13"
 
 AVAILABLE_HISTORICAL_SEASONS = ("2021-22", "2022-23", "2023-24", "2024-25", "2025-26")
 
@@ -1699,7 +1700,8 @@ def run_version_comparison_backtest(
         for track in tracks:
             use_chips = (track == "track_b_with_chips")
             for ver in versions:
-                dead_cap_w = 3.0 if ver in ("v1.1.5", "v1.2", "v1.2.5") else 0.0
+                dead_cap_w = 3.0 if ver in ("v1.1.5", "v1.2", "v1.2.5", "v1.3") else 0.0
+                pred_ver = "v1.3" if ver in ("v1.3", "v13") else "v1.0.1"
                 if ver == "v0.9":
                     strat: BacktestStrategy = SimpleXpStrategy(decision_engine="v0.9")
                 else:
@@ -1716,7 +1718,7 @@ def run_version_comparison_backtest(
                     strategy=strat,
                     start_gw=start_gw,
                     end_gw=actual_end_gw,
-                    predictor_version="v1.0.1",
+                    predictor_version=pred_ver,
                     decision_engine=ver,
                     use_chips=use_chips,
                     dead_capital_weight=dead_cap_w,
@@ -1823,7 +1825,11 @@ def run_version_comparison_backtest(
     }
 
     if save_report:
-        out_dir = output_dir or (REPORTS_V125_DIR / "multi_version_benchmark")
+        out_dir = output_dir or (
+            REPORTS_V13_DIR / "multi_version_benchmark"
+            if "v1.3" in versions
+            else REPORTS_V125_DIR / "multi_version_benchmark"
+        )
         out_dir.mkdir(parents=True, exist_ok=True)
         md_file = out_dir / "multi_version_comparison.md"
         json_file = out_dir / "multi_version_comparison.json"
@@ -1832,7 +1838,7 @@ def run_version_comparison_backtest(
             f"# Multi-Version Historical Benchmark Ledger: {' vs '.join([v.upper() for v in versions])}",
             "",
             f"**Historical Seasons:** {', '.join(results['seasons_evaluated'])} ({len(results['seasons_evaluated'])} seasons evaluated)",
-            f"**Evaluation Window:** {results['gameweek_range']} | **Predictor:** `v1.0.1` | **Benchmark Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+            f"**Evaluation Window:** {results['gameweek_range']} | **Predictor:** `v1.0.1` / `v1.3` | **Benchmark Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
             "",
             "## 1. Executive Summary: Multi-Season Cross-Version Comparison",
             "",
@@ -1850,6 +1856,7 @@ def run_version_comparison_backtest(
             "v1.1.5": "Departure Engine + Dead Capital Offload + Seasonal Chips",
             "v1.2": "Strategic Squad Balancing (XI vs Bench) + Unavailability Modeling",
             "v1.2.5": "Lineup Horizon Expansion, Candidate Pool Scaling & Dynamic Chip Bench Weighting",
+            "v1.3": "Full Gradient Boosting Engine (HistGradientBoosting xM, xP, threat & clean sheet)",
         }
         for ver in versions:
             m = version_aggregates.get(ver, {}).get("track_a_no_chips", {})
@@ -1915,7 +1922,7 @@ def run_version_comparison_backtest(
         results["json_path"] = str(json_file)
 
         # Also populate multi_season_summary
-        summary_dir = (output_dir.parent if output_dir else REPORTS_V125_DIR) / "multi_season_summary"
+        summary_dir = (output_dir.parent if output_dir else (REPORTS_V13_DIR if "v1.3" in versions else REPORTS_V125_DIR)) / "multi_season_summary"
         summary_dir.mkdir(parents=True, exist_ok=True)
         summary_md = summary_dir / "multi_season_summary.md"
         summary_json = summary_dir / "multi_season_summary.json"

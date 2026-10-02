@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.3--dev-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.3-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -275,14 +275,17 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Upcoming Scope & Active Development (V1.3 — Gradient Boosting Quantitative & Strategic Engine)
+## Current scope (V1.3 — Gradient Boosting Quantitative & Strategic Engine)
 
-V1.3 transitions the quantitative core and strategic decision logic to a full **Gradient Boosting Decision Tree (GBDT)** framework:
-- **GBDT Hierarchical Participation & Minutes**: `HistGradientBoostingClassifier` for $P(\text{start})$ and $P(\text{sub} \mid \text{not start})$; `HistGradientBoostingRegressor` for conditional minutes, capturing non-linear fixture congestion, European turnaround, and rotation patterns.
-- **Non-Linear Matchday Threat & Defense**: Machine-learned interaction terms between player underlying metrics, opponent defensive solidity, and venue, replacing static FDR multipliers.
-- **GBDT Strategic Decisor & Chip Timing (`DecisionEngineV13`)**: Dynamic valuation of chip deployment timing and state-adaptive transfer hurdles.
-- **Promotion Criterion**: If historical benchmark results beat V1.2.5 across the 5-season ledger (`2021-22` to `2025-26`), V1.3 GBDT will be adopted as the default in the live production version.
-- **Roadmap Precedence**: The superior engine between V1.2.5 and V1.3 will power the upcoming **V1.4 Historical Simulation Sandbox ("FPL Time Machine") & Blind Human Benchmark Platform** ([`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md)).
+V1.3 delivers a full **Gradient Boosting Decision Tree (GBDT)** framework across participation, matchday projections, and decision evaluation:
+- **GBDT Hierarchical Participation & Minutes (`src/fpl_manager/ml/`)**: `HistGradientBoostingClassifier` for $P(\text{start})$ and $P(\text{sub} \mid \text{not start})$ (Val AUC: 0.9487); `HistGradientBoostingRegressor` for conditional minutes (MAE: 7.93 mins).
+- **Non-Linear Matchday Threat & Defense**: Machine-learned interaction terms between player underlying metrics, opponent defensive solidity, and venue.
+- **DecisionEngineV13 Integration**: Registered under `--decision-engine v1.3` / `--predictor v1.3` with full feature pipeline support.
+- **Zero-Leakage & Optional Packaging**: Optional dependency via `pip install -e ".[ml]"`; zero-breakage pure-Python fallback when `scikit-learn` is not present.
+- **Audited 5-Season Multi-Version Benchmark Ledger (`reports/v13/`)**:
+  - V1.3 achieved outstanding performance in recent Premier League dynamics (**2025-26: 2,144 pts Track A, 2,169 pts Track B**; highest of any version tested).
+  - Across the full 5-season historical horizon (2,046.6 vs 1,988.0 Track A), V1.2.5 remains the more stable historical all-season optimizer.
+  - **Promotion Rule**: In accordance with the project roadmap promotion rule, `DecisionEngineV125` remains the default live decision engine, while V1.3 is packaged as the high-tier ML predictor and engine.
 - Full specification: [`docs/v1.3/v13.md`](docs/v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](docs/v1.3/v13_gradient_boosting.md).
 
 ---

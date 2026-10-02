@@ -1983,6 +1983,61 @@ class DecisionEngineV125(DecisionEngineV12):
         return "fpl_manager.strategic_squad.solve_strategic_squad:v1.2.5"
 
 
+class DecisionEngineV13(DecisionEngineV125):
+    """V1.3 Gradient Boosting Strategic Decision Engine.
+
+    Features:
+    - Inherits V1.2.5 Candidate Pool Expansion, GK Churn Suppression, and Rolling 3-GW Horizon.
+    - Integrated with V1.3 Gradient Boosting (GBDT) prediction engine for participation, conditional minutes, and threat.
+    - Non-linear matchday projections and fixture interaction evaluations.
+    """
+
+    def __init__(
+        self,
+        initial_strategy: str = "balanced",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+        dead_capital_weight: float = 3.0,
+        bench_weight: float = 0.15,
+        max_results: int = 25,
+        gk_min_net_gain: float = 3.00,
+        outfield_min_net_gain: float = 0.50,
+        gk_play_probability_floor: float = 0.50,
+        horizon: int = 3,
+        gamma: float = 0.75,
+    ) -> None:
+        super().__init__(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            lineup_penalty_weight=lineup_penalty_weight,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            max_results=max_results,
+            gk_min_net_gain=gk_min_net_gain,
+            outfield_min_net_gain=outfield_min_net_gain,
+            gk_play_probability_floor=gk_play_probability_floor,
+            horizon=horizon,
+            gamma=gamma,
+        )
+
+    @property
+    def version(self) -> str:
+        return "v1.3"
+
+    @property
+    def name(self) -> str:
+        return (
+            f"V1.3 GBDT Strategic Decision Engine ({self.initial_strategy}, "
+            f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
+            f"bench_w={self.bench_weight}, max_results={self.max_results}, "
+            f"roll_h={self.horizon}, gamma={self.gamma})"
+        )
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.3_gbdt"
+
+
 def resolve_decision_engine(
     engine_version: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str = "balanced",
@@ -2005,7 +2060,24 @@ def resolve_decision_engine(
         except (ValueError, IndexError):
             pass
 
-    if clean in ("v0.8", "v08"):
+    if clean in ("v1.3", "v13", "v1.3.0", "gbdt", "balanced_v13"):
+        return DecisionEngineV13(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
+    elif clean.startswith("v1.3_"):
+        strat = clean.replace("v1.3_", "")
+        return DecisionEngineV13(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
+    elif clean in ("v0.8", "v08"):
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
         return DecisionEngineV09()

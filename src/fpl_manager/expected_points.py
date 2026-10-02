@@ -263,6 +263,9 @@ def calculate_component_xp(
     clean_sheets_per_90: float = 0.0,
     finished_matches: int = 0,
     predictor_version: str = "v0.8",
+    gbdt_xg: float | None = None,
+    gbdt_xa: float | None = None,
+    gbdt_cs_prob: float | None = None,
 ) -> dict[str, float]:
     """Calculate component-based expected points, floor, ceiling, and variance."""
     if expected_minutes <= 0.0:
@@ -313,7 +316,32 @@ def calculate_component_xp(
     fix_xg = eff_xg90 * mins_ratio * fdr_att * ven_mult
     fix_xa = eff_xa90 * mins_ratio * fdr_att * ven_mult
 
-    if predictor_version in ("v0.8", "v0.7"):
+    if predictor_version in ("v1.3", "v13", "gbdt") and gbdt_xg is not None:
+        conv_xg = 0.96 if position == Position.FORWARD else (0.92 if position == Position.MIDFIELDER else 0.85)
+        conv_xa = 0.85
+        xp_att = gbdt_xg * goal_pts * conv_xg + (gbdt_xa if gbdt_xa is not None else 0.0) * 3.0 * conv_xa
+        cs_prob = max(0.04, min(0.68, gbdt_cs_prob if gbdt_cs_prob is not None else 0.25))
+
+        base_xgc = expected_goals_conceded_per_90 if expected_goals_conceded_per_90 > 0 else 1.35
+        team_xgc = max(0.4, base_xgc * (1.0 + (fdr_clamped - 3) * 0.12) * (0.88 if is_home else 1.12))
+
+        if position in (Position.GOALKEEPER, Position.DEFENDER):
+            xp_cs = 4.0 * cs_prob * prob_60_plus
+            xp_gc = -0.5 * max(0.0, team_xgc - 0.5) * prob_60_plus
+            xp_saves = min(2.0, max(0.4, 0.70 + 0.25 * team_xgc)) * mins_ratio if position == Position.GOALKEEPER else 0.0
+            xp_def = xp_cs + xp_gc + xp_saves
+        elif position == Position.MIDFIELDER:
+            xp_def = 1.0 * cs_prob * prob_60_plus
+        else:
+            xp_def = 0.0
+
+        bonus_pot = 0.35 * xp_att + (0.28 * prob_60_plus if cs_prob > 0.30 and position <= Position.DEFENDER else 0.0)
+        if price_m >= 8.5:
+            bonus_pot *= 1.12
+        xp_bonus = min(2.2, bonus_pot)
+        card_rate = 0.18 if position == Position.DEFENDER else (0.15 if position == Position.MIDFIELDER else 0.10)
+        xp_deduct = card_rate * mins_ratio
+    elif predictor_version in ("v0.8", "v0.7"):
         # Frozen V0.8/V0.7 baseline
         xp_att = fix_xg * goal_pts + fix_xa * 3.0
 
@@ -487,11 +515,59 @@ def project_player_gameweek(
     elif pred_clean in ("v0.9_raw", "v09_raw"):
         part_mode = "v0.9_raw"
         comp_version = "v0.9"
+    elif pred_clean in ("v1.3", "v13", "gbdt"):
+        part_mode = "v1.3"
+        comp_version = "v1.3"
     else:
         part_mode = "v0.9"
         comp_version = "v0.9"
 
     regime_str = "STARTER"
+    gbdt_predictor = None
+    player_feat_vector = None
+    if part_mode == "v1.3":
+        try:
+            from .ml import get_canonical_gbdt_predictor, HAS_SKLEARN
+            from .ml.features import build_feature_vector
+            if HAS_SKLEARN:
+                gbdt_predictor = get_canonical_gbdt_predictor()
+                fdr_init = team_fixtures_in_gw[0]["fdr"] if team_fixtures_in_gw else 3
+                is_home_init = team_fixtures_in_gw[0]["is_home"] if team_fixtures_in_gw else True
+                player_feat_vector = build_feature_vector(
+                    position=position,
+                    price_tenths=price_tenths,
+                    status=status,
+                    chance_of_playing_next_round=chance_of_playing_next_round,
+                    starts=starts,
+                    minutes=minutes,
+                    starts_last_3=starts_last_3,
+                    starts_last_5=starts_last_5,
+                    minutes_last_3=minutes_last_3,
+                    minutes_last_5=minutes_last_5,
+                    consecutive_zero_mins=consecutive_zero_mins,
+                    finished_matches=finished_matches,
+                    days_since_prev_fixture=days_since_prev_fixture,
+                    matches_last_7_days=matches_last_7_days,
+                    fdr=fdr_init,
+                    is_home=is_home_init,
+                    expected_goals_per_90=expected_goals_per_90,
+                    expected_assists_per_90=expected_assists_per_90,
+                    expected_goals_conceded_per_90=expected_goals_conceded_per_90,
+                    form=form,
+                    points_per_game=points_per_game,
+                    selected_by_percent=selected_by_percent,
+                )
+                part = gbdt_predictor.predict_participation_from_vector(player_feat_vector, status, avail)
+                exp_mins = part.expected_minutes
+                p_start = part.p_start
+                prob_60 = part.prob_60_plus
+                prob_sub = part.p_sub
+                p_play = part.p_play
+                regime_str = getattr(part, "role_category", "STARTER").upper()
+            else:
+                part_mode = "v0.9"
+        except Exception:
+            part_mode = "v0.9"
     if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
@@ -579,6 +655,13 @@ def project_player_gameweek(
         fdr = fix["fdr"]
         venue = "H" if is_home else "A"
 
+        g_xg, g_xa, g_cs = None, None, None
+        if gbdt_predictor is not None and player_feat_vector is not None:
+            feat_fix = list(player_feat_vector)
+            feat_fix[15] = float(fdr)
+            feat_fix[16] = 1.0 if is_home else 0.0
+            g_xg, g_xa, g_cs = gbdt_predictor.predict_threat(feat_fix, exp_mins)
+
         baseline_xp = calculate_fixture_xp(base_xp, avail, position, fdr, is_home)
         comp = calculate_component_xp(
             position=position,
@@ -594,6 +677,9 @@ def project_player_gameweek(
             clean_sheets_per_90=clean_sheets_per_90,
             finished_matches=finished_matches,
             predictor_version=comp_version,
+            gbdt_xg=g_xg,
+            gbdt_xa=g_xa,
+            gbdt_cs_prob=g_cs,
         )
 
         if avail <= 0.0:
