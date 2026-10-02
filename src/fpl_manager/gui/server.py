@@ -218,6 +218,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 num_tx = int(get_arg("transfers", 1))
                 gws = int(get_arg("gameweeks", 5))
                 risk = get_arg("risk", "neutral")
+                engine = get_arg("engine", "v1.2.5")
+                gamma_val = float(get_arg("gamma", 0.75))
+                horizon_val = int(get_arg("horizon", 3))
                 gw_param = get_arg("gameweek") or get_arg("gw")
                 gw_val = int(gw_param) if gw_param else None
                 squad_path = get_team_squad_path(tid, self.config_dir)
@@ -228,6 +231,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     num_gameweeks=gws,
                     risk_profile=risk,
                     gameweek=gw_val,
+                    engine=engine,
+                    gamma=gamma_val,
+                    horizon=horizon_val,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)

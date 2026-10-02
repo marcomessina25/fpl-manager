@@ -1256,13 +1256,15 @@ def _evaluate_squad_multi_horizon_lineup_xp(
 
 
 _HISTORICAL_FIXTURES_BY_GW_CACHE: dict[Path, dict[int, list[dict[str, Any]]]] = {}
+_FIXTURES_BY_SEASON_GW_CACHE: dict[tuple[Path, int], list[dict[str, Any]]] = {}
 
 
 def _load_historical_fixtures_by_gw(season_dir: Path) -> dict[int, list[dict[str, Any]]]:
     """Load and index all scheduled fixtures by gameweek for a historical season."""
-    if season_dir in _HISTORICAL_FIXTURES_BY_GW_CACHE:
-        return _HISTORICAL_FIXTURES_BY_GW_CACHE[season_dir]
-    fix_file = season_dir / "fixtures.json"
+    resolved = season_dir.resolve()
+    if resolved in _HISTORICAL_FIXTURES_BY_GW_CACHE:
+        return _HISTORICAL_FIXTURES_BY_GW_CACHE[resolved]
+    fix_file = resolved / "fixtures.json"
     if not fix_file.exists():
         return {}
     raw_fixtures: list[dict[str, Any]] = json.loads(fix_file.read_text(encoding="utf-8"))
@@ -1271,8 +1273,26 @@ def _load_historical_fixtures_by_gw(season_dir: Path) -> dict[int, list[dict[str
         ev = fix.get("event")
         if ev is not None:
             by_gw.setdefault(int(ev), []).append(fix)
-    _HISTORICAL_FIXTURES_BY_GW_CACHE[season_dir] = by_gw
+    _HISTORICAL_FIXTURES_BY_GW_CACHE[resolved] = by_gw
     return by_gw
+
+
+def get_historical_fixtures_for_gw(season_dir: Path, gw: int) -> list[dict[str, Any]]:
+    """Get fixtures for a specific gameweek with second-level (season_dir, gw) caching."""
+    resolved = season_dir.resolve()
+    key = (resolved, gw)
+    if key in _FIXTURES_BY_SEASON_GW_CACHE:
+        return _FIXTURES_BY_SEASON_GW_CACHE[key]
+    fixtures_by_gw = _load_historical_fixtures_by_gw(resolved)
+    fixes = fixtures_by_gw.get(gw, [])
+    _FIXTURES_BY_SEASON_GW_CACHE[key] = fixes
+    return fixes
+
+
+def clear_historical_fixtures_cache() -> None:
+    """Clear both fixture cache tiers."""
+    _HISTORICAL_FIXTURES_BY_GW_CACHE.clear()
+    _FIXTURES_BY_SEASON_GW_CACHE.clear()
 
 
 def _get_forward_projections(
@@ -1308,7 +1328,6 @@ def _get_forward_projections(
     if not season_dir.exists():
         return projections_by_gw
 
-    fixtures_by_gw = _load_historical_fixtures_by_gw(season_dir)
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
 
     predictor_version = "v1.0.1"
@@ -1320,7 +1339,7 @@ def _get_forward_projections(
         players_to_project = tuple(p for p in snapshot.players if p.player_id in needed_pids)
 
     for gw in target_gws:
-        gw_fixes = fixtures_by_gw.get(gw, [])
+        gw_fixes = get_historical_fixtures_for_gw(season_dir, gw)
         gw_projs: dict[int, float] = {}
         for p in players_to_project:
             team_fixes: list[dict[str, Any]] = []
@@ -1970,12 +1989,22 @@ def resolve_decision_engine(
     initial_horizon: int = 5,
     dead_capital_weight: float = 3.0,
     bench_weight: float = 0.15,
+    gamma: float = 0.75,
 ) -> BaseDecisionEngine:
     """Instantiate and return the appropriate DecisionEngine implementation."""
     if isinstance(engine_version, BaseDecisionEngine):
         return engine_version
 
     clean = str(engine_version).lower().strip()
+    eff_gamma = gamma
+    if "_g" in clean and not clean.endswith("_gw"):
+        try:
+            parts = clean.split("_g")
+            eff_gamma = float(parts[1].split("_")[0])
+            clean = parts[0]
+        except (ValueError, IndexError):
+            pass
+
     if clean in ("v0.8", "v08"):
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
@@ -2003,6 +2032,7 @@ def resolve_decision_engine(
             initial_horizon=initial_horizon,
             dead_capital_weight=dead_capital_weight,
             bench_weight=bench_weight,
+            gamma=eff_gamma,
         )
     elif clean.startswith("v1.2.5_"):
         strat = clean.replace("v1.2.5_", "")
@@ -2011,6 +2041,7 @@ def resolve_decision_engine(
             initial_horizon=initial_horizon,
             dead_capital_weight=dead_capital_weight,
             bench_weight=bench_weight,
+            gamma=eff_gamma,
         )
     elif clean in ("v1.2", "v12", "v1.2.0", "balanced_v12"):
         return DecisionEngineV12(
@@ -2063,6 +2094,7 @@ def resolve_decision_engine(
                     lineup_penalty_weight=w_val,
                     dead_capital_weight=dead_capital_weight,
                     bench_weight=bench_weight,
+                    gamma=eff_gamma,
                 )
         except ValueError:
             pass

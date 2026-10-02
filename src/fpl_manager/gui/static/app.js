@@ -1320,9 +1320,10 @@ async function runSuggestTransfers() {
   const numTx = document.getElementById("tx-num").value;
   const gws = document.getElementById("tx-gws").value;
   const risk = document.getElementById("tx-risk").value;
+  const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.2.5";
 
   try {
-    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}`);
+    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}`);
     const suggestions = data.top_suggestions || [];
     if (suggestions.length === 0) {
       container.innerHTML = '<p class="text-muted">No valid transfer options found within budget and team limits.</p>';
@@ -1345,11 +1346,28 @@ async function runSuggestTransfers() {
         `;
       }).join("");
 
+      const rb = opt.reason_breakdown || {};
+      let badgesHtml = "";
+      if (opt.lineup_xp_delta !== undefined) {
+        badgesHtml += `<span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">Lineup: ${opt.lineup_xp_delta >= 0 ? '+' : ''}${opt.lineup_xp_delta.toFixed(2)} xP</span>`;
+      }
+      if (rb.pool_expansion_surfaced) {
+        badgesHtml += `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">Pool Expansion</span>`;
+      }
+      if (rb.gk_suppression && rb.gk_suppression !== "n/a") {
+        badgesHtml += `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">GK: ${rb.gk_suppression}</span>`;
+      }
+      if (rb.multi_horizon_gain && rb.multi_horizon_gain > 0.5) {
+        badgesHtml += `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">Horizon: +${rb.multi_horizon_gain.toFixed(1)}</span>`;
+      }
+
+      const scoreDisplay = opt.lineup_xp_delta !== undefined ? opt.lineup_xp_delta : opt.xp_delta;
       card.innerHTML = `
         <div class="tx-card-header">
           <span class="tx-rank-badge">#${idx + 1} Best Move</span>
-          <span class="tx-delta-xp">${opt.xp_delta >= 0 ? '+' : ''}${opt.xp_delta.toFixed(1)} xP${hitStr}</span>
+          <span class="tx-delta-xp">${scoreDisplay >= 0 ? '+' : ''}${scoreDisplay.toFixed(1)} xP${hitStr}</span>
         </div>
+        ${badgesHtml ? `<div style="margin: 4px 0 8px 0;">${badgesHtml}</div>` : ''}
         <div class="tx-moves">${movesHtml}</div>
         <div class="stat-row">
           <span>Post-Move Bank:</span>
