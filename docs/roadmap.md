@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.2 is completed, validated, and merged into master (#16). **V1.2.5 (`v125`) is implemented, verified, and PR-ready**, delivering Candidate Pool Expansion (`max_results=25`), Goalkeeper Churn Suppression (Hurdle 1.50 + Playing Security Invariant), Rolling 3-Gameweek Discounted Lineup Horizon ($H=3, \gamma=0.75$), Dynamic Chip-Aware Bench Weighting (FH 0.05, BB 0.99), and Clean Removal of the inert unavailability registry mechanism. Dual-track audited 5-season ledger: Track A **2,046.6 pts** (lowest cross-season variance of any engine: $\pm 116.9$; $+20.8$ pts vs V1.2, closing 92% of the deficit against V1.0); Track B **2,087.8 pts** (chip return doubled to $+41.2$ pts/season; $+37.6$ pts vs V1.2). Full baseline parity verified across V0.9–V1.2 (exact 0.0 drift). The next milestone is **V1.3** (Multi-Provider LLM Expansion & Strategic Advisory).
+**Current baseline:** V1.2.5 is completed, validated, and merged into master (#17), delivering Candidate Pool Expansion (`max_results=25`), Goalkeeper Churn Suppression (Hurdle 1.50 + Playing Security Invariant), Rolling 3-Gameweek Discounted Lineup Horizon ($H=3, \gamma=0.75$), Dynamic Chip-Aware Bench Weighting (FH 0.05, BB 0.99), Clean Removal of the inert unavailability registry mechanism, and Live Decision Engine Wiring into CLI, GUI, and briefings with legacy fallback. Dual-track audited 5-season ledger: Track A **2,046.6 pts** (lowest cross-season variance of any engine: $\pm 116.9$; $+20.8$ pts vs V1.2, closing 92% of the deficit against V1.0); Track B **2,087.8 pts** (chip return doubled to $+41.2$ pts/season; $+37.6$ pts vs V1.2). Full baseline parity verified across V0.9–V1.2 (exact 0.0 drift). The current milestone is **V1.3** (Gradient Boosting Quantitative & Strategic Engine).
 
 ---
 
@@ -121,11 +121,26 @@ Lineup-aware transfer evaluation refinements
 + Goalkeeper churn suppression & role transfer hurdles
 + Multi-gameweek discounted lineup horizon (H=3, γ=0.75)
 + Dynamic chip-aware bench weighting
++ Live decision engine wiring with legacy fallback
         ↓
 V1.3
-Multi-provider expansion
-+ Extended LLM model research
-+ Human-in-the-loop AI experimentation
+Gradient Boosting Quantitative & Strategic Engine
++ HistGradientBoostingClassifier for participation & rotation
++ HistGradientBoostingRegressor for conditional minutes
++ Non-linear attacking threat, clean sheet & bonus estimation
++ GBDT-informed decisor & dynamic chip evaluation
++ Promotion rule: if historical benchmark beats V1.2.5, adopt in live version
+        ↓
+V1.4
+Interactive Historical Season Simulation & Time Machine Sandbox
++ Step-by-step gameweek management across past seasons (2021-22 to 2025-26)
++ Point-in-time squad creation, optimal transfer suggestions (defaulting to V1.3 if superior), and real score resolution
++ Blind human manager trials establishing empirical lower-bound performance baseline
+        ↓
+V1.5
+Multi-provider expansion & combinatorial strategic advisory
++ Extended LLM model research (Claude, OpenAI, DeepSeek, Local Ollama)
++ Multi-transfer combinatorial planning (K=2 joint restructuring)
         ↓
 Future
 Automated learning loops
@@ -152,10 +167,11 @@ Automated learning loops
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
 | **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
-| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Implemented & Verified (PR Ready, branch `v12`)** |
-| **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression** | **Specification Complete (Target branch `v125`)** |
-| V1.3 | Multi-provider + extended LLM research | Planned |
-| Future | Automated learning / advanced strategy | Research |
+| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Completed, validated, and merged into master (#16)** |
+| **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
+| **V1.3** | **Gradient Boosting Quantitative & Strategic Engine (GBDT predictor, decisor & chips)** | **In Active Development (Branch `v13`)** |
+| V1.4 | Interactive historical season simulation & blind human manager benchmark platform | Planned |
+| V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
 
@@ -1636,135 +1652,79 @@ V1.2 focuses on closing the performance gap between V1.0 (canonical single-gamew
 | **V1.2.5 Final** | All 6 Pillars Integrated | **2,046.60** | **+20.80 pts** | **Lowest variance across all versions (±116.9)**; closes 92% of deficit |
 
 ### Target Decision & Deferral Rationale
-V1.2.5 closes 92% of the Track A performance deficit against V1.0 (2,046.6 vs 2,048.4, delta -1.8 pts) while achieving the lowest cross-season standard deviation of any engine in project history ($\pm 116.9$, 43% lower variance than V1.0's $\pm 205.2$). The stretch target of $\ge 2,060.0$ Track A net points is formally deferred to V1.3, which introduces combinatorial multi-transfer planning ($K=2$) and LLM qualitative strategic risk assessment.
+V1.2.5 closes 92% of the Track A performance deficit against V1.0 (2,046.6 vs 2,048.4, delta -1.8 pts) while achieving the lowest cross-season standard deviation of any engine in project history ($\pm 116.9$, 43% lower variance than V1.0's $\pm 205.2$). The stretch target of $\ge 2,060.0$ Track A net points is actively tested in V1.3 via the Gradient Boosting engine.
 
 ---
 
-# 22. V1.3 — Multi-Provider Expansion & Extended LLM Model Research
+# 22. V1.3 — Gradient Boosting Quantitative & Strategic Engine
 
-**Status: planned after V1.2.5.**
+**Status: in active development on branch `v13`.**  
+**Specification:** [`docs/v1.3/v13.md`](v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](v1.3/v13_gradient_boosting.md)
 
-V1.3 is the multi-provider and LLM integration scope, placed after the strategic engine balancing and long-term unavailability modeling are completed and audited.
+### Purpose & Vision
+V1.3 transitions FPL Manager's quantitative and strategic core from linear/heuristic approximations to a full **Gradient Boosting Decision Tree (GBDT)** framework across player minutes, attacking threat, defensive probabilities, and strategic chip valuation.
 
-The central question becomes:
+### Primary Promotion Rule
+> **If V1.3 Gradient Boosting demonstrates superior performance over V1.2.5 on historical data across our 5-season benchmark ledger (`2021-22` through `2025-26`), we adapt the new optimizer into the live production version** (CLI, Web GUI, and LLM briefings).
+>
+> Furthermore, whichever engine proves superior (hopefully V1.3) will become the default recommendation engine in the V1.4 Historical Simulation Sandbox.
 
-> **Can multiple AI models/providers improve human decision-making when placed around a trustworthy deterministic strategic engine?**
-
----
-
-## 21.1 Multi-provider infrastructure
-
-Investigate and support, where justified:
-
-- OpenAI;
-- Gemini;
-- OpenRouter;
-- Groq;
-- other viable providers;
-- local/open models where practical.
-
-Provider support must remain optional.
-
-The core application must work without an external LLM.
-
----
-
-## 21.2 Provider benchmark
-
-Measure:
-
-- quality;
-- consistency;
-- latency;
-- cost;
-- rate limits;
-- context handling;
-- structured-output reliability;
-- failure behavior.
-
-Do not evaluate providers only by subjective response quality.
+### Core Architectural Pillars
+1. **GBDT Hierarchical Participation & Minutes Model:**
+   - `HistGradientBoostingClassifier` for $P(\text{start})$ and $P(\text{sub} \mid \text{not start})$ with rich non-linear interaction features (congestion, rest days, manager tenure, age, position, rolling form).
+   - `HistGradientBoostingRegressor` for conditional minutes $E[M \mid \text{start}]$ and $E[M \mid \text{sub}]$.
+2. **Non-Linear Attacking Threat, Clean Sheet & Bonus GBDT:**
+   - Machine-learned interaction terms between player underlying metrics, opponent conceding rates, team offensive strength, and venue, replacing static linear FDR multipliers.
+3. **GBDT Strategic Decisor & Chip Timing (`DecisionEngineV13`):**
+   - Learned chip opportunity valuation estimating the marginal seasonal value of deploying vs holding chips over rolling fixture swings.
+4. **Zero-Leakage Temporal Discipline & Optional Packaging:**
+   - Expanding-window walk-forward training ensuring zero future data contamination.
+   - Optional `pip install -e ".[ml]"` (`scikit-learn>=1.4`), with graceful fallback to the pure-Python standard-library engine if scikit-learn is absent.
+5. **Audited 5-Season Benchmark Ledger (`reports/v13/`):**
+   - Full Track A & Track B comparison across all 5 historical seasons against V0.9 through V1.2.5.
 
 ---
 
-## 21.3 Extended model research
+# 23. V1.4 — Interactive Historical Season Simulation Sandbox & Human-in-the-Loop Benchmark Platform
 
-Test multiple model families and sizes.
+**Status: planned (follows V1.3).**  
+**Specification:** [`docs/v1.4/v14_historical_simulation.md`](v1.4/v14_historical_simulation.md)
 
-Questions:
+### Purpose & Vision
+V1.4 transforms FPL Manager into an interactive **Historical Season Simulation Sandbox ("FPL Time Machine")** and rigorous **Human-in-the-Loop Empirical Benchmark Platform**.
 
-- Which models understand FPL context?
-- Which models are best at qualitative tactical analysis?
-- Which are best at challenging optimizer assumptions?
-- Which are best at explaining trade-offs?
-- Which are best at human-facing synthesis?
-- Does a larger model materially improve decisions?
+Users can select any past season (`2021-22` through `2025-26`), construct a starting squad, step through the season gameweek by gameweek, make transfers, set lineups, activate chips, and resolve matchdays against authentic historical match facts.
 
----
+> **Optimizer Selection Policy:** The default decision engine for the historical simulation will be chosen based on the empirical results of V1.3. If V1.3 Gradient Boosting demonstrates superior performance over V1.2.5 on historical data, the simulation sandbox will adopt V1.3 GBDT as its default recommendation engine (with optional user toggle to run V1.2.5).
 
-## 21.4 Human-in-the-loop experimentation
-
-V1.2 should support structured experiments where:
-
-```text
-AI agent executes task
-        ↓
-Human is asked a targeted question
-        ↓
-Human answers
-        ↓
-AI continues
-        ↓
-Result is recorded
-```
-
-Human interactions must become part of the experiment record.
-
-The system should distinguish:
-
-- AI-generated decision;
-- human constraint;
-- human correction;
-- final decision;
-- outcome.
+### Empirical Lower-Bound Hypothesis & Blind Human Trial
+- Conduct blind trials with participants unaware of past Premier League outcomes.
+- If an unaware human, guided strictly by FPL Manager's recommendations and briefings, achieves $\sim 2,200$ points, this score establishes a conservative empirical lower bound for live season expectations.
+- Full results will be compiled and published as part of the V1.4 pull request.
 
 ---
 
-## 20.5 LLM role architecture
+# 24. V1.5 — Multi-Provider Expansion & Combinatorial Strategic Advisory
 
-Potential roles:
+**Status: planned after V1.4.**
 
-- Strategic Analyst;
-- Devil's Advocate;
-- Tactical Analyst;
-- News Synthesizer;
-- Decision Reviewer;
-- Post-GW Analyst;
-- Research Agent.
+V1.5 expands LLM integration across multiple providers and introduces combinatorial multi-transfer optimization ($K=2$ joint moves) alongside qualitative strategic advisory.
 
-The LLM remains subordinate to deterministic rules and quantitative validation.
+### 24.1 Multi-provider infrastructure
+Investigate and support: OpenAI, Gemini, OpenRouter, Groq, and local/open models (Ollama, vLLM). Provider support remains strictly optional.
 
----
+### 24.2 Provider benchmark
+Benchmark quality, consistency, latency, cost, and structured-output reliability.
 
-## 20.6 Closed-loop LLM evaluation
+### 24.3 Multi-transfer combinatorial planning ($K=2$)
+Introduce joint 2-transfer optimization to solve structural squad imbalances.
 
-Compare:
-
-```text
-quantitative only
-quantitative + human
-quantitative + LLM
-quantitative + LLM + human
-```
-
-Evaluate actual downstream decision quality.
-
-The goal is not to prove that an LLM is useful.
-
-The goal is to measure whether it is useful.
+### 24.4 Closed-loop LLM evaluation
+Empirically compare quantitative-only vs quantitative + human vs quantitative + LLM + human.
 
 ---
 
-# 22. Long-Term Research Tracks
+# 25. Long-Term Research Tracks
 
 These remain available after V1.3 and should be promoted into releases only when there is sufficient evidence.
 
