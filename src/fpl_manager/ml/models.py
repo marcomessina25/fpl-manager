@@ -9,13 +9,15 @@ Provides:
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import numpy as np
-
 try:
+    import numpy as np
+    import joblib
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
+    np = None  # type: ignore[assignment]
+    joblib = None  # type: ignore[assignment]
 
 from ..historical.models import HistoricalFixture, HistoricalPlayerState, Position
 from ..participation import ParticipationPrediction
@@ -30,9 +32,22 @@ class GBDTPredictor:
     clf_sub: Any    # HistGradientBoostingClassifier
     reg_start_mins: Any  # HistGradientBoostingRegressor
     reg_sub_mins: Any    # HistGradientBoostingRegressor
-    reg_xg: Any | None = None          # HistGradientBoostingRegressor
-    reg_xa: Any | None = None          # HistGradientBoostingRegressor
+    reg_goal_rate: Any | None = None    # HistGradientBoostingRegressor (goals per 90 rate)
+    reg_assist_rate: Any | None = None  # HistGradientBoostingRegressor (assists per 90 rate)
     clf_clean_sheet: Any | None = None  # HistGradientBoostingClassifier
+    reg_xg: Any | None = None           # Backward compatibility alias
+    reg_xa: Any | None = None           # Backward compatibility alias
+
+    def __post_init__(self) -> None:
+        if self.reg_goal_rate is None and self.reg_xg is not None:
+            self.reg_goal_rate = self.reg_xg
+        elif self.reg_xg is None and self.reg_goal_rate is not None:
+            self.reg_xg = self.reg_goal_rate
+
+        if self.reg_assist_rate is None and self.reg_xa is not None:
+            self.reg_assist_rate = self.reg_xa
+        elif self.reg_xa is None and self.reg_assist_rate is not None:
+            self.reg_xa = self.reg_assist_rate
 
     def predict_participation_from_vector(
         self,
@@ -54,6 +69,10 @@ class GBDTPredictor:
                 role_category="unavailable",
                 congestion_discount_applied=0.0,
                 consecutive_zero_discount_applied=0.0,
+            )
+        if not HAS_SKLEARN or np is None:
+            raise RuntimeError(
+                "scikit-learn, numpy, and joblib are required for GBDTPredictor. Install with pip install 'fpl-manager[ml]'"
             )
 
         X = np.array([features], dtype=np.float32)
@@ -121,30 +140,37 @@ class GBDTPredictor:
         features: list[float],
         expected_minutes: float,
     ) -> tuple[float, float, float]:
-        """Predict expected goals (xG), expected assists (xA), and clean sheet probability.
+        """Predict expected goals, expected assists, and clean sheet probability.
         
-        Returns: (xg, xa, clean_sheet_prob)
+        Evaluates normalized goal and assist per-90 rates from historical returns,
+        scaled by conditional expected minutes:
+            expected_goals = goal_rate_pred * (expected_minutes / 90.0)
+            expected_assists = assist_rate_pred * (expected_minutes / 90.0)
+        
+        Returns: (expected_goals, expected_assists, clean_sheet_prob)
         """
         if expected_minutes <= 0.0:
             return 0.0, 0.0, 0.0
 
         X = np.array([features], dtype=np.float32)
 
-        xg = 0.0
-        if self.reg_xg is not None:
-            xg_pred = float(self.reg_xg.predict(X)[0])
-            xg = max(0.0, xg_pred * (expected_minutes / 90.0))
+        proj_goals = 0.0
+        goal_reg = self.reg_goal_rate if self.reg_goal_rate is not None else self.reg_xg
+        if goal_reg is not None:
+            rate_pred = float(goal_reg.predict(X)[0])
+            proj_goals = max(0.0, rate_pred * (expected_minutes / 90.0))
 
-        xa = 0.0
-        if self.reg_xa is not None:
-            xa_pred = float(self.reg_xa.predict(X)[0])
-            xa = max(0.0, xa_pred * (expected_minutes / 90.0))
+        proj_assists = 0.0
+        assist_reg = self.reg_assist_rate if self.reg_assist_rate is not None else self.reg_xa
+        if assist_reg is not None:
+            rate_pred = float(assist_reg.predict(X)[0])
+            proj_assists = max(0.0, rate_pred * (expected_minutes / 90.0))
 
         cs_prob = 0.25
         if self.clf_clean_sheet is not None:
             cs_prob = float(self.clf_clean_sheet.predict_proba(X)[0, 1])
 
-        return round(xg, 3), round(xa, 3), round(cs_prob, 3)
+        return round(proj_goals, 3), round(proj_assists, 3), round(cs_prob, 3)
 
     @property
     def is_fitted(self) -> bool:
@@ -153,14 +179,20 @@ class GBDTPredictor:
 
     def save(self, filepath: Path) -> None:
         """Persist GBDT models using joblib."""
-        import joblib
+        if not HAS_SKLEARN or joblib is None:
+            raise RuntimeError(
+                "scikit-learn, numpy, and joblib are required for GBDTPredictor. Install with pip install 'fpl-manager[ml]'"
+            )
         filepath.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, filepath)
 
     @classmethod
     def load(cls, filepath: Path) -> "GBDTPredictor":
         """Load GBDT models from disk."""
-        import joblib
+        if not HAS_SKLEARN or joblib is None:
+            raise RuntimeError(
+                "scikit-learn, numpy, and joblib are required for GBDTPredictor. Install with pip install 'fpl-manager[ml]'"
+            )
         return joblib.load(filepath)
 
     @classmethod

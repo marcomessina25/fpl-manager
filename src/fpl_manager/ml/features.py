@@ -5,7 +5,6 @@ Extracts tabular feature vectors from point-in-time HistoricalPlayerState and Hi
 """
 
 from typing import Any
-import numpy as np
 
 from ..historical.models import HistoricalFixture, HistoricalPlayerState, Position
 

@@ -25,6 +25,7 @@ See `docs/expected_points.md` for full mathematical documentation.
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -467,9 +468,12 @@ def project_player_gameweek(
     consecutive_zero_mins: int = 0,
     days_since_prev_fixture: float | None = None,
     matches_last_7_days: int = 0,
+    matches_last_14_days: int = 0,
     predictor_version: str = "v0.9",
     model_metadata: dict[str, str] | None = None,
     is_long_term_unavailable: bool | None = None,
+    strict_predictor: bool = False,
+    eval_season: str | None = None,
 ) -> ExpectedPointsProjection:
     """Compute expected points projection for a single player in a specific gameweek.
 
@@ -526,13 +530,27 @@ def project_player_gameweek(
     gbdt_predictor = None
     player_feat_vector = None
     if part_mode == "v1.3":
+        strict_mode = strict_predictor or (os.environ.get("FPL_STRICT_PREDICTOR") == "1")
         try:
-            from .ml import get_canonical_gbdt_predictor, HAS_SKLEARN
+            from .ml import get_canonical_gbdt_predictor, get_walk_forward_gbdt_predictor, HAS_SKLEARN
             from .ml.features import build_feature_vector
-            if HAS_SKLEARN:
-                gbdt_predictor = get_canonical_gbdt_predictor()
-                fdr_init = team_fixtures_in_gw[0]["fdr"] if team_fixtures_in_gw else 3
-                is_home_init = team_fixtures_in_gw[0]["is_home"] if team_fixtures_in_gw else True
+            if not HAS_SKLEARN:
+                if strict_mode:
+                    raise RuntimeError("scikit-learn is required for predictor_version='v1.3'. Install with: pip install '.[ml]'")
+                part_mode = "v0.9"
+                if model_metadata is not None:
+                    model_metadata["fallback_used"] = "v0.9"
+            else:
+                if eval_season:
+                    gbdt_predictor = get_walk_forward_gbdt_predictor(eval_season)
+                else:
+                    gbdt_predictor = get_canonical_gbdt_predictor()
+
+                fdr_init = team_fixtures_in_gw[0].get("fdr", 3) if team_fixtures_in_gw else 3
+                is_home_init = team_fixtures_in_gw[0].get("is_home", True) if team_fixtures_in_gw else True
+                opp_str_init = team_fixtures_in_gw[0].get("opp_strength", fdr_init) if team_fixtures_in_gw else 3
+                team_str_init = team_fixtures_in_gw[0].get("team_strength", 3) if team_fixtures_in_gw else 3
+
                 player_feat_vector = build_feature_vector(
                     position=position,
                     price_tenths=price_tenths,
@@ -548,8 +566,11 @@ def project_player_gameweek(
                     finished_matches=finished_matches,
                     days_since_prev_fixture=days_since_prev_fixture,
                     matches_last_7_days=matches_last_7_days,
+                    matches_last_14_days=matches_last_14_days,
                     fdr=fdr_init,
                     is_home=is_home_init,
+                    opp_strength=opp_str_init,
+                    team_strength=team_str_init,
                     expected_goals_per_90=expected_goals_per_90,
                     expected_assists_per_90=expected_assists_per_90,
                     expected_goals_conceded_per_90=expected_goals_conceded_per_90,
@@ -564,10 +585,12 @@ def project_player_gameweek(
                 prob_sub = part.p_sub
                 p_play = part.p_play
                 regime_str = getattr(part, "role_category", "STARTER").upper()
-            else:
-                part_mode = "v0.9"
-        except Exception:
+        except Exception as err:
+            if strict_mode:
+                raise RuntimeError(f"V1.3 GBDT predictor failed for player {player_id}: {err}") from err
             part_mode = "v0.9"
+            if model_metadata is not None:
+                model_metadata["fallback_used"] = "v0.9"
     if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
@@ -660,6 +683,7 @@ def project_player_gameweek(
             feat_fix = list(player_feat_vector)
             feat_fix[15] = float(fdr)
             feat_fix[16] = 1.0 if is_home else 0.0
+            feat_fix[17] = float(fix.get("opp_strength", fdr))
             g_xg, g_xa, g_cs = gbdt_predictor.predict_threat(feat_fix, exp_mins)
 
         baseline_xp = calculate_fixture_xp(base_xp, avail, position, fdr, is_home)

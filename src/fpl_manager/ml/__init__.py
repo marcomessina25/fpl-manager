@@ -7,6 +7,7 @@ from .training import (
     extract_historical_training_dataset,
     fit_gbdt_predictor,
     get_canonical_gbdt_predictor,
+    get_walk_forward_gbdt_predictor,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "extract_player_feature_vector",
     "fit_gbdt_predictor",
     "get_canonical_gbdt_predictor",
+    "get_walk_forward_gbdt_predictor",
 ]

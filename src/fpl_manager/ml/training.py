@@ -6,13 +6,14 @@ fitting HistGradientBoosting estimators under strict temporal discipline.
 
 from pathlib import Path
 from typing import Any
-import numpy as np
 
 try:
+    import numpy as np
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
+    np = None  # type: ignore[assignment]
 
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
 from ..historical.models import Position
@@ -41,10 +42,10 @@ def extract_historical_training_dataset(
     X_subs_played = []
     y_sub_mins = []
 
-    # Threat targets
+    # Return rate targets (normalized goals and assists per 90 from historical outcomes)
     X_threat = []
-    y_xg = []
-    y_xa = []
+    y_goal_rate = []
+    y_assist_rate = []
     y_cs = []
 
     for season in seasons:
@@ -99,14 +100,17 @@ def extract_historical_training_dataset(
                         X_subs_played.append(feat)
                         y_sub_mins.append(float(actual_minutes))
 
-                # Threat targets (conditioned on playing at least 15 mins)
+                # Return rate targets (conditioned on playing at least 15 mins)
+                # Targets are actual goals and assists normalized to per-90 rates
                 if actual_minutes >= 15:
                     X_threat.append(feat)
-                    # Normalize actual goal and assist returns to per-90 rate
                     mins_rate = float(actual_minutes) / 90.0
-                    y_xg.append(float(outcome.goals_scored) / max(0.2, mins_rate))
-                    y_xa.append(float(outcome.assists) / max(0.2, mins_rate))
+                    y_goal_rate.append(float(outcome.goals_scored) / max(0.2, mins_rate))
+                    y_assist_rate.append(float(outcome.assists) / max(0.2, mins_rate))
                     y_cs.append(1 if outcome.clean_sheets >= 1 and actual_minutes >= 60 else 0)
+
+    y_goal_arr = np.array(y_goal_rate, dtype=np.float32)
+    y_assist_arr = np.array(y_assist_rate, dtype=np.float32)
 
     return {
         "X_all": np.array(X_all, dtype=np.float32),
@@ -118,8 +122,10 @@ def extract_historical_training_dataset(
         "X_subs_played": np.array(X_subs_played, dtype=np.float32),
         "y_sub_mins": np.array(y_sub_mins, dtype=np.float32),
         "X_threat": np.array(X_threat, dtype=np.float32),
-        "y_xg": np.array(y_xg, dtype=np.float32),
-        "y_xa": np.array(y_xa, dtype=np.float32),
+        "y_goal_rate": y_goal_arr,
+        "y_assist_rate": y_assist_arr,
+        "y_xg": y_goal_arr,    # Backward-compatible alias
+        "y_xa": y_assist_arr,  # Backward-compatible alias
         "y_cs": np.array(y_cs, dtype=np.int32),
     }
 
@@ -169,24 +175,26 @@ def fit_gbdt_predictor(data: dict[str, Any], random_state: int = 42) -> GBDTPred
     )
     reg_sub_mins.fit(data["X_subs_played"], data["y_sub_mins"])
 
-    # 5. Attacking Threat & Clean Sheet models
-    reg_xg = HistGradientBoostingRegressor(
+    # 5. Attacking Return Rates & Clean Sheet models
+    reg_goal_rate = HistGradientBoostingRegressor(
         max_iter=100,
         max_leaf_nodes=20,
         learning_rate=0.08,
         min_samples_leaf=30,
         random_state=random_state,
     )
-    reg_xg.fit(data["X_threat"], data["y_xg"])
+    goal_target = data.get("y_goal_rate", data.get("y_xg"))
+    reg_goal_rate.fit(data["X_threat"], goal_target)
 
-    reg_xa = HistGradientBoostingRegressor(
+    reg_assist_rate = HistGradientBoostingRegressor(
         max_iter=100,
         max_leaf_nodes=20,
         learning_rate=0.08,
         min_samples_leaf=30,
         random_state=random_state,
     )
-    reg_xa.fit(data["X_threat"], data["y_xa"])
+    assist_target = data.get("y_assist_rate", data.get("y_xa"))
+    reg_assist_rate.fit(data["X_threat"], assist_target)
 
     clf_cs = HistGradientBoostingClassifier(
         max_iter=100,
@@ -202,13 +210,14 @@ def fit_gbdt_predictor(data: dict[str, Any], random_state: int = 42) -> GBDTPred
         clf_sub=clf_sub,
         reg_start_mins=reg_start_mins,
         reg_sub_mins=reg_sub_mins,
-        reg_xg=reg_xg,
-        reg_xa=reg_xa,
+        reg_goal_rate=reg_goal_rate,
+        reg_assist_rate=reg_assist_rate,
         clf_clean_sheet=clf_cs,
     )
 
 
 _CANONICAL_PREDICTOR_CACHE: GBDTPredictor | None = None
+_WALK_FORWARD_CACHE: dict[str, GBDTPredictor] = {}
 
 
 def get_canonical_gbdt_predictor(
@@ -229,10 +238,8 @@ def get_canonical_gbdt_predictor(
             pass
 
     if data_dir is None:
-        # Default data directory relative to repository root
         data_dir = Path(__file__).resolve().parents[3] / "data" / "historical"
 
-    # Train on base training seasons: 2021-22 and 2022-23
     train_data = extract_historical_training_dataset(["2021-22", "2022-23"], data_dir)
     predictor = fit_gbdt_predictor(train_data)
     try:
@@ -241,4 +248,51 @@ def get_canonical_gbdt_predictor(
         pass
 
     _CANONICAL_PREDICTOR_CACHE = predictor
+    return predictor
+
+
+def get_walk_forward_gbdt_predictor(
+    eval_season: str,
+    data_dir: Path | None = None,
+    all_seasons: tuple[str, ...] = ("2021-22", "2022-23", "2023-24", "2024-25", "2025-26"),
+) -> GBDTPredictor:
+    """Retrieve or train GBDT predictor with strict out-of-sample temporal discipline.
+
+    Invariant:
+    - Primary Walk-Forward Seasons (2022-23 onwards): Training data strictly includes only prior
+      historical seasons (D_{< eval_season}) to eliminate lookahead bias.
+    - Retrospective Stress Test ('2021-22'): Because 2020-21 pre-season data is unavailable in the
+      repository, 2021-22 is evaluated via an out-of-fold model trained on subsequent seasons
+      ('2022-23', '2023-24') as a labeled retrospective stress test.
+    """
+    global _WALK_FORWARD_CACHE
+    if eval_season in _WALK_FORWARD_CACHE:
+        return _WALK_FORWARD_CACHE[eval_season]
+
+    wf_path = CANONICAL_MODEL_PATH.parent / f"gbdt_wf_{eval_season.replace('-', '_')}.joblib"
+    if wf_path.exists():
+        try:
+            pred = GBDTPredictor.load(wf_path)
+            _WALK_FORWARD_CACHE[eval_season] = pred
+            return pred
+        except Exception:
+            pass
+
+    if data_dir is None:
+        data_dir = Path(__file__).resolve().parents[3] / "data" / "historical"
+
+    prior_seasons = [s for s in all_seasons if s < eval_season]
+    if not prior_seasons:
+        train_seasons = [s for s in all_seasons if s != eval_season][:2]
+    else:
+        train_seasons = prior_seasons
+
+    train_data = extract_historical_training_dataset(train_seasons, data_dir)
+    predictor = fit_gbdt_predictor(train_data)
+    try:
+        predictor.save(wf_path)
+    except Exception:
+        pass
+
+    _WALK_FORWARD_CACHE[eval_season] = predictor
     return predictor

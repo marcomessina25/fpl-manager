@@ -31,17 +31,42 @@ def main():
     print(f"Report saved to: {results.get('report_path')}")
     print(f"==========================================\n")
 
+    primary_aggregates = results.get("primary_walk_forward_aggregates", {})
     version_aggregates = results.get("version_aggregates", {})
     all_versions = ("v0.9", "v1.0", "v1.1", "v1.1.5", "v1.2", "v1.2.5", "v1.3")
-    print("Track A Aggregates (No Chips):")
+
+    print("PRIMARY WALK-FORWARD AGGREGATES (4 Seasons: 2022-23 to 2025-26):")
+    print("  Track A (No Chips):")
+    for ver in all_versions:
+        agg = primary_aggregates.get(ver, {}).get("track_a_no_chips", {})
+        print(f"    {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f})")
+
+    print("\n  Track B (With Chips):")
+    for ver in all_versions:
+        agg = primary_aggregates.get(ver, {}).get("track_b_with_chips", {})
+        c_gain = results.get("primary_chip_deltas", {}).get(ver, 0.0)
+        print(f"    {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f}) | Chip Delta: {c_gain:+.1f} pts")
+
+    print("\nRETROSPECTIVE STRESS TEST (Season 2021-22):")
+    s21 = results.get("season_ledgers", {}).get("2021-22", {})
+    s21_a = s21.get("track_a_no_chips", {})
+    s21_b = s21.get("track_b_with_chips", {})
+    for ver in all_versions:
+        ra = s21_a.get(ver, {}).get("total_net_points", "-")
+        rb = s21_b.get(ver, {}).get("total_net_points", "-")
+        print(f"    {ver:7s}: Track A = {ra} pts | Track B = {rb} pts")
+
+    print("\nFULL 5-SEASON REFERENCE AGGREGATES (2021-22 to 2025-26):")
+    print("  Track A (No Chips):")
     for ver in all_versions:
         agg = version_aggregates.get(ver, {}).get("track_a_no_chips", {})
-        print(f"  {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f})")
+        print(f"    {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f})")
 
-    print("\nTrack B Aggregates (With Chips):")
+    print("\n  Track B (With Chips):")
     for ver in all_versions:
         agg = version_aggregates.get(ver, {}).get("track_b_with_chips", {})
-        print(f"  {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f})")
+        c_gain = results.get("chip_deltas", {}).get(ver, 0.0)
+        print(f"    {ver:7s}: {agg.get('mean_net_points', 0):.1f} pts (±{agg.get('std_net_points', 0):.1f}) | Chip Delta: {c_gain:+.1f} pts")
 
 
 if __name__ == "__main__":
