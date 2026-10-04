@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.2 is completed, validated, and merged into master (#16). **V1.2.5 (`v125`) is implemented, verified, and PR-ready**, delivering Candidate Pool Expansion (`max_results=25`), Goalkeeper Churn Suppression (Hurdle 1.50 + Playing Security Invariant), Rolling 3-Gameweek Discounted Lineup Horizon ($H=3, \gamma=0.75$), Dynamic Chip-Aware Bench Weighting (FH 0.05, BB 0.99), and Clean Removal of the inert unavailability registry mechanism. Dual-track audited 5-season ledger: Track A **2,046.6 pts** (lowest cross-season variance of any engine: $\pm 116.9$; $+20.8$ pts vs V1.2, closing 92% of the deficit against V1.0); Track B **2,087.8 pts** (chip return doubled to $+41.2$ pts/season; $+37.6$ pts vs V1.2). Full baseline parity verified across V0.9–V1.2 (exact 0.0 drift). The next milestone is **V1.3** (Multi-Provider LLM Expansion & Strategic Advisory).
+**Current baseline:** V1.2.5 is the validated production baseline, completed and merged into master (#17). V1.3 is the active research branch (`v13`) and is being hardened as a **GBDT quantitative predictor challenger**, not yet as a production replacement. The current V1.3 evidence does not justify promoting GBDT: its five-season benchmark is below V1.2.5 on mean Track A and Track B, with substantial season-to-season variation. V1.3 must first close its temporal/provenance/train-serving correctness items before its result is frozen. The next research milestone is **V1.3.5 — Optimizer Decision-Quality Study**, which freezes the predictor and investigates which optimizer mechanisms actually improve realized decisions.
 
 ---
 
@@ -121,11 +121,36 @@ Lineup-aware transfer evaluation refinements
 + Goalkeeper churn suppression & role transfer hurdles
 + Multi-gameweek discounted lineup horizon (H=3, γ=0.75)
 + Dynamic chip-aware bench weighting
++ Live decision engine wiring with legacy fallback
         ↓
 V1.3
-Multi-provider expansion
-+ Extended LLM model research
-+ Human-in-the-loop AI experimentation
+GBDT Quantitative Predictor Challenger
++ HistGradientBoosting participation/minutes models
++ Non-linear quantitative prediction experiments
++ Strict temporal training/evaluation discipline
++ Predictor-vs-decision evaluation through the frozen V1.2.5 engine
++ No promotion unless corrected out-of-sample evidence supports it
+        ↓
+V1.3.5
+Optimizer Decision-Quality Study
++ Freeze the quantitative predictor
++ Optimizer component ablations
++ Starting-state vs downstream optimizer separation
++ Prediction regret vs optimizer regret
++ Horizon, bench, GK, candidate-pool, flexibility & chip-policy experiments
++ Robust multi-season decision-level validation
+        ↓
+V1.4
+Interactive Historical Season Simulation & Time Machine Sandbox
++ Step-by-step gameweek management across past seasons (2021-22 to 2025-26)
++ Point-in-time squad creation and historical score resolution
++ Frozen validated predictor/optimizer baseline
++ Human-vs-engine blind replay benchmark under strict information boundaries
+        ↓
+V1.5
+Multi-provider expansion & combinatorial strategic advisory
++ Extended LLM model research (Claude, OpenAI, DeepSeek, Local Ollama)
++ Multi-transfer combinatorial planning (K=2 joint restructuring)
         ↓
 Future
 Automated learning loops
@@ -152,10 +177,12 @@ Automated learning loops
 | V1.0 | Stable production platform | Release candidate / PR-ready |
 | V1.1 | Strategic squad + GUI + full ML analysis | Completed / Validated |
 | **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
-| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Implemented & Verified (PR Ready, branch `v12`)** |
-| **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression** | **Specification Complete (Target branch `v125`)** |
-| V1.3 | Multi-provider + extended LLM research | Planned |
-| Future | Automated learning / advanced strategy | Research |
+| **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Completed, validated, and merged into master (#16)** |
+| **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
+| **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Active hardening / research validation (`v13`)** |
+| **V1.3.5** | **Optimizer decision-quality study and controlled ablation framework** | **Planned / next research milestone** |
+| V1.4 | Interactive historical season simulation & human-in-the-loop benchmark platform | Planned |
+| V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
 
@@ -1636,135 +1663,151 @@ V1.2 focuses on closing the performance gap between V1.0 (canonical single-gamew
 | **V1.2.5 Final** | All 6 Pillars Integrated | **2,046.60** | **+20.80 pts** | **Lowest variance across all versions (±116.9)**; closes 92% of deficit |
 
 ### Target Decision & Deferral Rationale
-V1.2.5 closes 92% of the Track A performance deficit against V1.0 (2,046.6 vs 2,048.4, delta -1.8 pts) while achieving the lowest cross-season standard deviation of any engine in project history ($\pm 116.9$, 43% lower variance than V1.0's $\pm 205.2$). The stretch target of $\ge 2,060.0$ Track A net points is formally deferred to V1.3, which introduces combinatorial multi-transfer planning ($K=2$) and LLM qualitative strategic risk assessment.
+V1.2.5 closes 92% of the Track A performance deficit against V1.0 (2,046.6 vs 2,048.4, delta -1.8 pts) while achieving the lowest cross-season standard deviation of any engine in project history ($\pm 116.9$, 43% lower variance than V1.0's $\pm 205.2$). The stretch target of $\ge 2,060.0$ Track A net points is actively tested in V1.3 via the Gradient Boosting engine.
 
 ---
 
-# 22. V1.3 — Multi-Provider Expansion & Extended LLM Model Research
+# 22. V1.3 — GBDT Quantitative Predictor Challenger
 
-**Status: planned after V1.2.5.**
+**Status: Hardened, Audited & Retained as Challenger (`v13`)**  
+**Specification:** [`docs/v1.3/v13.md`](v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](v1.3/v13_gradient_boosting.md)  
+**Verification Checklist:** [`docs/v1.3/v13_items_left.md`](v1.3/v13_items_left.md)
 
-V1.3 is the multi-provider and LLM integration scope, placed after the strategic engine balancing and long-term unavailability modeling are completed and audited.
+### Purpose & Vision
 
-The central question becomes:
+V1.3 is a controlled quantitative-model experiment. It introduces Gradient Boosting Decision Trees as a challenger to the established quantitative core and evaluates the resulting decisions through the frozen V1.2.5 optimizer.
 
-> **Can multiple AI models/providers improve human decision-making when placed around a trustworthy deterministic strategic engine?**
+The scientific question was:
 
----
+> **Does a more flexible quantitative predictor convert into better downstream FPL decisions under strict point-in-time historical evaluation?**
 
-## 21.1 Multi-provider infrastructure
+### Final Audited Evidence & Findings
 
-Investigate and support, where justified:
+Under the audited walk-forward protocol with zero evaluation-season contamination:
+- **Track A Aggregate:** V1.2.5 = **2,026.6 pts** (±136.2) vs V1.3 = **1,941.6 pts** (±281.2).
+- **Track B Aggregate:** V1.2.5 = **2,075.2 pts** (±139.8) vs V1.3 = **1,985.8 pts** (±287.9).
+- **Season-by-Season Trajectory:**
+  - In low-data regimes (`2021-22` out-of-fold and `2022-23` single-season), GBDT suffered significant distribution shift (-391 pts and -161 pts Track A).
+  - In mature training regimes ($N \ge 2$ prior seasons), GBDT matched or outperformed V1.2.5: `2023-24` (+4 pts Track A), `2024-25` (+7 pts Track A, +48 pts Track B), and `2025-26` (+116 pts Track A, +67 pts Track B).
 
-- OpenAI;
-- Gemini;
-- OpenRouter;
-- Groq;
-- other viable providers;
-- local/open models where practical.
+### Promotion Gate Verdict
 
-Provider support must remain optional.
-
-The core application must work without an external LLM.
-
----
-
-## 21.2 Provider benchmark
-
-Measure:
-
-- quality;
-- consistency;
-- latency;
-- cost;
-- rate limits;
-- context handling;
-- structured-output reliability;
-- failure behavior.
-
-Do not evaluate providers only by subjective response quality.
+- **Production Replacement:** **REJECTED.** V1.2.5 remains the production default due to aggregate stability and lower variance.
+- **Challenger Retention:** **ACCEPTED.** V1.3 is retained as an official experimental challenger (`--predictor v1.3`), valuable for modern multi-season analysis and future hybrid ensembling.
+- **Experimental Baseline Frozen:** **`DecisionEngineV125` is formally frozen** as the validated baseline engine for V1.3.5 and V1.4.
 
 ---
 
-## 21.3 Extended model research
+# 23. V1.3.5 — Optimizer Decision-Quality Study
 
-Test multiple model families and sizes.
+**Status: planned / next research milestone.**  
+**Specification:** [`docs/v1.3.5/v135.md`](v1.3.5/v135.md)
 
-Questions:
+### Purpose & Vision
 
-- Which models understand FPL context?
-- Which models are best at qualitative tactical analysis?
-- Which are best at challenging optimizer assumptions?
-- Which are best at explaining trade-offs?
-- Which are best at human-facing synthesis?
-- Does a larger model materially improve decisions?
+V1.3.5 freezes the quantitative predictor and shifts the research question from model sophistication to decision quality:
 
----
+> **Given the same projections, which optimizer mechanisms actually improve realized FPL decisions?**
 
-## 21.4 Human-in-the-loop experimentation
+### Core Research Tracks
 
-V1.2 should support structured experiments where:
+1. **Optimizer ablation** — isolate one optimization mechanism at a time.
+2. **Starting-state ablation** — separate starting squad quality from downstream optimizer quality.
+3. **Horizon study** — compare single-GW and multi-GW planning horizons.
+4. **Bench study** — measure the incremental value of explicit bench optimization.
+5. **GK study** — measure goalkeeper-specific transfer hurdles.
+6. **Candidate-pool study** — quantify search breadth vs realized value and runtime.
+7. **Future-flexibility study** — measure bank/squad-structure preservation.
+8. **Chip-policy study** — distinguish chip-aware sequential strategy from pure chip return.
+9. **Regret decomposition** — separate prediction regret from optimizer regret.
+10. **Robustness study** — test whether observed improvements persist across seasons.
+
+### Scientific Principle
 
 ```text
-AI agent executes task
+Perfect hindsight decision
         ↓
-Human is asked a targeted question
+Best decision under model projections
         ↓
-Human answers
+Actual optimizer decision
         ↓
-AI continues
-        ↓
-Result is recorded
+Realized points
 ```
 
-Human interactions must become part of the experiment record.
+This makes it possible to quantify where decision quality is lost instead of automatically attributing every loss to the predictor.
 
-The system should distinguish:
+### Promotion Standard
 
-- AI-generated decision;
-- human constraint;
-- human correction;
-- final decision;
-- outcome.
+No optimizer is promoted solely because it wins one season. Promotion requires reproducible improvement under the frozen protocol, no leakage, acceptable legality/behavior, interpretable effects, and acceptable computational cost.
 
 ---
 
-## 20.5 LLM role architecture
+# 24. V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
 
-Potential roles:
+**Status: planned (follows V1.3.5).**  
+**Specification:** [`docs/v1.4/v14_historical_simulation.md`](v1.4/v14_historical_simulation.md)
 
-- Strategic Analyst;
-- Devil's Advocate;
-- Tactical Analyst;
-- News Synthesizer;
-- Decision Reviewer;
-- Post-GW Analyst;
-- Research Agent.
+### Purpose & Vision
 
-The LLM remains subordinate to deterministic rules and quantitative validation.
+V1.4 transforms FPL Manager into an interactive **Historical Season Simulation / FPL Time Machine** built on the frozen quantitative and optimizer baseline established by V1.3/V1.3.5.
 
----
+Users can select a past season (`2021-22` through `2025-26`), construct or modify a starting squad, step through the season gameweek by gameweek, make transfers, set lineups, activate chips, and resolve authentic historical match outcomes.
 
-## 20.6 Closed-loop LLM evaluation
+### Human-in-the-Loop Benchmark
 
-Compare:
+The platform supports controlled replay conditions in which:
+
+- the participant sees only information available at the simulated deadline;
+- the engine provides recommendations;
+- the participant makes the final decision;
+- engine recommendation, human decision, and realized outcome are all stored.
+
+The benchmark reports **observed performance under the defined study conditions**. It is not presented as a universal lower bound or a prediction of live-manager performance.
+
+### Mandatory Pre-Trial Gate
+
+Before human trials:
 
 ```text
-quantitative only
-quantitative + human
-quantitative + LLM
-quantitative + LLM + human
+batch backtest
+      ==
+historical simulator engine-only replay
 ```
 
-Evaluate actual downstream decision quality.
+within documented tolerances for the frozen engine.
 
-The goal is not to prove that an LLM is useful.
+### Core Deliverables
 
-The goal is to measure whether it is useful.
+- isolated historical session state;
+- strict point-in-time information boundaries;
+- deterministic scoring/autosub resolution;
+- transfer and chip state management;
+- CLI and GUI Time Machine workflow;
+- engine-only parity validation;
+- human-vs-engine benchmark protocol;
+- reproducible season-end analytics.
 
 ---
 
-# 22. Long-Term Research Tracks
+# 25. V1.5 — Multi-Provider Expansion & Combinatorial Strategic Advisory
+
+**Status: planned after V1.4.**
+
+V1.5 expands LLM integration across multiple providers and introduces combinatorial multi-transfer optimization ($K=2$ joint moves) alongside qualitative strategic advisory.
+
+### 25.1 Multi-provider infrastructure
+Investigate and support: OpenAI, Gemini, OpenRouter, Groq, and local/open models (Ollama, vLLM). Provider support remains strictly optional.
+
+### 25.2 Provider benchmark
+Benchmark quality, consistency, latency, cost, and structured-output reliability.
+
+### 25.3 Multi-transfer combinatorial planning ($K=2$)
+Introduce joint 2-transfer optimization to solve structural squad imbalances.
+
+### 25.4 Closed-loop LLM evaluation
+Empirically compare quantitative-only vs quantitative + human vs quantitative + LLM + human.
+
+# 26. Long-Term Research Tracks
 
 These remain available after V1.3 and should be promoted into releases only when there is sufficient evidence.
 
@@ -1928,7 +1971,7 @@ Never automatically deploy a model merely because it performed better over the l
 
 ---
 
-# 21. Engineering Principles
+# 27. Engineering Principles
 
 ## 1. Deterministic truth first
 
@@ -2001,7 +2044,7 @@ A smaller validated release is preferable to a feature-heavy branch with uncerta
 
 ---
 
-# 22. Testing Strategy
+# 28. Testing Strategy
 
 Testing operates at four primary levels.
 
@@ -2053,7 +2096,7 @@ A fixed historical Gameweek set should remain a permanent regression dataset.
 
 ---
 
-# 23. Release Discipline
+# 29. Release Discipline
 
 Every release should have:
 
@@ -2082,85 +2125,59 @@ Use distinct states:
 
 ---
 
-# 24. Immediate Work Queue
+# 30. Immediate Work Queue
 
-## Now — V1.0 release
+## Completed — V1.3 Hardening & Audit
 
-- [ ] Complete final V1.0 review.
-- [ ] Confirm PR #12 release-hardening changes.
-- [ ] Run full regression suite.
-- [ ] Confirm exact-reference transfer oracle.
-- [ ] Confirm exact-reference multi-GW oracle.
-- [ ] Confirm lineup quantity separation.
-- [ ] Confirm model metadata validation.
-- [ ] Confirm historical timestamp determinism.
-- [ ] Confirm PIT wording.
-- [ ] Confirm optimizer exact/heuristic documentation.
-- [ ] Confirm release reports and known limitations.
-- [ ] Merge/release V1.0.
+- [x] Fix training/evaluation temporal contamination (`get_walk_forward_gbdt_predictor`).
+- [x] Enforce train/serve feature parity (`test_feature_parity_with_snapshot_extraction`).
+- [x] Remove silent predictor fallback from research/benchmark mode (`strict_predictor=True`).
+- [x] Correct benchmark provenance and predictor version metadata.
+- [x] Freeze the downstream decision engine during predictor comparison (`DecisionEngineV125` baseline).
+- [x] Correct xG/xA target terminology to normalized realized return rates.
+- [x] Align V1.3 documentation with the actual implementation.
+- [x] Regenerate the V1.3 benchmark under clean walk-forward rules.
+- [x] Run the dedicated V1.3 test suite (12/12 passing).
+- [x] Run the relevant full regression suite (435/435 passing).
+- [x] Decide whether GBDT is promoted, retained as a challenger, or rejected (Verdict: **Challenger Retained**; V1.2.5 frozen as production baseline).
 
-## Next — V1.1
+## Now — V1.3.5 optimizer study
 
-### Engine
+- [ ] Freeze the predictor selected by the corrected V1.3 experiment.
+- [ ] Build the optimizer ablation harness.
+- [ ] Establish a minimal legal optimizer control.
+- [ ] Test horizon effects.
+- [ ] Test bench-aware effects.
+- [ ] Test goalkeeper transfer hurdles.
+- [ ] Test candidate-pool expansion.
+- [ ] Test future-transfer flexibility.
+- [ ] Test chip-aware sequential optimization.
+- [ ] Separate starting-state effects from downstream optimizer effects.
+- [ ] Implement prediction-regret vs optimizer-regret decomposition.
+- [ ] Measure runtime/search complexity.
+- [ ] Produce multi-season decision-level reports.
+- [ ] Freeze the validated optimizer configuration before V1.4.
 
-- [x] Generalize squad-construction framework.
-- [x] Define strategic objective interface.
-- [x] Add Initial Squad mode.
-- [x] Add strategic Wildcard mode.
-- [x] Generalize Free Hit.
-- [x] Add hard constraints.
-- [x] Add soft preferences.
-- [x] Add lock/exclude/prefer model.
-- [x] Add multiple candidate solutions.
-- [x] Add configurable horizons.
-- [x] Add constraint impact analysis.
-- [x] Integrate with multi-GW planner.
+## After V1.3.5 — V1.4
 
-### GUI
+- [ ] Implement isolated historical simulation state.
+- [ ] Implement historical deadline/time isolation.
+- [ ] Implement deterministic GW scoring and autosubs.
+- [ ] Implement transfer/chip state progression.
+- [ ] Validate simulator-vs-batch parity.
+- [ ] Build CLI Time Machine workflow.
+- [ ] Build GUI Time Machine workflow.
+- [ ] Implement human-vs-engine benchmark protocol.
+- [ ] Generate reproducible season-end analytics.
 
-- [x] Build Strategic Squad Studio.
-- [x] Add Initial Squad workflow.
-- [x] Add Wildcard workflow.
-- [x] Generalize Free Hit workflow.
-- [x] Add candidate comparison.
-- [x] Add player lock/unlock.
-- [x] Add exclude/prefer.
-- [x] Add strategy selection.
-- [x] Add horizon selection.
-- [x] Add re-optimization.
-- [x] Add opportunity-cost explanation.
-- [x] Add provenance.
-- [x] Connect output to normal decision workflow.
+## Later — V1.5
 
-### ML
+- [ ] Multi-provider LLM benchmark.
+- [ ] Extended model/provider evaluation.
+- [ ] Combinatorial multi-transfer planning.
+- [ ] Closed-loop quantitative + LLM + human evaluation.
 
-- [x] Historical initial-squad reconstruction.
-- [x] Historical Wildcard reconstruction.
-- [x] Multi-strategy backtest.
-- [x] Multi-horizon backtest.
-- [x] Starting-state metrics.
-- [x] End-to-end season replay.
-- [x] Starting-state × predictor × decision-engine ablation.
-- [x] Strategic regret.
-- [x] Solution multiplicity.
-- [x] Constraint sensitivity.
-- [x] Horizon sensitivity.
-- [x] Strategy sensitivity.
-- [x] Starting-state error attribution.
-- [x] Multi-season walk-forward reports.
-
-## After V1.1 — V1.2
-
-- [ ] Multi-provider benchmark.
-- [ ] Extended model benchmark.
-- [ ] Human-in-the-loop framework.
-- [ ] LLM role experiments.
-- [ ] Closed-loop AI evaluation.
-- [ ] AI-assisted strategic reasoning.
-
----
-
-# 25. Definition of "Good Enough"
+# 31. Definition of "Good Enough"
 
 The project should optimize for **decision quality**, not technical sophistication.
 
@@ -2200,9 +2217,9 @@ The important evidence is whether its decisions survive:
 
 ---
 
-# 26. Final Strategic Direction
+# 32. Final Strategic Direction
 
-The project has now passed through three major phases:
+The project has now passed through four major phases:
 
 ```text
 V0.x
@@ -2214,13 +2231,18 @@ Make the engine measurable
 V1.0
 Make the engine trustworthy
         ↓
-V1.1
-Make squad construction strategic
-and prove its downstream value
+V1.1–V1.2.5
+Make squad construction and transfer decisions strategic
+and measure their downstream value
         ↓
-V1.2
-Determine whether AI/LLMs improve
-the human + quantitative system
+V1.3
+Test whether a more sophisticated predictor improves decisions
+        ↓
+V1.3.5
+Identify which optimizer mechanisms actually convert forecasts into value
+        ↓
+V1.4
+Validate the complete decision-support loop with historical human replay
 ```
 
 The long-term product is therefore not simply:
@@ -2230,3 +2252,4 @@ The long-term product is therefore not simply:
 It is:
 
 > **A reproducible decision-support system that constructs strategic options, lets a human express preferences and constraints, explains the consequences, records decisions, and continuously evaluates whether the system actually improves FPL decision quality.**
+

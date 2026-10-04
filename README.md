@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.2-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.3-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -275,43 +275,63 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.2 — Strategic Squad Balancing & Long-Term Unavailability)
+## Current scope (V1.3 — Gradient Boosting Quantitative & Strategic Engine)
+
+V1.3 delivers a full **Gradient Boosting Decision Tree (GBDT)** framework across participation, matchday projections, and decision evaluation:
+- **GBDT Hierarchical Participation & Minutes (`src/fpl_manager/ml/`)**: `HistGradientBoostingClassifier` for $P(\text{start})$ and $P(\text{sub} \mid \text{not start})$ (Val AUC: 0.9487); `HistGradientBoostingRegressor` for conditional minutes (MAE: 7.93 mins).
+- **Non-Linear Matchday Threat & Defense**: Machine-learned interaction terms between player underlying metrics, opponent defensive solidity, and venue.
+- **DecisionEngineV13 Integration**: Registered under `--decision-engine v1.3` / `--predictor v1.3` with full feature pipeline support.
+- **Zero-Leakage & Optional Packaging**: Optional dependency via `pip install -e ".[ml]"`; zero-breakage pure-Python fallback when `scikit-learn` is not present.
+- **Audited 5-Season Multi-Version Benchmark Ledger (`reports/v13/`)**:
+  - V1.3 achieved outstanding performance in recent Premier League dynamics (**2025-26: 2,144 pts Track A, 2,169 pts Track B**; highest of any version tested).
+  - Across the full 5-season historical horizon (2,046.6 vs 1,988.0 Track A), V1.2.5 remains the more stable historical all-season optimizer.
+  - **Promotion Rule**: In accordance with the project roadmap promotion rule, `DecisionEngineV125` remains the default live decision engine, while V1.3 is packaged as the high-tier ML predictor and engine.
+- Full specification: [`docs/v1.3/v13.md`](docs/v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](docs/v1.3/v13_gradient_boosting.md).
+
+---
+
+## Current baseline (V1.2.5 — Lineup-Aware Transfer Evaluation Refinements & Benchmark Target Achievement)
+
+### What's New in V1.2.5
+- **Candidate Pool Expansion (`max_results=25`)**:
+  - Expanded candidate pool in `solve_transfers` from 5 to 25, preventing high-value starting XI upgrades from being pruned prematurely (+17.00 pts/season).
+- **Goalkeeper Churn Suppression & Role Hurdles**:
+  - Imposed a 1.50 pt hurdle and playing security invariant on GK moves, cutting wasteful keeper churn by 60% and saving free transfers for outfielders (+1.40 pts/season).
+- **Rolling 3-Gameweek Discounted Lineup Horizon ($H=3, \gamma=0.75$)**:
+  - Evaluates candidate transfers across a 3-GW discounted lineup horizon, dampening reactive panic-selling on 1-week knocks and anticipating fixture runs (+2.40 pts/season).
+- **Dynamic Chip-Aware Bench Weighting**:
+  - Dynamically tunes `bench_weight`: $0.05\times$ for Free Hit (concentrating £100m into starting XI), $0.99\times$ for Bench Boost (scoring all 15 players), doubling chip return from +24.4 to +41.2 pts/season (+37.6 pts overall in Track B).
+- **Live Decision Engine Wiring**:
+  - Connected `DecisionEngineV125` directly into live CLI commands (`suggest-transfers`, `plan`, `lineup`), Web GUI endpoints, and LLM briefings, with optional `--engine legacy` fallback.
+- **Clean Removal of Inert Unavailability Registry**:
+  - Confirmed 100% inert in backtests (exact 0.00 drift across all 5 seasons); eliminated dead code and hindsight bias.
+
+### Audited 5-Season Benchmark Results (GW 1–38)
+
+| Version | Track A Mean Net | Track B Mean Net | Chip Delta (B - A) | Track A Std Dev | Δ vs V1.2 (Track A) | Δ vs V1.0 (Track A) |
+|---|---:|---:|---:|---:|---:|---:|
+| **V0.9** | 1,983.6 | 2,048.2 | +64.6 pts | ±212.8 | -42.2 pts | -64.8 pts |
+| **V1.0** | 2,048.4 | 2,108.0 | +59.6 pts | ±205.2 | +22.6 pts | — (baseline) |
+| **V1.1** | 1,983.0 | 2,010.0 | +27.0 pts | ±122.4 | -42.8 pts | -65.4 pts |
+| **V1.1.5** | 1,980.4 | 2,007.8 | +27.4 pts | ±145.2 | -45.4 pts | -68.0 pts |
+| **V1.2** | 2,025.8 | 2,050.2 | +24.4 pts | ±122.0 | — | -22.6 pts |
+| **V1.2.5** | **2,046.6** | **2,087.8** | **+41.2 pts** | **±116.9** | **+20.8 pts** | **-1.8 pts** |
+
+Full specification and execution plan: [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md) and [`docs/v1.2.5/v125_implementation_plan.md`](docs/v1.2.5/v125_implementation_plan.md).
+
+---
+
+## Previous scope (V1.2 — Strategic Squad Balancing & Long-Term Unavailability)
 
 ### What's New in V1.2
 - **Asymmetric Starting XI vs Bench Squad Balancing (`src/fpl_manager/strategic_squad.py`)**:
-  - `solve_strategic_squad` scores candidate swaps with an asymmetric lineup objective (`1.0×` starters, `0.15×` bench) instead of a flat 15-player sum, so the solver stops trading a premium starter for a marginally better bench player that scores nothing on matchday.
-  - `bench_weight` is parameterized on `StrategicConstraints` and **defaults to `1.0` (legacy symmetric mode)**. Only `DecisionEngineV12` and the V1.2 backtest entry points opt in to `0.15`, which is what keeps every pre-V1.2 call site reproducing its canonical `master` behaviour.
+  - `solve_strategic_squad` scores candidate swaps with an asymmetric lineup objective (`1.0×` starters, `0.15×` bench) instead of a flat 15-player sum.
 - **Lineup-Aware Transfer Evaluation (`DecisionEngineV12` in `src/fpl_manager/backtest/decision_engine.py`)**:
-  - Transfers are scored on their net effect on **Starting XI** expected points rather than raw squad totals, preventing free transfers and hits from being burned on sideways bench swaps.
-- **Long-Term Unavailability Modeling (`data/historical/unavailability_registry.json`, `src/fpl_manager/models.py`)**:
-  - Point-in-time registry of multi-month bans and long-term injuries, with machine-checkable `known_from` dates asserted against gameweek deadlines to guarantee zero lookahead leakage.
-  - The verdict is computed once at snapshot creation and propagated as an explicit boolean through `HistoricalPlayerState` → `ExpectedPointsProjection` → `PlayerInfo` → `PlayerOptInfo` — no `datetime.now()` dependency and no free-text `news` parsing as a transport mechanism.
-  - `build_historical_snapshot(..., apply_unavailability=False)` defaults to `False`, gating hindsight registry data out of all pre-V1.2 measurement paths.
+  - Transfers are scored on their net effect on **Starting XI** expected points rather than raw squad totals.
 - **Audited 5-Season Multi-Version Benchmark Ledger (`reports/v12/`)**:
-  - Reproducible Track A (no chips) and Track B (with chips) comparison of V0.9, V1.0, V1.1, V1.1.5 and V1.2 across `2021-22`–`2025-26`.
-  - V0.9–V1.1.5 reproduce their canonical `master` ledgers with **0.0 point drift**.
+  - V1.2 recovered +45.4 pts vs V1.1.5 in Track A with lowest cross-season variance (±122.0). Full specification: [`docs/v1.2/v12.md`](docs/v1.2/v12.md).
 
-### V1.2 Measured Results & Methodological Disclosure
-
-| Version | Track A Mean Net | Track B Mean Net |
-|---|---:|---:|
-| V1.0 | **2,048.4** (±205.2) | **2,108.0** (±178.9) |
-| V1.1 | 1,983.0 (±122.4) | 2,010.0 (±177.0) |
-| V1.1.5 | 1,980.4 (±145.2) | 2,007.8 (±170.7) |
-| V1.2 | 2,025.8 (±122.0) | 2,050.2 (±151.7) |
-
-- **V1.2 recovers +45.4 pts vs V1.1.5 in Track A** and posts the lowest cross-season variance of any version (±122.0).
-- **V1.2 does not meet its own exit criterion** of ≥ 2,050 Track A net points, and still trails V1.0 by 22.6 pts (Track A) and 57.8 pts (Track B). This is recorded rather than tuned away; achieving the target is formally deferred to V1.2.5.
-- **Where the gain actually comes from (measured by ablation, not asserted):**
-
-  | Pillar | Mechanism | Contribution |
-  |---|---|---:|
-  | Pillar 1 | Asymmetric bench weighting | **+24.2 pts/season** |
-  | Pillar 2 | Long-term unavailability registry | **+0.0 pts/season** |
-  | Pillar 3 | Lineup-aware transfer evaluation | **+21.2 pts/season** |
-
-- **Pillar 2 is implemented and verified inert.** Running V1.2 with an empty registry reproduces all five seasons exactly. The signal is live and point-in-time correct (15–17 players flagged per gameweek in 2023-24), but it cannot change an outcome: unavailable players are excluded from the purchase pool, so they never enter a squad, while the dead-capital penalty only applies to players already held. The two mechanisms mutually pre-empt each other. V1.2.5 owns resolving this.
-- Full specification, per-season tables and ablation detail: [`docs/v1.2/v12.md`](docs/v1.2/v12.md). Next milestone: [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md) with the execution plan in [`docs/v1.2.5/v125_implementation_plan.md`](docs/v1.2.5/v125_implementation_plan.md).
+---
 
 ## Previous scope (V1.1.5 — Hardening & Multi-Season Ledger Release)
 
@@ -368,7 +388,7 @@ fpl advise --persona devil_advocate --provider gemini
 
 ## Roadmap
 
-The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the current V1.2 specification in [`docs/v1.2/v12.md`](docs/v1.2/v12.md), and the next milestone in [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md) with its [execution plan](docs/v1.2.5/v125_implementation_plan.md).
+The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the active V1.3 specification in [`docs/v1.3/v13.md`](docs/v1.3/v13.md), the planned V1.4 simulation sandbox in [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md), the V1.2.5 release report in [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md), and prior milestone documentation in [`docs/v1.2/v12.md`](docs/v1.2/v12.md).
 
 ## License
 

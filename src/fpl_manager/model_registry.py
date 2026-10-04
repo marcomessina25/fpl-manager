@@ -91,6 +91,27 @@ class ModelMetadata:
 
 
 MODEL_REGISTRY_CATALOG: dict[str, dict[str, str]] = {
+    "v1.3": {
+        "model_version": "v1.3.0",
+        "quantitative_core_version": "v1.3.0-gbdt",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v1.3.0-gbdt-25features",
+        "parameter_version": "1.3.0-hist-gbdt-31leaves",
+    },
+    "v1.3-canonical": {
+        "model_version": "v1.3.0",
+        "quantitative_core_version": "v1.3.0-gbdt",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v1.3.0-gbdt-25features",
+        "parameter_version": "1.3.0-hist-gbdt-31leaves",
+    },
+    "gbdt": {
+        "model_version": "v1.3.0",
+        "quantitative_core_version": "v1.3.0-gbdt",
+        "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+        "feature_set_version": "v1.3.0-gbdt-25features",
+        "parameter_version": "1.3.0-hist-gbdt-31leaves",
+    },
     "v1.0.1": {
         "model_version": "v1.0.1",
         "quantitative_core_version": "v0.9.1-frozen",

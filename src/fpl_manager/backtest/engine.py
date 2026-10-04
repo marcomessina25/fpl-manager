@@ -401,7 +401,7 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
-    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5"))
+    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5", "v1.3"))
     apply_unavail = (dec_engine.version == "v1.2")
 
     # 1. Initialize squad at start_gw
@@ -409,7 +409,7 @@ def run_sequential_simulation(
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
     if initial_squad_ids is None:
-        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5") or initial_strategy is not None:
+        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5", "v1.3") or initial_strategy is not None:
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -427,7 +427,7 @@ def run_sequential_simulation(
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                     ]
-                elif dec_engine.version in ("v1.2", "v1.2.5"):
+                elif dec_engine.version in ("v1.2", "v1.2.5", "v1.3"):
                     strat_players = [
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
@@ -505,7 +505,7 @@ def run_sequential_simulation(
 
         # Determine dynamic chip-aware bench weight (Pillar 5)
         eff_bench_weight = getattr(dec_engine, "bench_weight", 0.15)
-        if use_chips and dec_engine.version == "v1.2.5":
+        if use_chips and dec_engine.version in ("v1.2.5", "v1.3"):
             if current_chip == "free_hit":
                 eff_bench_weight = 0.05
             elif current_chip == "bench_boost":

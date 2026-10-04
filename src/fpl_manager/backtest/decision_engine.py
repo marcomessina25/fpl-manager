@@ -1329,11 +1329,26 @@ def _get_forward_projections(
         return projections_by_gw
 
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
+    team_strength_map = {t["team_id"]: t.get("strength", 3) for t in snapshot.teams}
+
+    team_turnaround: dict[int, float | None] = {}
+    team_m7: dict[int, int] = {}
+    team_m14: dict[int, int] = {}
+    for fix in snapshot.fixtures:
+        team_turnaround[fix.team_h] = fix.days_since_prev_h
+        team_turnaround[fix.team_a] = fix.days_since_prev_a
+        team_m7[fix.team_h] = fix.matches_7d_h
+        team_m7[fix.team_a] = fix.matches_7d_a
+        team_m14[fix.team_h] = fix.matches_14d_h
+        team_m14[fix.team_a] = fix.matches_14d_a
+
+    eval_season = season_dir.name if season_dir else getattr(snapshot, "season", None)
 
     predictor_version = "v1.0.1"
     if projections and projections[0].model_metadata:
         predictor_version = projections[0].model_metadata.get("predictor_version", "v1.0.1")
 
+    is_gbdt = predictor_version.lower() in ("v1.3", "v13", "gbdt")
     players_to_project = snapshot.players
     if needed_pids is not None:
         players_to_project = tuple(p for p in snapshot.players if p.player_id in needed_pids)
@@ -1350,6 +1365,8 @@ def _get_forward_projections(
                         "opponent_short": team_map.get(f["team_a"], f"T{f['team_a']}"),
                         "is_home": True,
                         "fdr": f.get("team_h_difficulty", 3),
+                        "opp_strength": team_strength_map.get(f["team_a"], 3),
+                        "team_strength": team_strength_map.get(p.team_id, 3),
                     })
                 elif f["team_a"] == p.team_id:
                     team_fixes.append({
@@ -1357,6 +1374,8 @@ def _get_forward_projections(
                         "opponent_short": team_map.get(f["team_h"], f"T{f['team_h']}"),
                         "is_home": False,
                         "fdr": f.get("team_a_difficulty", 3),
+                        "opp_strength": team_strength_map.get(f["team_h"], 3),
+                        "team_strength": team_strength_map.get(p.team_id, 3),
                     })
 
             proj = project_player_gameweek(
@@ -1390,8 +1409,13 @@ def _get_forward_projections(
                 minutes_last_3=p.minutes_last_3,
                 minutes_last_5=p.minutes_last_5,
                 consecutive_zero_mins=p.consecutive_zero_mins,
+                days_since_prev_fixture=team_turnaround.get(p.team_id) if is_gbdt else None,
+                matches_last_7_days=team_m7.get(p.team_id, 0) if is_gbdt else 0,
+                matches_last_14_days=team_m14.get(p.team_id, 0) if is_gbdt else 0,
                 predictor_version=predictor_version,
                 is_long_term_unavailable=p.is_long_term_unavailable,
+                strict_predictor=is_gbdt,
+                eval_season=eval_season,
             )
             gw_projs[p.player_id] = proj.expected_points
 
@@ -1983,6 +2007,61 @@ class DecisionEngineV125(DecisionEngineV12):
         return "fpl_manager.strategic_squad.solve_strategic_squad:v1.2.5"
 
 
+class DecisionEngineV13(DecisionEngineV125):
+    """V1.3 Gradient Boosting Strategic Decision Engine.
+
+    Features:
+    - Inherits V1.2.5 Candidate Pool Expansion, GK Churn Suppression, and Rolling 3-GW Horizon.
+    - Integrated with V1.3 Gradient Boosting (GBDT) prediction engine for participation, conditional minutes, and threat.
+    - Non-linear matchday projections and fixture interaction evaluations.
+    """
+
+    def __init__(
+        self,
+        initial_strategy: str = "balanced",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+        dead_capital_weight: float = 3.0,
+        bench_weight: float = 0.15,
+        max_results: int = 25,
+        gk_min_net_gain: float = 3.00,
+        outfield_min_net_gain: float = 0.50,
+        gk_play_probability_floor: float = 0.50,
+        horizon: int = 3,
+        gamma: float = 0.75,
+    ) -> None:
+        super().__init__(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            lineup_penalty_weight=lineup_penalty_weight,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            max_results=max_results,
+            gk_min_net_gain=gk_min_net_gain,
+            outfield_min_net_gain=outfield_min_net_gain,
+            gk_play_probability_floor=gk_play_probability_floor,
+            horizon=horizon,
+            gamma=gamma,
+        )
+
+    @property
+    def version(self) -> str:
+        return "v1.3"
+
+    @property
+    def name(self) -> str:
+        return (
+            f"V1.3 GBDT Strategic Decision Engine ({self.initial_strategy}, "
+            f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
+            f"bench_w={self.bench_weight}, max_results={self.max_results}, "
+            f"roll_h={self.horizon}, gamma={self.gamma})"
+        )
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.3_gbdt"
+
+
 def resolve_decision_engine(
     engine_version: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str = "balanced",
@@ -2005,7 +2084,24 @@ def resolve_decision_engine(
         except (ValueError, IndexError):
             pass
 
-    if clean in ("v0.8", "v08"):
+    if clean in ("v1.3", "v13", "v1.3.0", "gbdt", "balanced_v13"):
+        return DecisionEngineV13(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
+    elif clean.startswith("v1.3_"):
+        strat = clean.replace("v1.3_", "")
+        return DecisionEngineV13(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
+    elif clean in ("v0.8", "v08"):
         return DecisionEngineV08()
     elif clean in ("v0.9", "v09"):
         return DecisionEngineV09()

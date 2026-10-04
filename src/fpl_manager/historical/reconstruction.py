@@ -19,11 +19,13 @@ def reconstruct_features_and_project(
 ) -> list[ExpectedPointsProjection]:
     """Reconstruct feature inputs from historical snapshot and run production projection engine."""
     team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
+    team_strength_map = {t["team_id"]: t.get("strength", 3) for t in snapshot.teams}
 
     # Map fixtures by team_id and extract schedule metrics
     team_fixtures: dict[int, list[dict[str, Any]]] = {t_id: [] for t_id in team_map}
     team_turnaround: dict[int, float | None] = {}
     team_m7: dict[int, int] = {}
+    team_m14: dict[int, int] = {}
 
     for fix in snapshot.fixtures:
         team_h = fix.team_h
@@ -37,9 +39,12 @@ def reconstruct_features_and_project(
                 "opponent_short": team_map.get(team_a, f"T{team_a}"),
                 "is_home": True,
                 "fdr": h_fdr,
+                "opp_strength": team_strength_map.get(team_a, 3),
+                "team_strength": team_strength_map.get(team_h, 3),
             })
             team_turnaround[team_h] = fix.days_since_prev_h
             team_m7[team_h] = fix.matches_7d_h
+            team_m14[team_h] = fix.matches_14d_h
 
         if team_a in team_fixtures:
             team_fixtures[team_a].append({
@@ -47,21 +52,26 @@ def reconstruct_features_and_project(
                 "opponent_short": team_map.get(team_h, f"T{team_h}"),
                 "is_home": False,
                 "fdr": a_fdr,
+                "opp_strength": team_strength_map.get(team_h, 3),
+                "team_strength": team_strength_map.get(team_a, 3),
             })
             team_turnaround[team_a] = fix.days_since_prev_a
             team_m7[team_a] = fix.matches_7d_a
+            team_m14[team_a] = fix.matches_14d_a
 
     target_players = snapshot.players
     if player_ids is not None:
         target_set = set(player_ids)
         target_players = tuple(p for p in snapshot.players if p.player_id in target_set)
 
+    is_gbdt = predictor_version.lower() in ("v1.3", "v13", "gbdt")
     projections: list[ExpectedPointsProjection] = []
     for p in target_players:
         t_short = team_map.get(p.team_id, f"T{p.team_id}")
         t_fixs = team_fixtures.get(p.team_id, [])
         days_prev = team_turnaround.get(p.team_id)
         m7 = team_m7.get(p.team_id, 0)
+        m14 = team_m14.get(p.team_id, 0)
 
         proj = project_player_gameweek(
             player_id=p.player_id,
@@ -96,8 +106,11 @@ def reconstruct_features_and_project(
             consecutive_zero_mins=p.consecutive_zero_mins,
             days_since_prev_fixture=days_prev,
             matches_last_7_days=m7,
+            matches_last_14_days=m14,
             predictor_version=predictor_version,
             is_long_term_unavailable=p.is_long_term_unavailable,
+            strict_predictor=is_gbdt,
+            eval_season=snapshot.season,
         )
         projections.append(proj)
 
