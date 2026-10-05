@@ -1,0 +1,254 @@
+{
+  "milestone": "V1.3.5",
+  "created_at": "2026-10-04T20:54:17Z",
+  "seasons_evaluated": [
+    "2024-25"
+  ],
+  "variants_evaluated": [
+    "B0",
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7"
+  ],
+  "variant_configs": {
+    "B0": {
+      "name": "B0",
+      "description": "Control: Single-GW horizon (H=1), XI-only (bench=0.0), baseline pool (5), no hurdles, no flexibility",
+      "horizon": 1,
+      "gamma": 1.0,
+      "bench_weight": 0.0,
+      "gk_hurdle": false,
+      "candidate_pool_size": 5,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B1": {
+      "name": "B1",
+      "description": "Multi-GW Horizon: H=3 discounted (gamma=0.75), XI-only (bench=0.0), baseline pool (5), no hurdles",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.0,
+      "gk_hurdle": false,
+      "candidate_pool_size": 5,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B2": {
+      "name": "B2",
+      "description": "Extended Horizon: H=5 discounted (gamma=0.75), XI-only (bench=0.0), baseline pool (5), no hurdles",
+      "horizon": 5,
+      "gamma": 0.75,
+      "bench_weight": 0.0,
+      "gk_hurdle": false,
+      "candidate_pool_size": 5,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B3": {
+      "name": "B3",
+      "description": "Bench-Aware: H=3, bench weight 0.15, baseline pool (5), no GK hurdle, no flexibility",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.15,
+      "gk_hurdle": false,
+      "candidate_pool_size": 5,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B4": {
+      "name": "B4",
+      "description": "GK Hurdle: H=3, bench weight 0.15, GK hurdle 3.0, baseline pool (5), no flexibility",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.15,
+      "gk_hurdle": true,
+      "candidate_pool_size": 5,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B5": {
+      "name": "B5",
+      "description": "Candidate Pool Expansion: H=3, bench weight 0.15, GK hurdle 3.0, expanded pool (25), no flexibility",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.15,
+      "gk_hurdle": true,
+      "candidate_pool_size": 25,
+      "dead_capital_weight": 0.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "v10_heuristic",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B6": {
+      "name": "B6",
+      "description": "Flexibility & Strategic Init: H=3, pool 25, dead capital 3.0, static chips, strategic balanced init",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.15,
+      "gk_hurdle": true,
+      "candidate_pool_size": 25,
+      "dead_capital_weight": 3.0,
+      "chip_aware": false,
+      "initial_strategy_mode": "strategic_balanced",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    },
+    "B7": {
+      "name": "B7",
+      "description": "Full Integrated Policy: H=3, pool 25, dead capital 3.0, dynamic chip-aware weights, strategic balanced init",
+      "horizon": 3,
+      "gamma": 0.75,
+      "bench_weight": 0.15,
+      "gk_hurdle": true,
+      "candidate_pool_size": 25,
+      "dead_capital_weight": 3.0,
+      "chip_aware": true,
+      "initial_strategy_mode": "strategic_balanced",
+      "gk_min_net_gain": 3.0,
+      "outfield_min_net_gain": 0.5
+    }
+  },
+  "variant_aggregates": {
+    "B0": {
+      "name": "B0",
+      "description": "Control: Single-GW horizon (H=1), XI-only (bench=0.0), baseline pool (5), no hurdles, no flexibility",
+      "mean_track_a": 2152,
+      "std_track_a": 0.0,
+      "mean_track_b": 2177,
+      "std_track_b": 0.0,
+      "chip_gain": 25,
+      "mean_hits": 0,
+      "mean_zero_starters": 32
+    },
+    "B1": {
+      "name": "B1",
+      "description": "Multi-GW Horizon: H=3 discounted (gamma=0.75), XI-only (bench=0.0), baseline pool (5), no hurdles",
+      "mean_track_a": 2096,
+      "std_track_a": 0.0,
+      "mean_track_b": 2120,
+      "std_track_b": 0.0,
+      "chip_gain": 24,
+      "mean_hits": 0,
+      "mean_zero_starters": 42
+    },
+    "B2": {
+      "name": "B2",
+      "description": "Extended Horizon: H=5 discounted (gamma=0.75), XI-only (bench=0.0), baseline pool (5), no hurdles",
+      "mean_track_a": 2218,
+      "std_track_a": 0.0,
+      "mean_track_b": 2241,
+      "std_track_b": 0.0,
+      "chip_gain": 23,
+      "mean_hits": 0,
+      "mean_zero_starters": 27
+    },
+    "B3": {
+      "name": "B3",
+      "description": "Bench-Aware: H=3, bench weight 0.15, baseline pool (5), no GK hurdle, no flexibility",
+      "mean_track_a": 2289,
+      "std_track_a": 0.0,
+      "mean_track_b": 2318,
+      "std_track_b": 0.0,
+      "chip_gain": 29,
+      "mean_hits": 0,
+      "mean_zero_starters": 36
+    },
+    "B4": {
+      "name": "B4",
+      "description": "GK Hurdle: H=3, bench weight 0.15, GK hurdle 3.0, baseline pool (5), no flexibility",
+      "mean_track_a": 2289,
+      "std_track_a": 0.0,
+      "mean_track_b": 2318,
+      "std_track_b": 0.0,
+      "chip_gain": 29,
+      "mean_hits": 0,
+      "mean_zero_starters": 36
+    },
+    "B5": {
+      "name": "B5",
+      "description": "Candidate Pool Expansion: H=3, bench weight 0.15, GK hurdle 3.0, expanded pool (25), no flexibility",
+      "mean_track_a": 2142,
+      "std_track_a": 0.0,
+      "mean_track_b": 2176,
+      "std_track_b": 0.0,
+      "chip_gain": 34,
+      "mean_hits": 0,
+      "mean_zero_starters": 24
+    },
+    "B6": {
+      "name": "B6",
+      "description": "Flexibility & Strategic Init: H=3, pool 25, dead capital 3.0, static chips, strategic balanced init",
+      "mean_track_a": 2142,
+      "std_track_a": 0.0,
+      "mean_track_b": 2176,
+      "std_track_b": 0.0,
+      "chip_gain": 34,
+      "mean_hits": 0,
+      "mean_zero_starters": 24
+    },
+    "B7": {
+      "name": "B7",
+      "description": "Full Integrated Policy: H=3, pool 25, dead capital 3.0, dynamic chip-aware weights, strategic balanced init",
+      "mean_track_a": 2142,
+      "std_track_a": 0.0,
+      "mean_track_b": 2176,
+      "std_track_b": 0.0,
+      "chip_gain": 34,
+      "mean_hits": 0,
+      "mean_zero_starters": 24
+    }
+  },
+  "starting_state_results": [
+    {
+      "season": "2024-25",
+      "starting_state": "State A (V1.0 Heuristic)",
+      "gw1_points": 47,
+      "gw1_to_5_net_points": 286,
+      "gw1_to_10_net_points": 532,
+      "season_net_points": 2142,
+      "total_transfers": 38,
+      "total_hits": 0
+    },
+    {
+      "season": "2024-25",
+      "starting_state": "State B (V1.1 Strategic Balanced)",
+      "gw1_points": 47,
+      "gw1_to_5_net_points": 286,
+      "gw1_to_10_net_points": 532,
+      "season_net_points": 2142,
+      "total_transfers": 38,
+      "total_hits": 0
+    },
+    {
+      "season": "2024-25",
+      "starting_state": "State C (V1.1 Strategic Max EV)",
+      "gw1_points": 52,
+      "gw1_to_5_net_points": 293,
+      "gw1_to_10_net_points": 554,
+      "season_net_points": 2235,
+      "total_transfers": 38,
+      "total_hits": 0
+    }
+  ],
+  "total_wall_clock_seconds": 163.65
+}

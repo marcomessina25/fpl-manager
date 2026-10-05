@@ -1,0 +1,17 @@
+variant,season,track,net_points,gross_points,hits,transfers,zero_min_starters,bench_regret_points,captain_zero_min_count,total_runtime_s
+B0,2024-25,Track A (No Chips),2152,2152,0,38,32,246,0,4.858
+B0,2024-25,Track B (Chips),2177,2177,0,38,32,248,0,4.854
+B1,2024-25,Track A (No Chips),2096,2096,0,36,42,197,0,5.893
+B1,2024-25,Track B (Chips),2120,2120,0,36,42,197,0,6.007
+B2,2024-25,Track A (No Chips),2218,2218,0,37,27,259,0,6.886
+B2,2024-25,Track B (Chips),2241,2241,0,37,27,259,0,6.855
+B3,2024-25,Track A (No Chips),2289,2289,0,36,36,273,0,5.775
+B3,2024-25,Track B (Chips),2318,2318,0,36,36,274,0,5.776
+B4,2024-25,Track A (No Chips),2289,2289,0,36,36,273,0,5.888
+B4,2024-25,Track B (Chips),2318,2318,0,36,36,274,0,5.752
+B5,2024-25,Track A (No Chips),2142,2142,0,38,24,358,0,5.772
+B5,2024-25,Track B (Chips),2176,2176,0,38,24,368,0,5.761
+B6,2024-25,Track A (No Chips),2142,2142,0,38,24,358,0,5.827
+B6,2024-25,Track B (Chips),2176,2176,0,38,24,368,0,5.905
+B7,2024-25,Track A (No Chips),2142,2142,0,38,24,358,0,5.903
+B7,2024-25,Track B (Chips),2176,2176,0,38,24,368,0,7.496

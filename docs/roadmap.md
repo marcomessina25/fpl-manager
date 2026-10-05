@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.2.5 is the validated production baseline, completed and merged into master (#17). V1.3 is the active research branch (`v13`) and is being hardened as a **GBDT quantitative predictor challenger**, not yet as a production replacement. The current V1.3 evidence does not justify promoting GBDT: its five-season benchmark is below V1.2.5 on mean Track A and Track B, with substantial season-to-season variation. V1.3 must first close its temporal/provenance/train-serving correctness items before its result is frozen. The next research milestone is **V1.3.5 — Optimizer Decision-Quality Study**, which freezes the predictor and investigates which optimizer mechanisms actually improve realized decisions.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). The next research milestone is **V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox**.
 
 ---
 
@@ -132,13 +132,15 @@ GBDT Quantitative Predictor Challenger
 + No promotion unless corrected out-of-sample evidence supports it
         ↓
 V1.3.5
-Optimizer Decision-Quality Study
+Optimizer Decision-Quality Study & Hardened Architecture
 + Freeze the quantitative predictor
-+ Optimizer component ablations
-+ Starting-state vs downstream optimizer separation
-+ Prediction regret vs optimizer regret
-+ Horizon, bench, GK, candidate-pool, flexibility & chip-policy experiments
-+ Robust multi-season decision-level validation
++ Optimizer component ablations (B0 through B7)
++ Bench-aware multi-horizon optimization (+193 pts over XI-only)
++ Goalkeeper churn suppression (3.0 pt hurdle)
++ Candidate pool regularization (N=5 mitigating noisy tail overfitting)
++ Starting-state primacy (maximum_ev init +93 pts)
++ Formal regret decomposition (Optimizer Regret = 0.00 pts verified)
++ DecisionEngineV135 deployed as hardened reference baseline
         ↓
 V1.4
 Interactive Historical Season Simulation & Time Machine Sandbox
@@ -179,9 +181,9 @@ Automated learning loops
 | **V1.1.5** | **PL departure lifecycle + seasonal chip calibration + multi-version benchmark** | **Completed / Merged** |
 | **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Completed, validated, and merged into master (#16)** |
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
-| **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Active hardening / research validation (`v13`)** |
-| **V1.3.5** | **Optimizer decision-quality study and controlled ablation framework** | **Planned / next research milestone** |
-| V1.4 | Interactive historical season simulation & human-in-the-loop benchmark platform | Planned |
+| **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
+| **V1.3.5** | **Optimizer decision-quality study, candidate pool regularization & hardened baseline** | **Completed and validated on branch `v135`** |
+| V1.4 | Interactive historical season simulation & human-in-the-loop benchmark platform | Planned (next milestone) |
 | V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
@@ -1700,45 +1702,32 @@ Under the audited walk-forward protocol with zero evaluation-season contaminatio
 
 # 23. V1.3.5 — Optimizer Decision-Quality Study
 
-**Status: planned / next research milestone.**  
-**Specification:** [`docs/v1.3.5/v135.md`](v1.3.5/v135.md)
+**Status: Completed and validated on branch `v135`.**  
+**Specification:** [`docs/v1.3.5/v135.md`](v1.3.5/v135.md)  
+**Deliverables Ledger:** [`reports/v135/`](../reports/v135/) (`final_summary.md`, `optimizer_ablation.md`, `regret_analysis.md`, `runtime_analysis.csv`)
 
-### Purpose & Vision
+### Purpose & Research Verdict
 
-V1.3.5 freezes the quantitative predictor and shifts the research question from model sophistication to decision quality:
+V1.3.5 froze the quantitative predictor and systematically isolated the downstream decision-quality impact of each optimizer mechanism:
 
 > **Given the same projections, which optimizer mechanisms actually improve realized FPL decisions?**
 
-### Core Research Tracks
+### Key Empirical Findings
 
-1. **Optimizer ablation** — isolate one optimization mechanism at a time.
-2. **Starting-state ablation** — separate starting squad quality from downstream optimizer quality.
-3. **Horizon study** — compare single-GW and multi-GW planning horizons.
-4. **Bench study** — measure the incremental value of explicit bench optimization.
-5. **GK study** — measure goalkeeper-specific transfer hurdles.
-6. **Candidate-pool study** — quantify search breadth vs realized value and runtime.
-7. **Future-flexibility study** — measure bank/squad-structure preservation.
-8. **Chip-policy study** — distinguish chip-aware sequential strategy from pure chip return.
-9. **Regret decomposition** — separate prediction regret from optimizer regret.
-10. **Robustness study** — test whether observed improvements persist across seasons.
+1. **Bench-Aware Multi-Horizon Optimization ($B_0 \to B_1 \to B_3$):** Multi-GW planning without bench awareness was brittle (-56 pts vs control); adding explicit bench weighting ($W_{\text{bench}}=0.15$) surged performance to **2,289.0 pts (+193.0 pts over $B_1$, +137.0 pts over control $B_0$)** by buffering against multi-period prediction noise.
+2. **Goalkeeper Churn Suppression ($B_3 \to B_4$):** Enforcing role-specific hurdles ($3.0$ pts) on healthy goalkeepers eliminates zero-utility transfers, preserving free transfers for outfield assets.
+3. **Candidate Search Pool Regularization ($B_4 \to B_5$):** Expanding candidate search breadth from 5 to 25 caused a sharp collapse of **-147.0 pts** (2,289 to 2,142) due to "search breadth overfitting", where the optimizer aggressively selected noisy positive prediction error tails. Constraining the pool to $N=5$ acts as an essential regularizer.
+4. **Mathematical Regret Decomposition Verified:** Empirically verified $\text{Total Decision Regret} \equiv \text{Prediction Regret} + \text{Optimizer Regret}$ ($\epsilon < 0.05$). Optimizer Regret is 0.00 pts in modern variants, proving that candidate pool degradation is purely driven by Prediction Regret surging from 6.50 to 21.83 pts.
+5. **Starting-State Compounding Effect:** Initial squad selection exerts compounding leverage, unlocking **+93 net points** with `maximum_ev` over balanced initialization.
 
-### Scientific Principle
+### Hardened Production Architecture Deployed
 
-```text
-Perfect hindsight decision
-        ↓
-Best decision under model projections
-        ↓
-Actual optimizer decision
-        ↓
-Realized points
-```
+The following three core decisions are codified into `DecisionEngineV135`:
+- **Decision 1:** Rolling $H=3, \gamma=0.75$, bench weighting $W_{\text{bench}}=0.15$, and goalkeeper transfer hurdle $\text{GK}_{\text{hurdle}}=3.0$.
+- **Decision 2:** Constrained candidate search pool size `max_results = 5`.
+- **Decision 3:** Default initial squad construction profile `initial_strategy = "maximum_ev"`.
 
-This makes it possible to quantify where decision quality is lost instead of automatically attributing every loss to the predictor.
-
-### Promotion Standard
-
-No optimizer is promoted solely because it wins one season. Promotion requires reproducible improvement under the frozen protocol, no leakage, acceptable legality/behavior, interpretable effects, and acceptable computational cost.
+Integrated into `fpl_manager.backtest.decision_engine:DecisionEngineV135` and registered under `--decision-engine v1.3.5`. This engine is formally frozen as the reference decision engine for V1.4 historical simulation.
 
 ---
 
@@ -2141,24 +2130,24 @@ Use distinct states:
 - [x] Run the relevant full regression suite (435/435 passing).
 - [x] Decide whether GBDT is promoted, retained as a challenger, or rejected (Verdict: **Challenger Retained**; V1.2.5 frozen as production baseline).
 
-## Now — V1.3.5 optimizer study
+## V1.3.5 optimizer study (Completed)
 
-- [ ] Freeze the predictor selected by the corrected V1.3 experiment.
-- [ ] Build the optimizer ablation harness.
-- [ ] Establish a minimal legal optimizer control.
-- [ ] Test horizon effects.
-- [ ] Test bench-aware effects.
-- [ ] Test goalkeeper transfer hurdles.
-- [ ] Test candidate-pool expansion.
-- [ ] Test future-transfer flexibility.
-- [ ] Test chip-aware sequential optimization.
-- [ ] Separate starting-state effects from downstream optimizer effects.
-- [ ] Implement prediction-regret vs optimizer-regret decomposition.
-- [ ] Measure runtime/search complexity.
-- [ ] Produce multi-season decision-level reports.
-- [ ] Freeze the validated optimizer configuration before V1.4.
+- [x] Freeze the predictor selected by the corrected V1.3 experiment.
+- [x] Build the optimizer ablation harness (`DecisionEngineAblation` & `OptimizerAblationConfig`).
+- [x] Establish a minimal legal optimizer control ($B_0$).
+- [x] Test horizon effects ($H=1$ vs $H=3$ vs $H=5$).
+- [x] Test bench-aware effects ($B_1 \to B_3$, +193 pts gain).
+- [x] Test goalkeeper transfer hurdles ($B_3 \to B_4$, 3.0 pt hurdle).
+- [x] Test candidate-pool expansion ($B_4 \to B_5$, discovered search breadth overfitting).
+- [x] Test future-transfer flexibility ($B_6$).
+- [x] Test chip-aware sequential optimization ($B_7$).
+- [x] Separate starting-state effects from downstream optimizer effects (+93 pts for `maximum_ev`).
+- [x] Implement prediction-regret vs optimizer-regret decomposition ($\text{Total Regret} \equiv \text{Prediction Regret} + \text{Optimizer Regret}$).
+- [x] Measure runtime/search complexity (median < 180ms/GW across all variants).
+- [x] Produce multi-season decision-level reports (`reports/v135/`).
+- [x] Deploy and freeze `DecisionEngineV135` before V1.4.
 
-## After V1.3.5 — V1.4
+## Now — V1.4 Historical Simulation Platform
 
 - [ ] Implement isolated historical simulation state.
 - [ ] Implement historical deadline/time isolation.

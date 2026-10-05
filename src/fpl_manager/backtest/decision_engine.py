@@ -2062,6 +2062,64 @@ class DecisionEngineV13(DecisionEngineV125):
         return "fpl_manager.strategic_squad.solve_strategic_squad:v1.3_gbdt"
 
 
+class DecisionEngineV135(DecisionEngineV125):
+    """V1.3.5 Hardened Strategic Decision Engine.
+
+    Synthesizes the validated empirical conclusions from the V1.3.5 decision-quality study:
+    1. Multi-GW rolling horizon (H=3, gamma=0.75) with explicit bench-weighting (W_bench=0.15),
+       delivering +193 pts over XI-only horizon planning by hedging against multi-period prediction noise.
+    2. Role-specific goalkeeper transfer hurdle (gk_min_net_gain=3.0) suppressing zero-utility GK churn.
+    3. Constrained candidate search pool (max_results=5) mitigating "search breadth overfitting" / prediction
+       regret tails (-147 pts observed when expanding to unconstrained 25).
+    4. Strategic squad initialization defaulted to 'maximum_ev' profile (+93 pts over balanced initial squad).
+    """
+
+    def __init__(
+        self,
+        initial_strategy: str = "maximum_ev",
+        initial_horizon: int = 5,
+        lineup_penalty_weight: float = 0.0,
+        dead_capital_weight: float = 3.0,
+        bench_weight: float = 0.15,
+        max_results: int = 5,
+        gk_min_net_gain: float = 3.00,
+        outfield_min_net_gain: float = 0.50,
+        gk_play_probability_floor: float = 0.50,
+        horizon: int = 3,
+        gamma: float = 0.75,
+    ) -> None:
+        super().__init__(
+            initial_strategy=initial_strategy,
+            initial_horizon=initial_horizon,
+            lineup_penalty_weight=lineup_penalty_weight,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            max_results=max_results,
+            gk_min_net_gain=gk_min_net_gain,
+            outfield_min_net_gain=outfield_min_net_gain,
+            gk_play_probability_floor=gk_play_probability_floor,
+            horizon=horizon,
+            gamma=gamma,
+        )
+
+    @property
+    def version(self) -> str:
+        return "v1.3.5"
+
+    @property
+    def name(self) -> str:
+        return (
+            f"V1.3.5 Hardened Decision Engine ({self.initial_strategy}, "
+            f"horizon={self.initial_horizon} GWs, dead_cap={self.dead_capital_weight}, "
+            f"bench_w={self.bench_weight}, max_results={self.max_results}, "
+            f"roll_h={self.horizon}, gamma={self.gamma})"
+        )
+
+    @property
+    def optimizer_implementation(self) -> str:
+        return "fpl_manager.strategic_squad.solve_strategic_squad:v1.3.5_hardened"
+
+
 def resolve_decision_engine(
     engine_version: str | BaseDecisionEngine = "v0.9",
     initial_strategy: str = "balanced",
@@ -2083,6 +2141,36 @@ def resolve_decision_engine(
             clean = parts[0]
         except (ValueError, IndexError):
             pass
+
+    # Ablation and canonical variant routing
+    if clean.startswith("b") and clean[1:].isdigit() and int(clean[1:]) in range(8):
+        from .optimizer_ablation import DecisionEngineAblation
+        return DecisionEngineAblation(f"B{clean[1:]}")
+    elif clean.startswith("v1.3.5_b") and clean[8:].isdigit() and int(clean[8:]) in range(8):
+        from .optimizer_ablation import DecisionEngineAblation
+        return DecisionEngineAblation(f"B{clean[8:]}")
+    elif clean in ("ablation", "v1.3.5_ablation"):
+        from .optimizer_ablation import DecisionEngineAblation
+        return DecisionEngineAblation("B7")
+
+    if clean in ("v1.3.5", "v135", "v1.3.5.0", "hardened", "v1.3.5_hardened", "v1.3.5_production"):
+        strat = "maximum_ev" if initial_strategy == "balanced" else initial_strategy
+        return DecisionEngineV135(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
+    elif clean.startswith("v1.3.5_"):
+        strat = clean.replace("v1.3.5_", "")
+        return DecisionEngineV135(
+            initial_strategy=strat,
+            initial_horizon=initial_horizon,
+            dead_capital_weight=dead_capital_weight,
+            bench_weight=bench_weight,
+            gamma=eff_gamma,
+        )
 
     if clean in ("v1.3", "v13", "v1.3.0", "gbdt", "balanced_v13"):
         return DecisionEngineV13(

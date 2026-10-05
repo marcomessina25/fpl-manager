@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.3-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.3.5-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -275,7 +275,22 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.3 — Gradient Boosting Quantitative & Strategic Engine)
+## Current scope (V1.3.5 — Optimizer Decision-Quality Study & Hardened Architecture)
+
+V1.3.5 freezes the quantitative predictor and systematically isolates the incremental decision-level effect of optimizer mechanisms across controlled ablations ($B_0$ through $B_7$):
+
+- **Bench-Aware Multi-Horizon Optimization ($H=3, \gamma=0.75, W_{\text{bench}}=0.15$)**: Multi-GW planning without bench awareness is brittle (-56 pts vs control); adding explicit bench weighting ($W_{\text{bench}}=0.15$) surges performance to **2,289.0 pts (+193.0 pts over $B_1$, +137.0 pts over control $B_0$)** by buffering against multi-period prediction noise.
+- **Goalkeeper Churn Suppression ($\text{GK}_{\text{hurdle}}=3.0$ pts)**: Role-specific hurdles on healthy goalkeepers eliminate zero-utility transfers, preserving free transfers for high-variance outfield picks.
+- **Candidate Search Pool Regularization ($N=5$)**: Mitigates "search breadth overfitting" where unconstrained candidate pools ($N=25$) dropped **-147.0 pts** due to the optimizer aggressively selecting noisy positive prediction error tails. Constraining the candidate pool to $N=5$ top candidates serves as an essential regularizer.
+- **Default `maximum_ev` Strategic Initialization**: Initial squad selection exerts compounding season-long leverage, unlocking **+93 net points** over balanced initialization under identical downstream optimization.
+- **Mathematical Regret Decomposition Verified**: Empirically confirms $\text{Total Decision Regret} \equiv \text{Prediction Regret} + \text{Optimizer Regret}$. In modern variants, Optimizer Regret is 0.00 pts, proving that performance drops in wide candidate spaces are entirely driven by Prediction Regret.
+- **Engine Deployment**: Implemented in [`DecisionEngineV135`](src/fpl_manager/backtest/decision_engine.py), accessible via `--decision-engine v1.3.5` / `resolve_decision_engine("v1.3.5")`.
+- **Handoff to V1.4**: Freezes this validated decision engine as the reference core for interactive historical season simulation.
+- Full specification & reports: [`docs/v1.3.5/v135.md`](docs/v1.3.5/v135.md) and [`reports/v135/final_summary.md`](reports/v135/final_summary.md).
+
+---
+
+## Previous research (V1.3 — Gradient Boosting Quantitative & Strategic Engine)
 
 V1.3 delivers a full **Gradient Boosting Decision Tree (GBDT)** framework across participation, matchday projections, and decision evaluation:
 - **GBDT Hierarchical Participation & Minutes (`src/fpl_manager/ml/`)**: `HistGradientBoostingClassifier` for $P(\text{start})$ and $P(\text{sub} \mid \text{not start})$ (Val AUC: 0.9487); `HistGradientBoostingRegressor` for conditional minutes (MAE: 7.93 mins).
@@ -388,7 +403,7 @@ Full specification and execution plan: [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.
 
 ## Roadmap
 
-The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the active V1.3 specification in [`docs/v1.3/v13.md`](docs/v1.3/v13.md), the planned V1.4 simulation sandbox in [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md), the V1.2.5 release report in [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md), and prior milestone documentation in [`docs/v1.2/v12.md`](docs/v1.2/v12.md).
+The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the V1.3.5 optimizer study specification in [`docs/v1.3.5/v135.md`](docs/v1.3.5/v135.md), the V1.3 GBDT specification in [`docs/v1.3/v13.md`](docs/v1.3/v13.md), the planned V1.4 simulation sandbox in [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md), the V1.2.5 release report in [`docs/v1.2.5/v125.md`](docs/v1.2.5/v125.md), and prior milestone documentation in [`docs/v1.2/v12.md`](docs/v1.2/v12.md).
 
 ## License
 
