@@ -1954,6 +1954,7 @@ class DecisionEngineV125(DecisionEngineV12):
                 ticker_map=ticker_map,
                 risk_profile=risk_profile,
                 max_results=self.max_results,
+                cand_limit=getattr(self, "cand_limit", None),
                 dead_capital_weight=self.dead_capital_weight,
             )
             for rec in recs:

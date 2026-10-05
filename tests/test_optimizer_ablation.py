@@ -148,6 +148,35 @@ class TestDecisionEngineAblationWiring(unittest.TestCase):
         hurdle_b4 = eng_with_hurdle._get_transfer_hurdle([1], opt_map, proj_map, min_net_gain=0.50)
         self.assertEqual(hurdle_b4, 3.00)
 
+    def test_candidate_pool_size_and_initial_strategy_propagation(self):
+        b4 = DecisionEngineAblation("B4")
+        b5 = DecisionEngineAblation("B5")
+        b6 = DecisionEngineAblation("B6")
+
+        self.assertEqual(b4.cand_limit, 5)
+        self.assertEqual(b4.initial_strategy, "v10_heuristic")
+
+        self.assertEqual(b5.cand_limit, 25)
+        self.assertEqual(b5.initial_strategy, "v10_heuristic")
+
+        self.assertEqual(b6.cand_limit, 25)
+        self.assertEqual(b6.initial_strategy, "strategic_balanced")
+
+    def test_simulation_execution_duration_recorded(self):
+        from pathlib import Path
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2024-25")
+        eng = DecisionEngineAblation("B0")
+        strat = OptimizerStrategy(1, decision_engine=eng)
+        res = run_sequential_simulation(season_dir, strat, decision_engine=eng, start_gw=1, end_gw=2, use_chips=False)
+
+        self.assertEqual(len(res.history), 2)
+        for h in res.history:
+            self.assertGreater(h.execution_duration_ms, 0.0)
+
+
 
 class TestDecisionRegretDecomposition(unittest.TestCase):
     """Test mathematical correctness and invariant identities of the Decision-Regret Framework."""

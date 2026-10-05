@@ -275,15 +275,15 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-## Current scope (V1.3.5 — Optimizer Decision-Quality Study & Hardened Architecture)
+### Current scope (V1.3.5 — Optimizer Decision-Quality Study & Hardened Architecture)
 
 V1.3.5 freezes the quantitative predictor and systematically isolates the incremental decision-level effect of optimizer mechanisms across controlled ablations ($B_0$ through $B_7$):
 
-- **Bench-Aware Multi-Horizon Optimization ($H=3, \gamma=0.75, W_{\text{bench}}=0.15$)**: Multi-GW planning without bench awareness is brittle (-56 pts vs control); adding explicit bench weighting ($W_{\text{bench}}=0.15$) surges performance to **2,289.0 pts (+193.0 pts over $B_1$, +137.0 pts over control $B_0$)** by buffering against multi-period prediction noise.
-- **Goalkeeper Churn Suppression ($\text{GK}_{\text{hurdle}}=3.0$ pts)**: Role-specific hurdles on healthy goalkeepers eliminate zero-utility transfers, preserving free transfers for high-variance outfield picks.
-- **Candidate Search Pool Regularization ($N=5$)**: Mitigates "search breadth overfitting" where unconstrained candidate pools ($N=25$) dropped **-147.0 pts** due to the optimizer aggressively selecting noisy positive prediction error tails. Constraining the candidate pool to $N=5$ top candidates serves as an essential regularizer.
-- **Default `maximum_ev` Strategic Initialization**: Initial squad selection exerts compounding season-long leverage, unlocking **+93 net points** over balanced initialization under identical downstream optimization.
-- **Mathematical Regret Decomposition Verified**: Empirically confirms $\text{Total Decision Regret} \equiv \text{Prediction Regret} + \text{Optimizer Regret}$. In modern variants, Optimizer Regret is 0.00 pts, proving that performance drops in wide candidate spaces are entirely driven by Prediction Regret.
+- **Bench-Aware Multi-Horizon Optimization ($H=3, \gamma=0.75, W_{\text{bench}}=0.15$)**: Multi-GW planning without bench awareness is brittle (-82.0 pts vs control); adding explicit bench weighting ($W_{\text{bench}}=0.15$) recovers performance to **2,252.0 pts in $B_3$ (+10.0 pts over $B_1$, +19.0 pts over $B_2$)** by buffering against multi-period prediction noise.
+- **Goalkeeper Churn Suppression ($\text{GK}_{\text{hurdle}}=3.0$ pts)**: Role-specific hurdles on healthy goalkeepers eliminate zero-utility transfers, reserving free transfers for high-variance outfield picks.
+- **Candidate Search Pool Expansion & Search Limits**: When expanding candidate pool breadth ($N=5 \to 25$), $B_5$ delivers **2,224.0 pts (+16.0 pts over constrained $B_4$)** by discovering higher-quality outfield transfer pathways.
+- **Default `maximum_ev` Strategic Initialization**: Initial squad selection exerts compounding season-long leverage, unlocking **+87 net points** over balanced initialization under identical downstream optimization (State C: 2,235 pts vs State B: 2,148 pts).
+- **Mathematical Regret Decomposition Verified**: Empirically confirms $\text{Total Decision Regret} \equiv \text{Prediction Regret} + \text{Optimizer Regret}$. In modern variants, Optimizer Regret is 0.00 pts, proving that performance variance is primarily driven by Prediction Regret ($20.17$ to $21.83$ pts).
 - **Engine Deployment**: Implemented in [`DecisionEngineV135`](src/fpl_manager/backtest/decision_engine.py), accessible via `--decision-engine v1.3.5` / `resolve_decision_engine("v1.3.5")`.
 - **Handoff to V1.4**: Freezes this validated decision engine as the reference core for interactive historical season simulation.
 - Full specification & reports: [`docs/v1.3.5/v135.md`](docs/v1.3.5/v135.md) and [`reports/v135/final_summary.md`](reports/v135/final_summary.md).

@@ -63,12 +63,8 @@ def run_ablation_simulation(
     )
     t1 = time.perf_counter()
 
-    # Approximate per-GW runtime
-    total_time_ms = (t1 - t0) * 1000.0
-    gw_count = max(1, end_gw - start_gw + 1)
-    avg_gw_ms = total_time_ms / gw_count
-    # Synthesize per-GW distribution centered on avg_gw_ms
-    durations_ms = [avg_gw_ms] * gw_count
+    # Extract authentic per-GW execution duration from simulation history
+    durations_ms = [h.execution_duration_ms for h in res.history]
 
     summary = {
         "variant": config.name,

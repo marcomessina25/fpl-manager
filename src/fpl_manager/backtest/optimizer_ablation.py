@@ -214,12 +214,14 @@ class DecisionEngineAblation(DecisionEngineV125):
             initial_horizon=5,
             dead_capital_weight=self.config.dead_capital_weight,
             bench_weight=self.config.bench_weight,
-            max_results=self.config.candidate_pool_size,
+            max_results=25,
             gk_min_net_gain=self.config.gk_min_net_gain,
             outfield_min_net_gain=self.config.outfield_min_net_gain,
             horizon=self.config.horizon,
             gamma=self.config.gamma,
         )
+        self.initial_strategy = self.config.initial_strategy_mode
+        self.cand_limit = self.config.candidate_pool_size
         self.is_chip_aware = self.config.chip_aware
 
     @property
@@ -255,13 +257,23 @@ class DecisionEngineAblation(DecisionEngineV125):
         mode: str | None = None,
     ) -> tuple[list[int], dict[int, int], int]:
         """Initialize squad according to initial_strategy_mode."""
-        if self.config.initial_strategy_mode == "v10_heuristic" and snapshot.gameweek == 1 and mode is None:
+        if (
+            self.config.initial_strategy_mode in ("v10_heuristic", "heuristic", "v10")
+            and snapshot.gameweek == 1
+            and mode is None
+        ):
             # Starting State A: Pure V1.0 heuristic construction
             v10_engine = DecisionEngineV10()
             return v10_engine.initialize_squad(snapshot, projections, budget_tenths=budget_tenths)
 
         # Strategic squad construction (Starting State B / C)
         eff_bw = bench_weight if bench_weight is not None else self.config.bench_weight
+        eff_strat = (
+            "maximum_ev"
+            if "maximum_ev" in self.config.initial_strategy_mode
+            else ("floor" if "floor" in self.config.initial_strategy_mode else "balanced")
+        )
+        self.initial_strategy = eff_strat
         return super().initialize_squad(
             snapshot,
             projections,
@@ -285,6 +297,14 @@ class DecisionEngineAblation(DecisionEngineV125):
         min_net_gain: float = 0.50,
         projections_by_gw: dict[int, dict[int, float]] | None = None,
     ) -> list[tuple[int, int]]:
+        # Explicitly propagate ablation configuration
+        self.cand_limit = self.config.candidate_pool_size
+        self.dead_capital_weight = self.config.dead_capital_weight
+        self.horizon = self.config.horizon
+        self.gamma = self.config.gamma
+        self.gk_min_net_gain = self.config.gk_min_net_gain
+        self.outfield_min_net_gain = self.config.outfield_min_net_gain
+
         # If chip-aware is disabled, ensure bench_weight remains static regardless of caller overrides
         if not self.config.chip_aware:
             self.bench_weight = self.config.bench_weight

@@ -12,8 +12,8 @@ $$\text{Total Decision Regret} = \text{Prediction Regret} + \text{Optimizer Regr
 
 | Variant | Mean Prediction Regret | Mean Optimizer Regret | Mean Total Decision Regret | Identity Verified |
 |---|---:|---:|---:|:---:|
-| **B0** | 6.00 pts | 2.17 pts | **8.17 pts** | ✅ |
-| **B3** | 6.50 pts | 0.00 pts | **6.50 pts** | ✅ |
+| **B0** | 20.17 pts | 1.00 pts | **21.17 pts** | ✅ |
+| **B3** | 20.83 pts | 0.00 pts | **20.83 pts** | ✅ |
 | **B7** | 21.83 pts | 0.00 pts | **21.83 pts** | ✅ |
 
 ---

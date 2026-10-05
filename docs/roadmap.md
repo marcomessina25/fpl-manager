@@ -135,11 +135,11 @@ V1.3.5
 Optimizer Decision-Quality Study & Hardened Architecture
 + Freeze the quantitative predictor
 + Optimizer component ablations (B0 through B7)
-+ Bench-aware multi-horizon optimization (+193 pts over XI-only)
-+ Goalkeeper churn suppression (3.0 pt hurdle)
-+ Candidate pool regularization (N=5 mitigating noisy tail overfitting)
-+ Starting-state primacy (maximum_ev init +93 pts)
-+ Formal regret decomposition (Optimizer Regret = 0.00 pts verified)
++ Bench-aware multi-horizon optimization (B3: 2,252 pts, buffering prediction noise)
++ Goalkeeper churn suppression (3.0 pt hurdle preserving outfield transfers)
++ Candidate pool expansion & search limits (B5: 2,224 pts vs B4: 2,208 pts)
++ Starting-state primacy (maximum_ev init +87 pts over balanced)
++ Formal regret decomposition (Prediction Regret dominates, Optimizer Regret <= 1.0 pt)
 + DecisionEngineV135 deployed as hardened reference baseline
         ↓
 V1.4
