@@ -211,5 +211,92 @@ class TestDecisionRegretDecomposition(unittest.TestCase):
         self.assertGreaterEqual(rec.total_decision_regret, 0.0)
 
 
+class TestAblationVariantsDivergence(unittest.TestCase):
+    """Test that ablation variants actually change optimization behavior and decisions in practice."""
+
+    def test_b4_vs_b5_candidate_pool_expansion_divergence(self):
+        """Candidate pool size (5 vs 25) must measurably change transfer discovery and selection."""
+        from pathlib import Path
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2024-25")
+        b4 = DecisionEngineAblation(ABLATION_VARIANTS["B4"])
+        b5 = DecisionEngineAblation(ABLATION_VARIANTS["B5"])
+
+        r4 = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=b4), decision_engine=b4, start_gw=1, end_gw=3, use_chips=False)
+        r5 = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=b5), decision_engine=b5, start_gw=1, end_gw=3, use_chips=False)
+
+        # In GW 3, B4 (pool 5) selects player 91 while B5 (pool 25) discovers higher-utility player 469
+        self.assertNotEqual(r4.history[2].transfers, r5.history[2].transfers)
+        self.assertEqual(r4.history[2].transfers, ((396, 91),))
+        self.assertEqual(r5.history[2].transfers, ((396, 469),))
+
+    def test_b3_vs_b4_transfer_decision_divergence(self):
+        """Role-specific GK hurdles must measurably alter transfer choices over the season."""
+        from pathlib import Path
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2024-25")
+        b3 = DecisionEngineAblation(ABLATION_VARIANTS["B3"])
+        b4 = DecisionEngineAblation(ABLATION_VARIANTS["B4"])
+
+        r3 = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=b3), decision_engine=b3, start_gw=1, end_gw=10, use_chips=False)
+        r4 = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=b4), decision_engine=b4, start_gw=1, end_gw=10, use_chips=False)
+
+        # By GW 10, transfer trajectories have diverged due to role hurdle enforcement
+        self.assertNotEqual(r3.history[9].transfers, r4.history[9].transfers)
+        self.assertEqual(r3.history[9].transfers, ((413, 383),))
+        self.assertEqual(r4.history[9].transfers, ((17, 99),))
+
+    def test_starting_state_divergence(self):
+        """Starting State A (v10_heuristic), B (strategic_balanced), and C (strategic_maximum_ev) produce distinct initial squads."""
+        from pathlib import Path
+        from fpl_manager.backtest.engine import run_sequential_simulation
+        from fpl_manager.backtest.strategies import OptimizerStrategy
+
+        season_dir = Path("data/historical/2024-25")
+        eng_a = DecisionEngineAblation(OptimizerAblationConfig(name="A", description="State A", initial_strategy_mode="v10_heuristic"))
+        eng_b = DecisionEngineAblation(OptimizerAblationConfig(name="B", description="State B", initial_strategy_mode="strategic_balanced"))
+        eng_c = DecisionEngineAblation(OptimizerAblationConfig(name="C", description="State C", initial_strategy_mode="strategic_maximum_ev"))
+
+        ra = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=eng_a), decision_engine=eng_a, start_gw=1, end_gw=1, use_chips=False)
+        rb = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=eng_b), decision_engine=eng_b, start_gw=1, end_gw=1, use_chips=False)
+        rc = run_sequential_simulation(season_dir, OptimizerStrategy(1, decision_engine=eng_c), decision_engine=eng_c, start_gw=1, end_gw=1, use_chips=False)
+
+        self.assertNotEqual(set(ra.history[0].starting_ids), set(rb.history[0].starting_ids))
+        self.assertNotEqual(set(rb.history[0].starting_ids), set(rc.history[0].starting_ids))
+        self.assertEqual(ra.history[0].gross_points, 83)
+        self.assertEqual(rb.history[0].gross_points, 47)
+        self.assertEqual(rc.history[0].gross_points, 52)
+
+    def test_b6_vs_b7_chip_aware_weight_enforcement(self):
+        """B6 clamps bench weight to static default, while B7 respects dynamic chip-aware weights."""
+        from unittest.mock import MagicMock
+
+        b6 = DecisionEngineAblation(ABLATION_VARIANTS["B6"])
+        b7 = DecisionEngineAblation(ABLATION_VARIANTS["B7"])
+
+        mock_snap = MagicMock()
+        mock_snap.gameweek = 19
+        mock_snap.fixtures = []
+        mock_projs = []
+
+        # Simulate caller passing dynamic bench weight 0.99 (Bench Boost)
+        b6.bench_weight = 0.99
+        b7.bench_weight = 0.99
+
+        # When deciding transfers:
+        # B6 has chip_aware=False -> clamps bench_weight back to 0.15
+        # B7 has chip_aware=True -> retains dynamic bench_weight 0.99
+        b6.decide_transfers("notransfer", [], {}, 0, 1, mock_snap, mock_projs)
+        b7.decide_transfers("notransfer", [], {}, 0, 1, mock_snap, mock_projs)
+
+        self.assertEqual(b6.bench_weight, 0.15)
+        self.assertEqual(b7.bench_weight, 0.99)
+
+
 if __name__ == "__main__":
     unittest.main()
+
