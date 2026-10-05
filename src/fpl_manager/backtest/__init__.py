@@ -2,6 +2,7 @@ from .decision_engine import (
     BaseDecisionEngine,
     DecisionEngineV08,
     DecisionEngineV09,
+    DecisionEngineV135,
     resolve_decision_engine,
 )
 from .engine import SimulationResult, run_decision_backtest, run_sequential_simulation
@@ -35,6 +36,7 @@ __all__ = [
     "BaseDecisionEngine",
     "DecisionEngineV08",
     "DecisionEngineV09",
+    "DecisionEngineV135",
     "ParticipationDiagnosticRecord",
     "ResidualRecord",
     "SimulationResult",

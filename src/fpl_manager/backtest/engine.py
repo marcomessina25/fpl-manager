@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 from ..chip_strategy import SeasonalChipInventory, SeasonalChipPolicy
@@ -56,6 +57,7 @@ class GameweekDecisionResult:
     transfers_gross_gain: int = 0
     transfers_net_gain: int = 0
     chip_used: str | None = None
+    execution_duration_ms: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,15 +403,24 @@ def run_sequential_simulation(
     if hasattr(strategy, "decision_engine"):
         strategy.decision_engine = dec_engine
 
-    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5", "v1.3"))
+    apply_dep = (dec_engine.version in ("v1.1.5", "v1.2", "v1.2.5", "v1.3") or dec_engine.version.startswith("v1.3.5"))
     apply_unavail = (dec_engine.version == "v1.2")
 
     # 1. Initialize squad at start_gw
     init_snap = build_historical_snapshot(season_dir, start_gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)
     init_projs = reconstruct_features_and_project(init_snap, predictor_version=predictor_version)
 
+    is_heuristic_init = (
+        chosen_initial_strategy in ("v10_heuristic", "heuristic", "v10", "v1.0")
+        or getattr(getattr(dec_engine, "config", None), "initial_strategy_mode", "") in ("v10_heuristic", "heuristic", "v10", "v1.0")
+    )
+
     if initial_squad_ids is None:
-        if dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5", "v1.3") or initial_strategy is not None:
+        if not is_heuristic_init and (
+            dec_engine.version in ("v1.1", "v1.1.5", "v1.2", "v1.2.5", "v1.3")
+            or dec_engine.version.startswith("v1.3.5")
+            or initial_strategy is not None
+        ):
             try:
                 from .strategic_analysis import load_historical_strategic_players
                 from ..strategic_squad import StrategicConstraints, solve_strategic_squad
@@ -427,7 +438,7 @@ def run_sequential_simulation(
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
                     ]
-                elif dec_engine.version in ("v1.2", "v1.2.5", "v1.3"):
+                elif dec_engine.version in ("v1.2", "v1.2.5", "v1.3") or dec_engine.version.startswith("v1.3.5"):
                     strat_players = [
                         p for p in strat_players
                         if not is_departed_from_premier_league(p, init_snap)
@@ -441,10 +452,15 @@ def run_sequential_simulation(
                     target_gameweeks=tuple(range(start_gw, min(39, start_gw + chosen_initial_horizon))),
                     bench_weight=bench_w,
                 )
+                strat_profile = (
+                    "maximum_ev"
+                    if "maximum_ev" in chosen_initial_strategy
+                    else ("floor" if "floor" in chosen_initial_strategy else "balanced")
+                )
                 cand = solve_strategic_squad(
                     candidate_pool=strat_players,
                     constraints=c,
-                    strategy=chosen_initial_strategy,
+                    strategy=strat_profile,
                     mode="initial",
                     horizon=chosen_initial_horizon,
                     bench_weight=bench_w,
@@ -482,6 +498,7 @@ def run_sequential_simulation(
 
     # 2. Sequential simulation loop
     for gw in range(start_gw, end_gw + 1):
+        t_gw_start = time.perf_counter()
         snapshot = build_historical_snapshot(season_dir, gw, apply_departures=apply_dep, apply_unavailability=apply_unavail)
         projections = reconstruct_features_and_project(snapshot, predictor_version=predictor_version)
         proj_map = {p.player_id: p for p in projections}
@@ -505,7 +522,8 @@ def run_sequential_simulation(
 
         # Determine dynamic chip-aware bench weight (Pillar 5)
         eff_bench_weight = getattr(dec_engine, "bench_weight", 0.15)
-        if use_chips and dec_engine.version in ("v1.2.5", "v1.3"):
+        is_dynamic_chip = dec_engine.version in ("v1.2.5", "v1.3") or getattr(dec_engine, "is_chip_aware", False)
+        if use_chips and is_dynamic_chip:
             if current_chip == "free_hit":
                 eff_bench_weight = 0.05
             elif current_chip == "bench_boost":
@@ -543,7 +561,7 @@ def run_sequential_simulation(
             total_funds = bank + sum(selling_prices.values())
 
             try:
-                if dec_engine.version == "v1.2.5":
+                if is_dynamic_chip:
                     chip_mode = "free_hit" if current_chip == "free_hit" else None
                     new_squad_ids, new_prices, new_bank = dec_engine.initialize_squad(
                         snapshot, projections, budget_tenths=total_funds, bench_weight=eff_bench_weight, mode=chip_mode
@@ -571,7 +589,7 @@ def run_sequential_simulation(
             # Strategy decides transfers with chip-aware bench weight
             old_bw = getattr(dec_engine, "bench_weight", 0.15)
             try:
-                if dec_engine.version == "v1.2.5":
+                if is_dynamic_chip:
                     dec_engine.bench_weight = eff_bench_weight
                 chosen_transfers = strategy.decide_transfers(
                     current_squad_ids=squad_ids,
@@ -582,7 +600,7 @@ def run_sequential_simulation(
                     projections=projections,
                 )
             finally:
-                if dec_engine.version == "v1.2.5":
+                if is_dynamic_chip:
                     dec_engine.bench_weight = old_bw
 
             # Apply transfers
@@ -642,6 +660,7 @@ def run_sequential_simulation(
         subbed_in_set = {sub_in for _, sub_in in autosubs}
         unused_bench = [b_id for b_id in bench if b_id not in subbed_in_set]
         bench_regret = sum(outcomes[b_id].total_points for b_id in unused_bench if outcomes.get(b_id) and outcomes[b_id].total_points > 0)
+        gw_duration_ms = round((time.perf_counter() - t_gw_start) * 1000.0, 2)
 
         history.append(
             GameweekDecisionResult(
@@ -665,6 +684,7 @@ def run_sequential_simulation(
                 transfers_gross_gain=t_gross_gain,
                 transfers_net_gain=t_net_gain,
                 chip_used=current_chip,
+                execution_duration_ms=gw_duration_ms,
             )
         )
 
