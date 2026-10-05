@@ -1164,6 +1164,49 @@ def main(argv: list[str] | None = None) -> None:
         bt_p.add_argument("--compare-versions", action="store_true", help="Execute multi-version benchmark comparing V0.9, V1.0, V1.1, and V1.1.5 (Pillar 4)")
         bt_p.add_argument("--output-dir", type=Path, default=None, help="Output directory for generated reports (default: reports/v11/ or reports/v115/)")
 
+    # Historical Simulation / Time Machine CLI (V1.4)
+    sim_parser = subcommands.add_parser("sim", help="Interactive historical season simulation & human-in-the-loop benchmark (V1.4)")
+    sim_sub = sim_parser.add_subparsers(dest="sim_command", required=True)
+
+    sc_create = sim_sub.add_parser("create", help="Create a new historical simulation session")
+    sc_create.add_argument("--id", "-i", type=str, required=True, help="Unique simulation session ID")
+    sc_create.add_argument("--season", "-s", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
+    sc_create.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
+    sc_create.add_argument("--strategy", type=str, default="v1.2.5", help="Starting squad strategy baseline (default: v1.2.5)")
+    sc_create.add_argument("--manager", type=str, default="Human Manager", help="Manager name")
+
+    sim_sub.add_parser("list", help="List all historical simulation sessions")
+
+    sc_status = sim_sub.add_parser("status", help="Show current simulation state, squad, bank, and chips")
+    sc_status.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+
+    sc_over = sim_sub.add_parser("overview", help="Display point-in-time league standings, past results, and upcoming fixtures")
+    sc_over.add_argument("--season", "-s", type=str, default="2023-24", help="Historical season")
+    sc_over.add_argument("--gameweek", "-g", type=int, default=1, help="Gameweek deadline")
+
+    sc_tx = sim_sub.add_parser("transfer", help="Stage a transfer (swap out_id for in_id)")
+    sc_tx.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+    sc_tx.add_argument("--out", type=int, required=True, help="Player ID to transfer out")
+    sc_tx.add_argument("--in", dest="in_id", type=int, required=True, help="Player ID to transfer in")
+
+    sc_ctx = sim_sub.add_parser("clear-transfers", help="Clear staged transfers")
+    sc_ctx.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+
+    sc_chip = sim_sub.add_parser("chip", help="Play or cancel a chip")
+    sc_chip.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+    sc_chip.add_argument("--play", choices=["wildcard", "free_hit", "bench_boost", "triple_captain"], help="Chip to play")
+    sc_chip.add_argument("--cancel", action="store_true", help="Cancel active chip")
+
+    sc_rec = sim_sub.add_parser("recommendations", help="Get frozen baseline engine recommendations for current deadline")
+    sc_rec.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+
+    sc_run = sim_sub.add_parser("run-gw", help="Resolve historical matchday outcomes and step forward to next gameweek")
+    sc_run.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+
+    sc_rep = sim_sub.add_parser("report", help="Generate summary analytics and human-vs-engine comparison report")
+    sc_rep.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+    sc_rep.add_argument("--export", action="store_true", help="Export JSON and Markdown reports to reports/simulations/")
+
     arguments = parser.parse_args(argv)
 
     try:
@@ -1714,6 +1757,119 @@ def main(argv: list[str] | None = None) -> None:
                 seasons_list = [s.strip() for s in arguments.seasons.split(",") if s.strip()]
                 res = run_multi_season_summary(seasons=seasons_list, horizon=horizon, end_gw=end_gw, output_dir=out_dir)
                 print(f"Multi-season summary report saved to: {res.get('report_path')}")
+        elif arguments.command == "sim":
+            from .simulation import HistoricalSimulationSession
+            from .historical.standings import get_historical_matchday_overview
+
+            if arguments.sim_command == "create":
+                sim = HistoricalSimulationSession.create(
+                    session_id=arguments.id,
+                    season=arguments.season,
+                    start_gw=arguments.start_gw,
+                    starting_strategy=arguments.strategy,
+                    manager_name=arguments.manager,
+                )
+                print(f"Created simulation '{sim.session_id}' ({sim.season}, GW {sim.current_gw}). Bank: £{sim.bank_tenths/10:.1f}m, FTs: {sim.free_transfers}.")
+            elif arguments.sim_command == "list":
+                sessions = HistoricalSimulationSession.list_sessions()
+                if not sessions:
+                    print("No simulation sessions found. Use `fpl sim create` to start one.")
+                else:
+                    print(f"{'ID':<25} {'SEASON':<10} {'GW':<5} {'NET PTS':<10} {'STATUS':<10}")
+                    print("-" * 65)
+                    for s in sessions:
+                        print(f"{s['session_id']:<25} {s['season']:<10} {s['current_gw']:<5} {s['total_net_points']:<10} {s['status']:<10}")
+            elif arguments.sim_command == "overview":
+                over = get_historical_matchday_overview(arguments.season, arguments.gameweek)
+                print(f"\n=== Premier League Standings ({arguments.season} - Before GW {arguments.gameweek}) ===")
+                print(f"{'Pos':<4} {'Club':<20} {'P':<4} {'W':<4} {'D':<4} {'L':<4} {'GD':<5} {'Pts':<5} {'Form':<10}")
+                print("-" * 60)
+                for st in over["standings"]:
+                    form_str = "".join(st["form"]) if st["form"] else "-"
+                    print(f"{st['position']:<4} {st['name']:<20} {st['played']:<4} {st['won']:<4} {st['drawn']:<4} {st['lost']:<4} {st['goal_difference']:<5} {st['points']:<5} {form_str:<10}")
+
+                if over["past_results"]:
+                    print(f"\n=== Recent Match Results ===")
+                    for r in over["past_results"][:10]:
+                        print(f"GW{r['event']:<2} {r['team_h_name']:>18} {r['team_h_score']} - {r['team_a_score']} {r['team_a_name']:<18}")
+
+                print(f"\n=== Upcoming Fixtures (GW {arguments.gameweek} - Zero Spoilers) ===")
+                for u in over["upcoming_fixtures"]:
+                    print(f"GW{u['event']:<2} {u['team_h_name']:>18} (FDR {u['team_h_difficulty']}) vs (FDR {u['team_a_difficulty']}) {u['team_a_name']:<18}")
+            elif arguments.sim_command == "status":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                squad = sim.get_squad_player_details()
+                tot_net = sum(h.get('net_points',0) for h in sim.history)
+                print(f"\n=== Simulation: {sim.session_id} ({sim.season} - GW {sim.current_gw}) ===")
+                print(f"Status: {sim.status} | Total Net: {tot_net} pts | Bank: £{sim.bank_tenths/10:.1f}m | FTs: {sim.free_transfers} | Chip: {sim.active_chip or 'None'}")
+                print("\nSquad (11 Starters, 4 Bench):")
+                print(f"{'Role':<8} {'Pos':<5} {'Name':<22} {'Price':<8} {'Pts':<5}")
+                print("-" * 50)
+                for p in squad:
+                    role = "STARTER" if p["is_starter"] else f"BENCH {p['bench_order']}"
+                    if p["is_captain"]: role += " (C)"
+                    elif p["is_vice_captain"]: role += " (V)"
+                    print(f"{role:<8} {p['pos_abbr']:<5} {p['name']:<22} {p['selling_price_fmt']:<8} {p['total_points']:<5}")
+                if sim.transfers_staged:
+                    print(f"\nStaged Transfers ({len(sim.transfers_staged)}):")
+                    for st in sim.transfers_staged:
+                        print(f"  OUT: {st['out_name']} -> IN: {st['in_name']} (Cost: £{st['cost_tenths']/10:.1f}m)")
+            elif arguments.sim_command == "transfer":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                st = sim.stage_transfer(arguments.out, arguments.in_id)
+                print(f"Staged transfer: {st['out_name']} -> {st['in_name']} (Cost: £{st['cost_tenths']/10:.1f}m). Staged total: {len(sim.transfers_staged)}.")
+            elif arguments.sim_command == "clear-transfers":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                sim.clear_staged_transfers()
+                print(f"Cleared staged transfers for simulation '{sim.session_id}'.")
+            elif arguments.sim_command == "chip":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                if arguments.cancel:
+                    sim.cancel_chip()
+                    print("Cancelled active chip.")
+                elif arguments.play:
+                    act = sim.play_chip(arguments.play)
+                    print(f"Activated chip '{act}' for Gameweek {sim.current_gw}.")
+            elif arguments.sim_command == "recommendations":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                recs = sim.get_recommendations()
+                print(f"\n=== Frozen Engine Recommendations (GW {recs['gameweek']}) ===")
+                print(f"Predicted Lineup xP: {recs['predicted_lineup_xp']}")
+                print(f"Recommended Captain: {recs['recommended_captain']}")
+                if recs['recommended_transfers']:
+                    print("Suggested Transfers:")
+                    for t in recs['recommended_transfers']:
+                        print(f"  {t['out_name']} -> {t['in_name']} (+{t['xp_gain']} xP)")
+                else:
+                    print("Suggested Transfers: Roll free transfer (no moves).")
+            elif arguments.sim_command == "run-gw":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                res = sim.run_gameweek()
+                print(f"\n=== Gameweek {res['gameweek']} Matchday Resolved ===")
+                print(f"Net Points: {res['net_points']} (Gross: {res['gross_points']} | Hits: -{res['transfer_hits']})")
+                print(f"Cumulative Net Points: {res['cumulative_net_points']}")
+                print(f"Captain: {res['effective_captain_id']} ({res['captain_points']} pts)")
+                if res['autosubs']:
+                    print("Auto-substitutions:")
+                    for a in res['autosubs']:
+                        print(f"  {a['out_name']} (0 mins) -> {a['in_name']}")
+                div = res.get('human_engine_divergence', {})
+                print(f"Engine Baseline: {res.get('engine_net_points')} pts (Delta vs Engine: {'+' if (div.get('point_delta_vs_engine',0))>0 else ''}{div.get('point_delta_vs_engine',0)} pts)")
+                print(f"Advanced to Gameweek {sim.current_gw} (Status: {sim.status}).")
+            elif arguments.sim_command == "report":
+                sim = HistoricalSimulationSession.load(arguments.id)
+                summary = sim.generate_summary()
+                print(f"\n=== Simulation Summary: {sim.session_id} ===")
+                print(f"Gameweeks Completed: {summary.gameweeks_completed}/38")
+                print(f"Total Net Points: {summary.total_net_points}")
+                print(f"Total Gross Points: {summary.total_gross_points} | Hits: -{summary.total_transfer_hits}")
+                print(f"Transfers Made: {summary.total_transfers_made}")
+                print(f"Captain Points: {summary.captain_points}")
+                print(f"Engine Baseline Net: {summary.engine_baseline_total_net_points}")
+                print(f"Human-vs-Engine Delta: {'+' if (summary.human_vs_engine_delta or 0)>0 else ''}{summary.human_vs_engine_delta} pts")
+                if arguments.export:
+                    j_p, m_p = sim.export_report()
+                    print(f"\nExported reports to:\n  {j_p}\n  {m_p}")
         else:
             parser.print_help()
     except (RuntimeError, ValueError) as error:

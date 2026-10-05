@@ -1,6 +1,6 @@
 # V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
 
-**Status:** Planned  
+**Status:** Completed  
 **Predecessor:** V1.3.5 — Optimizer Decision-Quality Study  
 **Corpus / Repo:** `marcomessina25/fpl-manager`
 
@@ -449,23 +449,23 @@ The PR should include the experimental protocol and the exact configuration used
 
 V1.4 is complete when:
 
-- [ ] historical sessions are isolated from live state;
-- [ ] all supported seasons can be loaded;
-- [ ] historical GW state is point-in-time isolated;
-- [ ] squad creation is deterministic and/or explicitly human-controlled;
-- [ ] transfer legality is enforced;
-- [ ] lineup/captain/bench state is persisted;
-- [ ] official scoring and autosubs are resolved correctly;
-- [ ] chip state is correctly maintained;
-- [ ] batch/simulator parity passes;
-- [ ] CLI workflow works end-to-end;
-- [ ] GUI workflow works end-to-end;
-- [ ] engine-only historical replay reproduces the frozen baseline;
-- [ ] human decisions are stored separately from engine recommendations;
-- [ ] season-end analytics are reproducible;
-- [ ] no future information leaks into the simulation;
-- [ ] human benchmark protocol is documented;
-- [ ] benchmark conclusions are limited to the observed study population and conditions.
+- [x] historical sessions are isolated from live state;
+- [x] all supported seasons can be loaded;
+- [x] historical GW state is point-in-time isolated;
+- [x] squad creation is deterministic and/or explicitly human-controlled;
+- [x] transfer legality is enforced;
+- [x] lineup/captain/bench state is persisted;
+- [x] official scoring and autosubs are resolved correctly;
+- [x] chip state is correctly maintained;
+- [x] batch/simulator parity passes;
+- [x] CLI workflow works end-to-end (`fpl sim create/list/status/overview/transfer/chip/run-gw/report`);
+- [x] GUI workflow works end-to-end (Time Machine workspace with Standings, Past Results, Upcoming Fixtures with zero spoilers);
+- [x] engine-only historical replay reproduces the frozen baseline;
+- [x] human decisions are stored separately from engine recommendations;
+- [x] season-end analytics are reproducible;
+- [x] no future information leaks into the simulation (strict zero-spoiler discipline);
+- [x] human benchmark protocol is documented;
+- [x] benchmark conclusions are limited to the observed study population and conditions.
 
 ---
 

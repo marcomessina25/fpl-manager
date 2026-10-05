@@ -1533,5 +1533,210 @@ body {
   margin-top: 0.2rem;
 }
 
+/* ==========================================================================
+   Historical Time Machine (V1.4)
+   ========================================================================== */
+
+.hist-header-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.hist-controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.hist-ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hist-ctrl-group label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.hist-status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.hist-action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hist-deadline-banner {
+  margin-top: 0.8rem;
+  padding: 0.5rem 0.8rem;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.hist-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .hist-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Standings Table */
+.standings-table {
+  border-collapse: collapse;
+}
+
+.standings-table th {
+  background: rgba(15, 23, 42, 0.8);
+  padding: 0.5rem 0.4rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.standings-table td {
+  padding: 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.standings-table tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pos-ucl {
+  border-left: 3px solid #38bdf8;
+}
+
+.pos-uel {
+  border-left: 3px solid #fbbf24;
+}
+
+.pos-rel {
+  border-left: 3px solid #f87171;
+}
+
+/* Form Badges */
+.form-badge-strip {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
+.form-badge {
+  display: inline-block;
+  width: 17px;
+  height: 17px;
+  line-height: 17px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: bold;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.form-w {
+  background: #10b981;
+}
+
+.form-d {
+  background: #64748b;
+}
+
+.form-l {
+  background: #ef4444;
+}
+
+/* Fixtures & Results Cards */
+.fixture-row-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.8rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.fixture-teams {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+}
+
+.fixture-team-h {
+  text-align: right;
+  flex: 1;
+  font-weight: 600;
+}
+
+.fixture-vs {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  padding: 0 0.3rem;
+}
+
+.fixture-score {
+  font-weight: bold;
+  font-size: 0.95rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fixture-team-a {
+  text-align: left;
+  flex: 1;
+  font-weight: 600;
+}
+
+.fdr-pill {
+  font-size: 0.65rem;
+  font-weight: bold;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.fdr-1, .fdr-2 {
+  background: #065f46;
+  color: #a7f3d0;
+}
+
+.fdr-3 {
+  background: #475569;
+  color: #f1f5f9;
+}
+
+.fdr-4 {
+  background: #9a3412;
+  color: #fed7aa;
+}
+
+.fdr-5 {
+  background: #991b1b;
+  color: #fecaca;
+}
+
+
 
 

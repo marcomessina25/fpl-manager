@@ -72,6 +72,15 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _safe_optional_int(val: Any) -> int | None:
+    if val is None or val == "":
+        return None
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return None
+
+
 def download_raw_season_data(
     season: str,
     target_dir: Path,
@@ -192,6 +201,8 @@ def parse_fixtures_csv(fixtures_csv_path: Path) -> list[dict[str, Any]]:
             a_diff = _safe_int(row.get("team_a_difficulty"), 3)
             finished = 1 if str(row.get("finished", "")).lower() in ("true", "1") else 0
             kickoff = row.get("kickoff_time")
+            team_h_score = _safe_optional_int(row.get("team_h_score"))
+            team_a_score = _safe_optional_int(row.get("team_a_score"))
             fixtures.append({
                 "fixture_id": fid,
                 "event": event,
@@ -201,6 +212,8 @@ def parse_fixtures_csv(fixtures_csv_path: Path) -> list[dict[str, Any]]:
                 "team_a_difficulty": a_diff,
                 "kickoff_time": kickoff,
                 "finished": finished,
+                "team_h_score": team_h_score,
+                "team_a_score": team_a_score,
             })
     fixtures.sort(key=lambda f: (f["event"], f["fixture_id"]))
     return fixtures

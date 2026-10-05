@@ -25,12 +25,19 @@ from ..decision_log import (
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
+from ..historical.standings import (
+    compute_historical_standings,
+    get_historical_matchday_overview,
+    get_historical_past_results,
+    get_historical_upcoming_fixtures,
+)
 from ..lineup import build_logged_lineup, select_starting_lineup
 from ..live_matchday import get_live_gameweek_matchday_summary
 from ..llm_advisor import generate_llm_advisory
 from ..models import Position
 from ..planner import generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
+from ..simulation import HistoricalSimulationSession
 from ..squad_report import generate_squad_report
 from ..storage import SnapshotStore
 from ..strategic_squad import (
@@ -431,6 +438,52 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     model=model,
                 )
                 self._send_json(rep)
+            elif path == "/api/historical/seasons":
+                hist_dir = PROJECT_ROOT / "data" / "historical"
+                seasons = sorted([
+                    d.name for d in hist_dir.iterdir()
+                    if d.is_dir() and d.name not in ("raw", "__pycache__") and (d / "fixtures.json").exists()
+                ])
+                self._send_json({"seasons": seasons})
+            elif path == "/api/historical/overview":
+                season = get_arg("season", "2023-24")
+                gw = int(get_arg("gameweek", 1))
+                data = get_historical_matchday_overview(season, gw)
+                self._send_json(data)
+            elif path == "/api/historical/simulations":
+                sim_dir = self.config_dir / "simulations"
+                sessions = HistoricalSimulationSession.list_sessions(sim_dir)
+                self._send_json({"simulations": sessions})
+            elif path.startswith("/api/historical/simulations/"):
+                sim_dir = self.config_dir / "simulations"
+                sub = path[len("/api/historical/simulations/"):].strip("/")
+                parts = sub.split("/")
+                session_id = parts[0]
+                action = parts[1] if len(parts) > 1 else None
+                sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                if action == "recommendations":
+                    recs = sim.get_recommendations()
+                    self._send_json(recs)
+                elif action == "report":
+                    summary = sim.generate_summary()
+                    self._send_json(summary.to_dict())
+                else:
+                    self._send_json({
+                        "session_id": sim.session_id,
+                        "season": sim.season,
+                        "current_gw": sim.current_gw,
+                        "status": sim.status,
+                        "bank_tenths": sim.bank_tenths,
+                        "free_transfers": sim.free_transfers,
+                        "chips_remaining": sim.chips_remaining,
+                        "chips_used": sim.chips_used,
+                        "active_chip": sim.active_chip,
+                        "transfers_staged": sim.transfers_staged,
+                        "squad": sim.get_squad_player_details(),
+                        "history": sim.history,
+                        "experiment_metadata": sim.experiment_metadata,
+                        "total_net_points": sum(h.get("net_points", 0) for h in sim.history),
+                    })
             else:
                 # Static file serving fallback
                 self._serve_static(path)
@@ -794,6 +847,89 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     model=model,
                 )
                 self._send_json(res)
+            elif path == "/api/historical/simulations/create":
+                import time
+                sim_id = body.get("session_id") or f"sim_{body.get('season', '2023-24').replace('-', '_')}_{int(time.time())}"
+                season = body.get("season", "2023-24")
+                start_gw = int(body.get("start_gw", 1))
+                strategy = body.get("starting_strategy", "v1.2.5")
+                manager_name = body.get("manager_name", "Human Manager")
+                sim_dir = self.config_dir / "simulations"
+                sim = HistoricalSimulationSession.create(
+                    session_id=sim_id,
+                    season=season,
+                    start_gw=start_gw,
+                    starting_strategy=strategy,
+                    manager_name=manager_name,
+                    config_dir=sim_dir,
+                )
+                self._send_json({
+                    "session_id": sim.session_id,
+                    "season": sim.season,
+                    "current_gw": sim.current_gw,
+                    "status": sim.status,
+                    "squad": sim.get_squad_player_details(),
+                    "bank_tenths": sim.bank_tenths,
+                    "free_transfers": sim.free_transfers,
+                    "chips_remaining": sim.chips_remaining,
+                    "history": sim.history,
+                })
+            elif path.startswith("/api/historical/simulations/"):
+                sim_dir = self.config_dir / "simulations"
+                sub = path[len("/api/historical/simulations/"):].strip("/")
+                parts = sub.split("/")
+                session_id = parts[0]
+                action = parts[1] if len(parts) > 1 else ""
+                sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+
+                if action == "transfers":
+                    sub_action = body.get("action")
+                    if sub_action == "clear":
+                        sim.clear_staged_transfers()
+                        res = {"transfers_staged": []}
+                    else:
+                        out_id = int(body.get("out_id"))
+                        in_id = int(body.get("in_id"))
+                        staged = sim.stage_transfer(out_id, in_id)
+                        res = {"staged": staged, "transfers_staged": sim.transfers_staged}
+                    res["bank_tenths"] = sim.bank_tenths
+                    res["squad"] = sim.get_squad_player_details()
+                    self._send_json(res)
+                elif action == "lineup":
+                    starters = [int(x) for x in body.get("starting_ids", [])]
+                    bench = [int(x) for x in body.get("bench_ids", [])]
+                    cap = int(body.get("captain_id"))
+                    vc = int(body.get("vice_captain_id"))
+                    sim.set_lineup(starters, bench, cap, vc)
+                    self._send_json({"success": True, "squad": sim.get_squad_player_details()})
+                elif action == "chip":
+                    chip_name = body.get("chip")
+                    if chip_name:
+                        act = sim.play_chip(chip_name)
+                    else:
+                        sim.cancel_chip()
+                        act = None
+                    self._send_json({"active_chip": act})
+                elif action == "run-gw":
+                    res = sim.run_gameweek()
+                    self._send_json({
+                        "resolution": res,
+                        "session": {
+                            "session_id": sim.session_id,
+                            "season": sim.season,
+                            "current_gw": sim.current_gw,
+                            "status": sim.status,
+                            "bank_tenths": sim.bank_tenths,
+                            "free_transfers": sim.free_transfers,
+                            "chips_remaining": sim.chips_remaining,
+                            "chips_used": sim.chips_used,
+                            "squad": sim.get_squad_player_details(),
+                            "history": sim.history,
+                            "total_net_points": sum(h.get("net_points", 0) for h in sim.history),
+                        }
+                    })
+                else:
+                    self._send_error_json(f"Unknown simulation action '{action}'", status=404)
             else:
                 self._send_error_json("Unknown endpoint", status=404)
         except ValueError as err:

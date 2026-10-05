@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.3.5-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.4.0-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -266,6 +266,39 @@ fpl backtest-decisions --season 2023-24 --strategy optimizer --start-gw 1 --end-
 fpl backtest-decisions --season 2023-24 --strategy notransfer --start-gw 1 --end-gw 10 --predictor v0.9
 ```
 
+### Historical Time Machine & Season Simulation (V1.4)
+
+Replay past Premier League seasons gameweek-by-gameweek in a stateful sandbox. Experience point-in-time standings and past scores with strict zero future leakage, test human-in-the-loop decisions against the frozen `DecisionEngineV135`, and measure divergence:
+
+```powershell
+# Create a new historical simulation session (season: 2021-22 to 2025-26, default initial strategy: maximum_ev)
+fpl sim create --season 2023-24 --name "My 23-24 Run"
+
+# List and inspect existing simulation sessions
+fpl sim list
+fpl sim status <session-id>
+
+# View point-in-time Premier League standings, recent match results with scores, and upcoming fixtures
+fpl sim overview <session-id>
+
+# Stage candidate transfers (validates position, budget, and club quotas)
+fpl sim transfer <session-id> --out 350 --in 284
+
+# Inspect optimizer transfer recommendations for the upcoming deadline
+fpl sim recommendations <session-id>
+
+# Activate a chip for the upcoming gameweek (wildcard, freehit, benchboost, triplecaptain)
+fpl sim chip <session-id> wildcard
+
+# Resolve matchday: applies transfers, executes autosubs, captain fallback, and logs baseline divergence
+fpl sim run-gw <session-id>
+
+# Generate comprehensive human-vs-engine divergence report and performance analytics
+fpl sim report <session-id>
+```
+
+You can also run the full interactive experience visually in the Web Studio (`fpl gui`) via the **⏳ Historical Time Machine** tab, complete with pitch squad view, league standings, recent match scores, and upcoming fixture difficulty cards.
+
 ### Strategic LLM Advisory & Candidate Strategy Critique
 
 Generate qualitative strategic critiques of candidate moves while enforcing deterministic legality checks:
@@ -275,7 +308,20 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-### Current scope (V1.3.5 — Optimizer Decision-Quality Study & Hardened Architecture)
+### Current scope (V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox)
+
+V1.4 transforms FPL Manager into an interactive **Historical Season Simulation / FPL Time Machine** built on the frozen quantitative and optimizer baseline established by V1.3/V1.3.5:
+
+- **Strict Zero-Leakage Standings & Match Results (`src/fpl_manager/historical/standings.py`)**: Computes authentic point-in-time league standings up to the current simulated deadline, displays completed match scores, and renders upcoming fixtures with strict masking of future scores or outcomes to enable authentic blind replay experiments.
+- **Enriched Historical Fixture Archives**: Normalized and enriched historical fixtures across all 5 seasons (`2021-22` through `2025-26`) with historical match scores while updating automated ingestion parsers.
+- **Stateful Isolated Simulation Sessions (`src/fpl_manager/simulation/`)**: Sessions are isolated under `config/simulations/<session_id>.json` (never touching live squad or database). Features full legality validation, transfer staging, multi-chip mechanics (Wildcard windows, Free Hit squad reversion, Bench Boost, Triple Captain), deterministic matchday scoring with autosubs, transfer hit accounting, and parallel baseline tracking (`DecisionEngineV125` / `DecisionEngineV135`).
+- **Web Studio GUI Time Machine Interface**: Interactive interface featuring Premier League Standings table, Recent Match Results, Upcoming Fixtures with FDR ratings, Interactive Pitch squad view with captaincy toggles, transfer staging modal, and matchday progression.
+- **Full CLI Suite (`fpl sim`)**: Direct command-line control for headless simulation runs, batch experiments, and report generation.
+- Full specification: [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md).
+
+---
+
+### Previous research (V1.3.5 — Optimizer Decision-Quality Study & Hardened Architecture)
 
 V1.3.5 freezes the quantitative predictor and systematically isolates the incremental decision-level effect of optimizer mechanisms across controlled ablations ($B_0$ through $B_7$):
 

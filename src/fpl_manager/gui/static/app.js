@@ -93,6 +93,7 @@ function initTabs() {
           populateDecisionLoggerSquad(state.currentSquad.players);
         }
       }
+      if (target === "historical") loadHistoricalTimeMachine();
       if (target === "strategic") loadStrategicStudio();
       if (target === "chips") loadChipStrategy();
       if (target === "evaluation") loadEvaluation();
@@ -3372,14 +3373,907 @@ function renderCandidateSwitcherTabs(candidates) {
   });
 }
 
+// ============================================================================
+// Historical Time Machine & Interactive Simulation (V1.4)
+// ============================================================================
+
+const histState = {
+  season: "2023-24",
+  gameweek: 1,
+  sessionId: null,
+  sessionData: null,
+  overviewData: null,
+  swapOutPlayer: null,
+  initialized: false,
+};
+
+function initHistoricalTimeMachine() {
+  if (histState.initialized) return;
+  histState.initialized = true;
+
+  // Subtab switching in Matchday Center
+  const subtabBtns = document.querySelectorAll(".hist-subtab-btn");
+  subtabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-subtab");
+      subtabBtns.forEach(b => {
+        b.classList.remove("active", "btn-secondary");
+        b.classList.add("btn-outline");
+      });
+      btn.classList.add("active", "btn-secondary");
+      btn.classList.remove("btn-outline");
+
+      ["standings", "results", "upcoming"].forEach(name => {
+        const pane = document.getElementById(`hist-subtab-${name}`);
+        if (pane) pane.style.display = name === target ? "block" : "none";
+      });
+    });
+  });
+
+  // Season change
+  const seasonSelect = document.getElementById("hist-season-select");
+  if (seasonSelect) {
+    seasonSelect.addEventListener("change", async (e) => {
+      histState.season = e.target.value;
+      await loadHistoricalOverview();
+      await loadHistoricalSimulationsList();
+    });
+  }
+
+  // Gameweek change
+  const gwInput = document.getElementById("hist-gw-select");
+  if (gwInput) {
+    gwInput.addEventListener("change", async (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (val >= 1 && val <= 38) {
+        histState.gameweek = val;
+        await loadHistoricalOverview();
+      }
+    });
+  }
+
+  // Simulation Session change
+  const simSelect = document.getElementById("hist-session-select");
+  if (simSelect) {
+    simSelect.addEventListener("change", async (e) => {
+      const id = e.target.value;
+      if (id) {
+        await loadHistoricalSession(id);
+      }
+    });
+  }
+
+  // New Simulation modal
+  const btnNewSim = document.getElementById("btn-hist-new-sim");
+  const modalCreate = document.getElementById("hist-create-modal");
+  const btnCloseCreate = document.getElementById("btn-hist-close-create-modal");
+  const btnCancelCreate = document.getElementById("btn-cancel-create-sim");
+  const btnConfirmCreate = document.getElementById("btn-confirm-create-sim");
+
+  if (btnNewSim && modalCreate) {
+    btnNewSim.addEventListener("click", () => {
+      const createSeason = document.getElementById("create-sim-season");
+      if (createSeason) createSeason.value = histState.season;
+      const createId = document.getElementById("create-sim-id");
+      if (createId) createId.value = `sim_${histState.season.replace('-', '_')}_${Date.now().toString().slice(-4)}`;
+      modalCreate.style.display = "flex";
+    });
+  }
+  if (btnCloseCreate && modalCreate) {
+    btnCloseCreate.addEventListener("click", () => modalCreate.style.display = "none");
+  }
+  if (btnCancelCreate && modalCreate) {
+    btnCancelCreate.addEventListener("click", () => modalCreate.style.display = "none");
+  }
+
+  if (btnConfirmCreate) {
+    btnConfirmCreate.addEventListener("click", async () => {
+      const season = document.getElementById("create-sim-season").value;
+      const startGw = parseInt(document.getElementById("create-sim-start-gw").value, 10) || 1;
+      const simId = document.getElementById("create-sim-id").value.trim() || `sim_${Date.now()}`;
+      const manager = document.getElementById("create-sim-manager").value.trim() || "Human Manager";
+      const strat = document.getElementById("create-sim-strategy").value;
+
+      try {
+        btnConfirmCreate.disabled = true;
+        btnConfirmCreate.textContent = "Creating...";
+        const res = await api("/api/historical/simulations/create", {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: simId,
+            season: season,
+            start_gw: startGw,
+            starting_strategy: strat,
+            manager_name: manager,
+          }),
+        });
+        showToast(`Simulation '${simId}' created!`);
+        modalCreate.style.display = "none";
+        await loadHistoricalSimulationsList();
+        await loadHistoricalSession(simId);
+      } catch (err) {
+        showToast(`Failed to create simulation: ${err.message}`, true);
+      } finally {
+        btnConfirmCreate.disabled = false;
+        btnConfirmCreate.textContent = "Create Simulation";
+      }
+    });
+  }
+
+  // Run Gameweek
+  const btnRunGw = document.getElementById("btn-hist-run-gw");
+  if (btnRunGw) {
+    btnRunGw.addEventListener("click", async () => {
+      if (!histState.sessionId) {
+        showToast("Please select or create a historical simulation session first.", true);
+        return;
+      }
+      try {
+        btnRunGw.disabled = true;
+        btnRunGw.textContent = "Resolving...";
+        const res = await api(`/api/historical/simulations/${histState.sessionId}/run-gw`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+
+        // Open resolution modal
+        showHistoricalResolutionModal(res.resolution);
+        await loadHistoricalSession(histState.sessionId);
+      } catch (err) {
+        showToast(`Failed to run matchday: ${err.message}`, true);
+      } finally {
+        btnRunGw.disabled = false;
+        btnRunGw.textContent = "⚡ Run Matchday";
+      }
+    });
+  }
+
+  // Report Modal
+  const btnReport = document.getElementById("btn-hist-view-report");
+  if (btnReport) {
+    btnReport.addEventListener("click", async () => {
+      if (!histState.sessionId) {
+        showToast("Please select a simulation session to view report.", true);
+        return;
+      }
+      try {
+        const report = await api(`/api/historical/simulations/${histState.sessionId}/report`);
+        showHistoricalReportModal(report);
+      } catch (err) {
+        showToast(`Failed to load report: ${err.message}`, true);
+      }
+    });
+  }
+
+  // Chip Selector
+  const chipSelect = document.getElementById("hist-chip-select");
+  if (chipSelect) {
+    chipSelect.addEventListener("change", async (e) => {
+      if (!histState.sessionId) return;
+      const chip = e.target.value;
+      try {
+        await api(`/api/historical/simulations/${histState.sessionId}/chip`, {
+          method: "POST",
+          body: JSON.stringify({ chip: chip || null }),
+        });
+        showToast(chip ? `Activated chip: ${chip}` : "Deactivated chip.");
+        await loadHistoricalSession(histState.sessionId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  }
+
+  // Clear Transacted
+  const btnClearTx = document.getElementById("btn-hist-clear-tx");
+  if (btnClearTx) {
+    btnClearTx.addEventListener("click", async () => {
+      if (!histState.sessionId) return;
+      try {
+        await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+          method: "POST",
+          body: JSON.stringify({ action: "clear" }),
+        });
+        showToast("Cleared staged transfers.");
+        await loadHistoricalSession(histState.sessionId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  }
+
+  // Recommendations Button
+  const btnRecs = document.getElementById("btn-hist-recs");
+  if (btnRecs) {
+    btnRecs.addEventListener("click", async () => {
+      if (!histState.sessionId) {
+        showToast("Please select a simulation first.", true);
+        return;
+      }
+      try {
+        btnRecs.disabled = true;
+        const recs = await api(`/api/historical/simulations/${histState.sessionId}/recommendations`);
+        showHistoricalRecommendationsModal(recs);
+      } catch (err) {
+        showToast(`Error getting recommendations: ${err.message}`, true);
+      } finally {
+        btnRecs.disabled = false;
+      }
+    });
+  }
+
+  // Auto-Lineup Button
+  const btnAutoLineup = document.getElementById("btn-hist-auto-lineup");
+  if (btnAutoLineup) {
+    btnAutoLineup.addEventListener("click", async () => {
+      if (!histState.sessionId) return;
+      try {
+        const recs = await api(`/api/historical/simulations/${histState.sessionId}/recommendations`);
+        if (recs && recs.recommended_starters) {
+          await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
+            method: "POST",
+            body: JSON.stringify({
+              starting_ids: recs.recommended_starters,
+              bench_ids: recs.recommended_bench,
+              captain_id: recs.recommended_captain,
+              vice_captain_id: recs.recommended_vice_captain,
+            }),
+          });
+          showToast("Starting 11 and captaincy auto-aligned to optimal xP.");
+          await loadHistoricalSession(histState.sessionId);
+        }
+      } catch (err) {
+        showToast(`Lineup update failed: ${err.message}`, true);
+      }
+    });
+  }
+
+  // Results Filter GW
+  const resultsFilter = document.getElementById("hist-results-gw-filter");
+  if (resultsFilter) {
+    resultsFilter.addEventListener("change", (e) => {
+      if (!histState.overviewData) return;
+      renderHistoricalPastResults(histState.overviewData.past_results, e.target.value);
+    });
+  }
+
+  // Modals Close
+  const btnCloseModal = document.getElementById("btn-hist-close-modal");
+  const modalBox = document.getElementById("hist-modal");
+  if (btnCloseModal && modalBox) {
+    btnCloseModal.addEventListener("click", () => modalBox.style.display = "none");
+  }
+
+  const btnCloseSwap = document.getElementById("btn-hist-close-swap-modal");
+  const modalSwap = document.getElementById("hist-swap-modal");
+  if (btnCloseSwap && modalSwap) {
+    btnCloseSwap.addEventListener("click", () => modalSwap.style.display = "none");
+  }
+
+  // Initial loads
+  loadHistoricalOverview();
+  loadHistoricalSimulationsList();
+}
+
+async function loadHistoricalTimeMachine() {
+  initHistoricalTimeMachine();
+  await loadHistoricalOverview();
+  await loadHistoricalSimulationsList();
+}
+
+// ----------------------------------------------------------------------------
+// Overview & Standings / Fixtures
+// ----------------------------------------------------------------------------
+
+async function loadHistoricalOverview() {
+  const bannerSeason = document.getElementById("hist-info-season");
+  const bannerGw = document.getElementById("hist-info-gw");
+  if (bannerSeason) bannerSeason.textContent = histState.season;
+  if (bannerGw) bannerGw.textContent = histState.gameweek;
+
+  try {
+    const data = await api(`/api/historical/overview?season=${histState.season}&gameweek=${histState.gameweek}`);
+    histState.overviewData = data;
+    renderHistoricalStandings(data.standings);
+    renderHistoricalPastResults(data.past_results, "all");
+    renderHistoricalUpcomingFixtures(data.upcoming_fixtures);
+  } catch (err) {
+    console.error("Failed to load historical overview:", err);
+  }
+}
+
+function renderHistoricalStandings(standings) {
+  const tbody = document.getElementById("hist-standings-body");
+  if (!tbody) return;
+  if (!standings || standings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted" style="padding: 1.5rem;">No standings available for Gameweek ${histState.gameweek}.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = standings.map((s, idx) => {
+    let posClass = "";
+    if (s.position <= 4) posClass = "pos-ucl";
+    else if (s.position === 5) posClass = "pos-uel";
+    else if (s.position >= 18) posClass = "pos-rel";
+
+    const formHtml = (s.form || []).map(f => {
+      const cls = f === "W" ? "form-w" : (f === "D" ? "form-d" : "form-l");
+      return `<span class="form-badge ${cls}">${f}</span>`;
+    }).join("");
+
+    const gdFormatted = s.goal_difference > 0 ? `+${s.goal_difference}` : s.goal_difference;
+
+    return `
+      <tr class="${posClass}">
+        <td style="text-align: center; font-weight: bold; color: #94a3b8;">${s.position}</td>
+        <td style="font-weight: 600;">
+          <span>${escapeHtml(s.name)}</span>
+          <span style="font-size: 0.72rem; color: #64748b; margin-left: 4px;">(${escapeHtml(s.short_name)})</span>
+        </td>
+        <td style="text-align: center;">${s.played}</td>
+        <td style="text-align: center;">${s.won}</td>
+        <td style="text-align: center;">${s.drawn}</td>
+        <td style="text-align: center;">${s.lost}</td>
+        <td style="text-align: center;">${s.goals_for}</td>
+        <td style="text-align: center;">${s.goals_against}</td>
+        <td style="text-align: center; color: ${s.goal_difference > 0 ? '#34d399' : (s.goal_difference < 0 ? '#f87171' : '#94a3b8')};">${gdFormatted}</td>
+        <td style="text-align: center; font-weight: bold; font-size: 0.95rem; color: #fbbf24;">${s.points}</td>
+        <td style="text-align: center;"><div class="form-badge-strip">${formHtml || "-"}</div></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderHistoricalPastResults(results, filterGw = "all") {
+  const list = document.getElementById("hist-past-results-list");
+  const filterSelect = document.getElementById("hist-results-gw-filter");
+  if (!list) return;
+
+  if (!results || results.length === 0) {
+    list.innerHTML = `<div class="text-center text-muted" style="padding: 2rem;">No previous gameweeks completed yet before Gameweek ${histState.gameweek}.</div>`;
+    if (filterSelect) filterSelect.innerHTML = `<option value="all">All Past GWs</option>`;
+    return;
+  }
+
+  // Populate filter dropdown with unique events
+  if (filterSelect && filterSelect.options.length <= 1) {
+    const gws = Array.from(new Set(results.map(r => r.event))).sort((a, b) => b - a);
+    filterSelect.innerHTML = `<option value="all">All Past GWs (${results.length} matches)</option>` +
+      gws.map(gw => `<option value="${gw}">Gameweek ${gw}</option>`).join("");
+  }
+
+  const filtered = filterGw === "all" ? results : results.filter(r => r.event.toString() === filterGw.toString());
+
+  list.innerHTML = filtered.map(r => {
+    const hWin = r.team_h_score > r.team_a_score;
+    const aWin = r.team_a_score > r.team_h_score;
+    const kickoffFormatted = r.kickoff_time ? new Date(r.kickoff_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : `GW ${r.event}`;
+
+    return `
+      <div class="fixture-row-card">
+        <div style="font-size: 0.72rem; color: #64748b; width: 65px;">GW ${r.event}</div>
+        <div class="fixture-teams">
+          <div class="fixture-team-h" style="color: ${hWin ? '#fff' : '#94a3b8'};">
+            ${escapeHtml(r.team_h_name)}
+          </div>
+          <div class="fixture-score">
+            ${r.team_h_score} - ${r.team_a_score}
+          </div>
+          <div class="fixture-team-a" style="color: ${aWin ? '#fff' : '#94a3b8'};">
+            ${escapeHtml(r.team_a_name)}
+          </div>
+        </div>
+        <div style="font-size: 0.72rem; color: #64748b; width: 85px; text-align: right;">${kickoffFormatted}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderHistoricalUpcomingFixtures(upcoming) {
+  const list = document.getElementById("hist-upcoming-fixtures-list");
+  if (!list) return;
+
+  if (!upcoming || upcoming.length === 0) {
+    list.innerHTML = `<div class="text-center text-muted" style="padding: 2rem;">No upcoming fixtures for Gameweek ${histState.gameweek}.</div>`;
+    return;
+  }
+
+  list.innerHTML = upcoming.map(u => {
+    const kickoffFormatted = u.kickoff_time ? new Date(u.kickoff_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : `GW ${u.event}`;
+
+    return `
+      <div class="fixture-row-card">
+        <div style="font-size: 0.72rem; color: #38bdf8; font-weight: bold; width: 60px;">GW ${u.event}</div>
+        <div class="fixture-teams">
+          <div class="fixture-team-h">
+            ${escapeHtml(u.team_h_name)}
+            <span class="fdr-pill fdr-${u.team_h_difficulty}" title="Home team FDR difficulty: ${u.team_h_difficulty}">${u.team_h_difficulty}</span>
+          </div>
+          <div class="fixture-vs">vs</div>
+          <div class="fixture-team-a">
+            <span class="fdr-pill fdr-${u.team_a_difficulty}" title="Away team FDR difficulty: ${u.team_a_difficulty}">${u.team_a_difficulty}</span>
+            ${escapeHtml(u.team_a_name)}
+          </div>
+        </div>
+        <div style="font-size: 0.72rem; color: #94a3b8; width: 110px; text-align: right;">${kickoffFormatted}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+// ----------------------------------------------------------------------------
+// Simulations Management & Pitch
+// ----------------------------------------------------------------------------
+
+async function loadHistoricalSimulationsList() {
+  const select = document.getElementById("hist-session-select");
+  if (!select) return;
+
+  try {
+    const data = await api("/api/historical/simulations");
+    const sims = data.simulations || [];
+    const seasonSims = sims.filter(s => s.season === histState.season);
+
+    if (seasonSims.length === 0) {
+      select.innerHTML = `<option value="">No Sim for ${histState.season} (Click + New)</option>`;
+      histState.sessionId = null;
+      histState.sessionData = null;
+      renderEmptyHistoricalSquad();
+      return;
+    }
+
+    select.innerHTML = seasonSims.map(s => `
+      <option value="${escapeHtml(s.session_id)}" ${s.session_id === histState.sessionId ? "selected" : ""}>
+        ${escapeHtml(s.session_id)} (GW ${s.current_gw}, ${s.total_net_points} pts)
+      </option>
+    `).join("");
+
+    const targetId = (histState.sessionId && seasonSims.some(s => s.session_id === histState.sessionId))
+      ? histState.sessionId
+      : seasonSims[0].session_id;
+
+    select.value = targetId;
+    await loadHistoricalSession(targetId);
+  } catch (err) {
+    console.error("Failed to list historical simulations:", err);
+  }
+}
+
+async function loadHistoricalSession(sessionId) {
+  histState.sessionId = sessionId;
+  try {
+    const data = await api(`/api/historical/simulations/${sessionId}`);
+    histState.sessionData = data;
+    histState.season = data.season;
+    histState.gameweek = data.current_gw;
+
+    // Update UI controls
+    const seasonSelect = document.getElementById("hist-season-select");
+    if (seasonSelect) seasonSelect.value = data.season;
+    const gwInput = document.getElementById("hist-gw-select");
+    if (gwInput) gwInput.value = data.current_gw;
+    const squadGw = document.getElementById("hist-squad-gw");
+    if (squadGw) squadGw.textContent = data.current_gw;
+
+    // Badges
+    const badgePts = document.getElementById("hist-badge-pts");
+    if (badgePts) badgePts.textContent = `Total Net: ${data.total_net_points || 0} pts`;
+    const badgeBank = document.getElementById("hist-badge-bank");
+    if (badgeBank) badgeBank.textContent = `Bank: £${(data.bank_tenths || 0) / 10:.1f}m`;
+    const badgeFt = document.getElementById("hist-badge-ft");
+    if (badgeFt) badgeFt.textContent = `Free Tx: ${data.free_transfers}`;
+    const badgeChip = document.getElementById("hist-badge-chip");
+    if (badgeChip) badgeChip.textContent = `Chip: ${data.active_chip || "None"}`;
+
+    const chipSelect = document.getElementById("hist-chip-select");
+    if (chipSelect) chipSelect.value = data.active_chip || "";
+
+    // Render Pitch
+    renderHistoricalPitch(data.squad || []);
+    renderHistoricalStagedTransfers(data.transfers_staged || []);
+
+    // Refresh matchday center
+    await loadHistoricalOverview();
+  } catch (err) {
+    console.error("Failed to load historical session:", err);
+    showToast(`Error loading simulation ${sessionId}: ${err.message}`, true);
+  }
+}
+
+function renderEmptyHistoricalSquad() {
+  ["gkp", "def", "mid", "fwd"].forEach(pos => {
+    const el = document.getElementById(`hist-pitch-${pos}`);
+    if (el) el.innerHTML = "";
+  });
+  const bench = document.getElementById("hist-pitch-bench");
+  if (bench) bench.innerHTML = `<div class="text-muted text-sm" style="padding: 1rem;">No simulation active. Click "+ New Sim" to begin.</div>`;
+}
+
+function renderHistoricalPitch(squad) {
+  const gkpRow = document.getElementById("hist-pitch-gkp");
+  const defRow = document.getElementById("hist-pitch-def");
+  const midRow = document.getElementById("hist-pitch-mid");
+  const fwdRow = document.getElementById("hist-pitch-fwd");
+  const benchRow = document.getElementById("hist-pitch-bench");
+
+  if (!gkpRow || !benchRow) return;
+
+  gkpRow.innerHTML = "";
+  defRow.innerHTML = "";
+  midRow.innerHTML = "";
+  fwdRow.innerHTML = "";
+  benchRow.innerHTML = "";
+
+  const starters = squad.filter(p => p.is_starter);
+  const bench = squad.filter(p => p.is_bench).sort((a, b) => (a.bench_order || 99) - (b.bench_order || 99));
+
+  const renderCard = (p, isBench = false) => {
+    const div = document.createElement("div");
+    div.className = "player-card";
+    if (p.is_captain) div.style.borderColor = "var(--accent-gold)";
+    else if (p.is_vice_captain) div.style.borderColor = "#94a3b8";
+
+    div.innerHTML = `
+      <div style="font-size: 0.65rem; color: #94a3b8; font-weight: bold;">${p.pos_abbr} · ${escapeHtml(p.team_short)}</div>
+      <div style="font-weight: 700; color: #fff; font-size: 0.82rem; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px;" title="${escapeHtml(p.name)}">
+        ${escapeHtml(p.name)}
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: #cbd5e1; width: 100%;">
+        <span>${p.selling_price_fmt}</span>
+        <span style="color: var(--accent-green); font-weight: bold;">${p.total_points}p</span>
+      </div>
+      <div class="card-quick-actions" style="margin-top: 4px;">
+        <button class="quick-btn ${p.is_captain ? 'active-role' : ''}" data-act="cap" title="Set Captain">C</button>
+        <button class="quick-btn ${p.is_vice_captain ? 'active-role' : ''}" data-act="vc" title="Set Vice Captain">V</button>
+        <button class="quick-btn" data-act="swap" style="color: #38bdf8;" title="Transfer Out / Swap">⇄</button>
+      </div>
+    `;
+
+    // Button actions
+    div.querySelector('[data-act="cap"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await updateHistoricalLineupRoles(p.player_id, null);
+    });
+    div.querySelector('[data-act="vc"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await updateHistoricalLineupRoles(null, p.player_id);
+    });
+    div.querySelector('[data-act="swap"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      openHistoricalSwapModal(p);
+    });
+
+    return div;
+  };
+
+  starters.forEach(p => {
+    const card = renderCard(p, false);
+    if (p.pos_abbr === "GKP") gkpRow.appendChild(card);
+    else if (p.pos_abbr === "DEF") defRow.appendChild(card);
+    else if (p.pos_abbr === "MID") midRow.appendChild(card);
+    else if (p.pos_abbr === "FWD") fwdRow.appendChild(card);
+  });
+
+  bench.forEach((p, idx) => {
+    const card = renderCard(p, true);
+    card.style.opacity = "0.85";
+    benchRow.appendChild(card);
+  });
+}
+
+function renderHistoricalStagedTransfers(staged) {
+  const countEl = document.getElementById("hist-staged-count");
+  const listEl = document.getElementById("hist-staged-tx-list");
+  if (!listEl) return;
+
+  if (countEl) countEl.textContent = staged.length;
+
+  if (staged.length === 0) {
+    listEl.innerHTML = `<div class="text-muted text-sm">No transfers staged. Click ⇄ on any player above to swap.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = staged.map(st => {
+    const costFormatted = st.cost_tenths > 0 ? `-£${st.cost_tenths/10:.1f}m` : `+£${Math.abs(st.cost_tenths)/10:.1f}m`;
+    return `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255,255,255,0.04); border-radius: 4px; margin-bottom: 4px;">
+        <div>
+          <span style="color: #f87171; text-decoration: line-through;">${escapeHtml(st.out_name)}</span>
+          <span style="color: #94a3b8; margin: 0 4px;">➔</span>
+          <span style="color: #34d399; font-weight: 600;">${escapeHtml(st.in_name)}</span>
+        </div>
+        <span style="font-size: 0.75rem; color: #fbbf24;">${costFormatted}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+async function updateHistoricalLineupRoles(newCapId, newVcId) {
+  if (!histState.sessionId || !histState.sessionData) return;
+  const squad = histState.sessionData.squad || [];
+  const starters = squad.filter(p => p.is_starter).map(p => p.player_id);
+  const bench = squad.filter(p => p.is_bench).sort((a, b) => a.bench_order - b.bench_order).map(p => p.player_id);
+
+  let cap = newCapId || squad.find(p => p.is_captain)?.player_id || starters[0];
+  let vc = newVcId || squad.find(p => p.is_vice_captain)?.player_id || starters[1];
+
+  if (cap === vc) {
+    vc = starters.find(id => id !== cap) || cap;
+  }
+
+  try {
+    await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
+      method: "POST",
+      body: JSON.stringify({
+        starting_ids: starters,
+        bench_ids: bench,
+        captain_id: cap,
+        vice_captain_id: vc,
+      }),
+    });
+    showToast("Lineup captaincy updated.");
+    await loadHistoricalSession(histState.sessionId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Swap / Transfer Modal
+// ----------------------------------------------------------------------------
+
+async function openHistoricalSwapModal(outPlayer) {
+  histState.swapOutPlayer = outPlayer;
+  const modal = document.getElementById("hist-swap-modal");
+  const title = document.getElementById("hist-swap-modal-title");
+  const searchInput = document.getElementById("hist-swap-search");
+  const posFilter = document.getElementById("hist-swap-pos-filter");
+  const list = document.getElementById("hist-swap-candidates-list");
+
+  if (!modal || !list) return;
+
+  if (title) title.textContent = `Swap ${outPlayer.name} (${outPlayer.pos_abbr} - ${outPlayer.selling_price_fmt})`;
+  if (posFilter) posFilter.value = outPlayer.pos_abbr;
+  if (searchInput) searchInput.value = "";
+
+  modal.style.display = "flex";
+  list.innerHTML = `<div class="text-center text-muted" style="padding: 2rem;">Loading candidates from Gameweek ${histState.gameweek} snapshot...</div>`;
+
+  try {
+    const data = await api(`/api/players?search=&all=true`);
+    const allPlayers = data.players || [];
+
+    const renderCandidates = () => {
+      const q = (searchInput?.value || "").toLowerCase().trim();
+      const pos = posFilter?.value || "ALL";
+
+      const filtered = allPlayers.filter(p => {
+        if (pos !== "ALL" && p.position !== pos && p.pos_abbr !== pos) return false;
+        if (q && !p.name.toLowerCase().includes(q) && !(p.team || "").toLowerCase().includes(q)) return false;
+        // Don't show players already in current squad
+        if (histState.sessionData && histState.sessionData.squad && histState.sessionData.squad.some(s => s.player_id === p.id)) return false;
+        return true;
+      }).slice(0, 50);
+
+      list.innerHTML = `
+        <table class="data-table" style="width: 100%; font-size: 0.85rem;">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Club</th>
+              <th>Pos</th>
+              <th>Price</th>
+              <th>Pts</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(cand => `
+              <tr>
+                <td style="font-weight: 600;">${escapeHtml(cand.name)}</td>
+                <td style="color: #94a3b8;">${escapeHtml(cand.team)}</td>
+                <td><span class="badge">${escapeHtml(cand.position || cand.pos_abbr)}</span></td>
+                <td>£${(cand.price_tenths / 10).toFixed(1)}m</td>
+                <td style="color: var(--accent-green); font-weight: bold;">${cand.total_points || 0}</td>
+                <td>
+                  <button class="btn btn-primary btn-xs btn-stage-swap" data-in-id="${cand.id}">Transfer In</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      list.querySelectorAll(".btn-stage-swap").forEach(b => {
+        b.addEventListener("click", async () => {
+          const inId = parseInt(b.getAttribute("data-in-id"), 10);
+          await stageHistoricalTransfer(outPlayer.player_id, inId);
+          modal.style.display = "none";
+        });
+      });
+    };
+
+    renderCandidates();
+    if (searchInput) searchInput.oninput = renderCandidates;
+    if (posFilter) posFilter.onchange = renderCandidates;
+  } catch (err) {
+    list.innerHTML = `<div class="text-danger" style="padding: 1rem;">Failed to load player list: ${err.message}</div>`;
+  }
+}
+
+async function stageHistoricalTransfer(outId, inId) {
+  if (!histState.sessionId) return;
+  try {
+    const res = await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+      method: "POST",
+      body: JSON.stringify({ out_id: outId, in_id: inId }),
+    });
+    showToast(`Staged transfer: ${res.staged?.out_name} ➔ ${res.staged?.in_name}`);
+    await loadHistoricalSession(histState.sessionId);
+  } catch (err) {
+    showToast(`Transfer failed: ${err.message}`, true);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Resolution & Report Modals
+// ----------------------------------------------------------------------------
+
+function showHistoricalResolutionModal(res) {
+  const modal = document.getElementById("hist-modal");
+  const title = document.getElementById("hist-modal-title");
+  const body = document.getElementById("hist-modal-body");
+  if (!modal || !body) return;
+
+  if (title) title.textContent = `Gameweek ${res.gameweek} Matchday Result`;
+
+  const capName = res.starters_points.find(s => s.player_id === res.effective_captain_id)?.name || `ID ${res.effective_captain_id}`;
+  const autosubsHtml = (res.autosubs && res.autosubs.length > 0)
+    ? res.autosubs.map(a => `<div style="font-size: 0.85rem; color: #38bdf8;">🔄 Auto-sub: ${a.out_name} (0 mins) ➔ ${a.in_name}</div>`).join("")
+    : `<div class="text-muted text-sm">No automatic substitutions required.</div>`;
+
+  const divergence = res.human_engine_divergence || {};
+  const deltaColor = divergence.point_delta_vs_engine > 0 ? "#34d399" : (divergence.point_delta_vs_engine < 0 ? "#f87171" : "#94a3b8");
+
+  body.innerHTML = `
+    <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
+      <div class="card" style="flex: 1; text-align: center; padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);">
+        <div style="font-size: 0.8rem; color: #10b981; font-weight: bold;">NET POINTS</div>
+        <div style="font-size: 2.2rem; font-weight: 800; color: #fff;">${res.net_points}</div>
+        <div style="font-size: 0.75rem; color: #94a3b8;">Gross: ${res.gross_points} | Hits: -${res.transfer_hits}</div>
+      </div>
+      <div class="card" style="flex: 1; text-align: center; padding: 1rem;">
+        <div style="font-size: 0.8rem; color: #fbbf24; font-weight: bold;">CAPTAIN CONTRIB</div>
+        <div style="font-size: 1.8rem; font-weight: 800; color: #fbbf24;">${res.captain_points}p</div>
+        <div style="font-size: 0.75rem; color: #cbd5e1;">${escapeHtml(capName)} ${res.captain_promoted ? '(Vice Promoted)' : ''}</div>
+      </div>
+      <div class="card" style="flex: 1; text-align: center; padding: 1rem;">
+        <div style="font-size: 0.8rem; color: #38bdf8; font-weight: bold;">ENGINE BENCHMARK</div>
+        <div style="font-size: 1.8rem; font-weight: 800; color: ${deltaColor};">
+          ${divergence.point_delta_vs_engine > 0 ? '+' : ''}${divergence.point_delta_vs_engine || 0} pts
+        </div>
+        <div style="font-size: 0.75rem; color: #94a3b8;">Engine v1.2.5: ${res.engine_net_points} pts</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom: 1rem;">
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">Substitutions & Bench Impact</h4>
+      ${autosubsHtml}
+    </div>
+
+    <div>
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">Starting XI Points Breakdown</h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.5rem;">
+        ${res.starters_points.map(s => `
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); padding: 0.4rem 0.6rem; border-radius: 6px;">
+            <div style="font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(s.name)} ${s.is_effective_captain ? '<span style="color: #fbbf24; font-weight: bold;">(C)</span>' : ''}
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">
+              <span>${s.minutes}'</span>
+              <strong style="color: var(--accent-green); font-size: 0.85rem;">${s.points} pts</strong>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+
+  modal.style.display = "flex";
+}
+
+function showHistoricalReportModal(rep) {
+  const modal = document.getElementById("hist-modal");
+  const title = document.getElementById("hist-modal-title");
+  const body = document.getElementById("hist-modal-body");
+  if (!modal || !body) return;
+
+  if (title) title.textContent = `Historical Replay Benchmark Report: ${rep.session_id}`;
+
+  const deltaFormatted = (rep.human_vs_engine_delta || 0) > 0 ? `+${rep.human_vs_engine_delta}` : rep.human_vs_engine_delta;
+
+  body.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr)); gap: 0.8rem; margin-bottom: 1.5rem;">
+      <div class="card" style="padding: 0.8rem; text-align: center;">
+        <div class="text-muted text-xs">TOTAL NET POINTS</div>
+        <div style="font-size: 1.6rem; font-weight: bold; color: var(--accent-green);">${rep.total_net_points}</div>
+      </div>
+      <div class="card" style="padding: 0.8rem; text-align: center;">
+        <div class="text-muted text-xs">ENGINE BASELINE</div>
+        <div style="font-size: 1.6rem; font-weight: bold; color: #94a3b8;">${rep.engine_baseline_total_net_points || '-'}</div>
+      </div>
+      <div class="card" style="padding: 0.8rem; text-align: center;">
+        <div class="text-muted text-xs">HUMAN DELTA</div>
+        <div style="font-size: 1.6rem; font-weight: bold; color: #38bdf8;">${deltaFormatted || '0'} pts</div>
+      </div>
+      <div class="card" style="padding: 0.8rem; text-align: center;">
+        <div class="text-muted text-xs">TRANSFERS MADE</div>
+        <div style="font-size: 1.6rem; font-weight: bold; color: #cbd5e1;">${rep.total_transfers_made} (-${rep.total_transfer_hits}p)</div>
+      </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+      <h4 style="margin: 0 0 0.6rem 0;">Decision Support Audit</h4>
+      <div style="font-size: 0.85rem; line-height: 1.6; color: #cbd5e1;">
+        <div>• <strong>Gameweeks Completed:</strong> ${rep.gameweeks_completed} / 38</div>
+        <div>• <strong>Human Overrides:</strong> ${rep.override_count} total decisions differed from frozen engine recommendation.</div>
+        <div>• <strong>Override Value:</strong> ${rep.override_positive_count} helped score (+), ${rep.override_negative_count} hurt score (-).</div>
+        <div>• <strong>Captaincy Contribution:</strong> ${rep.captain_points} total captain points (${rep.captain_promotions} vice-captain promotions).</div>
+        <div>• <strong>Autosub Events:</strong> ${rep.autosubs_count} bench players promoted.</div>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = "flex";
+}
+
+function showHistoricalRecommendationsModal(recs) {
+  const modal = document.getElementById("hist-modal");
+  const title = document.getElementById("hist-modal-title");
+  const body = document.getElementById("hist-modal-body");
+  if (!modal || !body) return;
+
+  if (title) title.textContent = `Frozen Engine Recommendations (GW ${recs.gameweek})`;
+
+  const txsHtml = (recs.recommended_transfers && recs.recommended_transfers.length > 0)
+    ? recs.recommended_transfers.map(t => `
+        <div style="padding: 0.6rem; background: rgba(255,255,255,0.04); border-radius: 6px; margin-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <span style="color: #f87171; text-decoration: line-through;">${escapeHtml(t.out_name)}</span>
+            <span style="color: #94a3b8; margin: 0 6px;">➔</span>
+            <span style="color: #34d399; font-weight: 600;">${escapeHtml(t.in_name)}</span>
+          </div>
+          <span style="color: var(--accent-green); font-weight: bold;">+${t.xp_gain} xP</span>
+        </div>
+      `).join("")
+    : `<div class="text-muted text-sm">Engine suggests rolling the free transfer (no moves).</div>`;
+
+  body.innerHTML = `
+    <div style="margin-bottom: 1.25rem;">
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers (v1.2.5 Baseline)</h4>
+      ${txsHtml}
+    </div>
+    <div style="margin-bottom: 1rem;">
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Predicted Lineup</h4>
+      <div style="font-size: 0.85rem; color: #94a3b8;">
+        Lineup Expected Value: <strong style="color: #38bdf8;">${recs.predicted_lineup_xp} xP</strong>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = "flex";
+}
+
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
   initTabs();
   initModal();
   initEventListeners();
   initStrategicStudio();
+  initHistoricalTimeMachine();
   await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();
 });
+
 

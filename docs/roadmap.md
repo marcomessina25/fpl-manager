@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). The next research milestone is **V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox**.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14`, establishing the **Interactive Historical Season Simulation & Time Machine Sandbox** with point-in-time standings, past scores, upcoming fixtures with strict zero future spoilers, and full stateful simulation session management.
 
 ---
 
@@ -182,8 +182,7 @@ Automated learning loops
 | **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Completed, validated, and merged into master (#16)** |
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
 | **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
-| **V1.3.5** | **Optimizer decision-quality study, candidate pool regularization & hardened baseline** | **Completed and validated on branch `v135`** |
-| V1.4 | Interactive historical season simulation & human-in-the-loop benchmark platform | Planned (next milestone) |
+| **V1.4** | **Interactive historical season simulation & Time Machine sandbox platform** | **Completed and validated on branch `v14`** |
 | V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
@@ -1733,8 +1732,17 @@ Integrated into `fpl_manager.backtest.decision_engine:DecisionEngineV135` and re
 
 # 24. V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
 
-**Status: planned (follows V1.3.5).**  
+**Status: completed and validated on branch `v14`.**  
 **Specification:** [`docs/v1.4/v14_historical_simulation.md`](v1.4/v14_historical_simulation.md)
+
+### Delivery Summary & Implemented Architecture
+
+V1.4 delivers the full **Interactive Historical Season Simulation & Time Machine Sandbox** across CLI, Web Studio GUI, and programmatic APIs:
+- **Historical Standings & Match Results (`src/fpl_manager/historical/standings.py`)**: Computes authentic point-in-time league tables (Pos, P, W, D, L, GF, GA, GD, Pts, Form), displays completed match scores, and generates upcoming fixtures with strict zero-leakage masking of future outcomes.
+- **Enriched Historical Fixture Datasets**: Enriched `data/historical/<season>/fixtures.json` across all 5 historical seasons (`2021-22` through `2025-26`) with historical match scores while updating ingestion parsers.
+- **Isolated Simulation Sessions (`src/fpl_manager/simulation/`)**: Stateful sessions stored under `config/simulations/<session_id>.json` with complete legality validation, transfer staging, multi-chip rules (Wildcard windows, Free Hit squad reversion, Bench Boost, Triple Captain), deterministic matchday resolution with autosubs, transfer hit accounting, and parallel baseline tracking (`DecisionEngineV125` / `DecisionEngineV135`).
+- **Interactive Web Studio GUI Time Machine**: Dedicated `⏳ Historical Time Machine` tab featuring interactive Premier League table, recent match results panel, upcoming fixture cards with FDR, interactive pitch squad view with captaincy toggles, transfer staging modal, and matchday step execution.
+- **Comprehensive CLI Interface (`fpl sim`)**: Full suite of subcommands (`create`, `list`, `status`, `overview`, `transfer`, `clear-transfers`, `chip`, `recommendations`, `run-gw`, `report`).
 
 ### Purpose & Vision
 
@@ -2147,17 +2155,17 @@ Use distinct states:
 - [x] Produce multi-season decision-level reports (`reports/v135/`).
 - [x] Deploy and freeze `DecisionEngineV135` before V1.4.
 
-## Now — V1.4 Historical Simulation Platform
+## Completed — V1.4 Historical Simulation Platform
 
-- [ ] Implement isolated historical simulation state.
-- [ ] Implement historical deadline/time isolation.
-- [ ] Implement deterministic GW scoring and autosubs.
-- [ ] Implement transfer/chip state progression.
-- [ ] Validate simulator-vs-batch parity.
-- [ ] Build CLI Time Machine workflow.
-- [ ] Build GUI Time Machine workflow.
-- [ ] Implement human-vs-engine benchmark protocol.
-- [ ] Generate reproducible season-end analytics.
+- [x] Implement isolated historical simulation state (`config/simulations/<id>.json`).
+- [x] Implement historical deadline/time isolation and zero future spoilers.
+- [x] Implement deterministic GW scoring and autosubs.
+- [x] Implement transfer/chip state progression.
+- [x] Validate simulator-vs-batch parity and parallel baseline tracking.
+- [x] Build CLI Time Machine workflow (`fpl sim`).
+- [x] Build GUI Time Machine workflow (`/api/historical/*` + Web Studio tab).
+- [x] Implement human-vs-engine benchmark protocol and divergence logging.
+- [x] Generate reproducible season-end analytics and Markdown/JSON reporting.
 
 ## Later — V1.5
 

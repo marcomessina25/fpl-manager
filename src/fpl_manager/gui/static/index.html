@@ -61,6 +61,7 @@
   <!-- Navigation Tabs Bar -->
   <nav class="tabs-nav">
     <button class="tab-btn active" data-tab="pitch">🏟️ Pitch & Lineup</button>
+    <button class="tab-btn" data-tab="historical">⏳ Historical Time Machine (V1.4)</button>
     <button class="tab-btn" data-tab="strategic">🏗️ Strategic Studio (V1.1)</button>
     <button class="tab-btn" data-tab="live">⚡ Live Matchday</button>
     <button class="tab-btn" data-tab="advisor">🤖 AI Advisor & Briefing</button>
@@ -230,6 +231,250 @@
           </div>
         </div>
       </aside>
+    </section>
+
+    <!-- TAB 2: HISTORICAL TIME MACHINE & SIMULATION (V1.4) -->
+    <section id="tab-historical" class="tab-pane">
+      <!-- Top Header & Controls Bar -->
+      <div class="hist-header-card">
+        <div class="hist-controls-bar">
+          <div class="hist-ctrl-group">
+            <label for="hist-season-select">Season:</label>
+            <select id="hist-season-select" class="input-sm">
+              <option value="2023-24">2023-24</option>
+              <option value="2022-23">2022-23</option>
+              <option value="2021-22">2021-22</option>
+              <option value="2024-25">2024-25</option>
+              <option value="2025-26">2025-26</option>
+            </select>
+          </div>
+
+          <div class="hist-ctrl-group">
+            <label for="hist-gw-select">Gameweek:</label>
+            <input type="number" id="hist-gw-select" min="1" max="38" value="1" class="input-sm" style="width: 55px;">
+          </div>
+
+          <div class="hist-ctrl-group">
+            <label for="hist-session-select">Simulation:</label>
+            <select id="hist-session-select" class="input-sm" style="min-width: 170px;">
+              <option value="">No Active Simulation</option>
+            </select>
+            <button id="btn-hist-new-sim" class="btn btn-secondary btn-sm" title="Start a new interactive historical replay">+ New Sim</button>
+          </div>
+
+          <div class="hist-status-badges">
+            <span id="hist-badge-pts" class="badge badge-accent">Total Net: 0 pts</span>
+            <span id="hist-badge-bank" class="badge">Bank: £0.0m</span>
+            <span id="hist-badge-ft" class="badge">Free Tx: 1</span>
+            <span id="hist-badge-chip" class="badge">Chip: None</span>
+          </div>
+
+          <div class="hist-action-buttons">
+            <button id="btn-hist-run-gw" class="btn btn-primary btn-sm" title="Resolve historical matchday outcomes and advance gameweek">⚡ Run Matchday</button>
+            <button id="btn-hist-view-report" class="btn btn-outline btn-sm" title="View historical performance and benchmark comparison">📊 Report</button>
+          </div>
+        </div>
+        <div class="hist-deadline-banner" id="hist-deadline-banner">
+          <span class="icon">⏱️</span> <strong>Historical Point-in-Time State:</strong> Gameweek <span id="hist-info-gw">1</span>, Season <span id="hist-info-season">2023-24</span>. Strict zero-future-leakage boundary enforced.
+        </div>
+      </div>
+
+      <!-- Main Layout Grid -->
+      <div class="hist-main-grid">
+        <!-- Left Column: Standings, Past Match Results, Upcoming Fixtures -->
+        <div class="hist-col-fixtures">
+          <div class="card" style="padding: 1rem; height: 100%;">
+            <div class="card-header-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+              <button class="hist-subtab-btn active btn btn-sm btn-secondary" data-subtab="standings">🏆 League Standings</button>
+              <button class="hist-subtab-btn btn btn-sm btn-outline" data-subtab="results">⏮️ Previous Results</button>
+              <button class="hist-subtab-btn btn btn-sm btn-outline" data-subtab="upcoming">⏭️ Upcoming Fixtures</button>
+            </div>
+
+            <!-- Subtab 1: Standings -->
+            <div id="hist-subtab-standings" class="hist-subtab-pane active">
+              <div class="standings-table-wrapper" style="overflow-x: auto; max-height: 540px;">
+                <table class="data-table standings-table" id="hist-standings-table" style="width: 100%; font-size: 0.85rem;">
+                  <thead>
+                    <tr>
+                      <th style="width: 35px; text-align: center;">Pos</th>
+                      <th>Club</th>
+                      <th style="text-align: center;">P</th>
+                      <th style="text-align: center;">W</th>
+                      <th style="text-align: center;">D</th>
+                      <th style="text-align: center;">L</th>
+                      <th style="text-align: center;">GF</th>
+                      <th style="text-align: center;">GA</th>
+                      <th style="text-align: center;">GD</th>
+                      <th style="text-align: center; font-weight: bold; color: #fbbf24;">Pts</th>
+                      <th style="text-align: center;">Form</th>
+                    </tr>
+                  </thead>
+                  <tbody id="hist-standings-body">
+                    <tr><td colspan="11" class="text-center text-muted" style="padding: 2rem;">Loading league table...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Subtab 2: Previous Results -->
+            <div id="hist-subtab-results" class="hist-subtab-pane" style="display: none;">
+              <div class="hist-results-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+                <div style="font-size: 0.85rem; color: #94a3b8;">Match results from completed gameweeks:</div>
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                  <label for="hist-results-gw-filter" class="text-sm">Filter:</label>
+                  <select id="hist-results-gw-filter" class="input-sm" style="font-size: 0.8rem;">
+                    <option value="all">All Past GWs</option>
+                  </select>
+                </div>
+              </div>
+              <div id="hist-past-results-list" class="hist-results-list" style="max-height: 500px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div class="text-center text-muted" style="padding: 2rem;">No previous gameweeks completed yet.</div>
+              </div>
+            </div>
+
+            <!-- Subtab 3: Upcoming Fixtures (Zero Spoilers) -->
+            <div id="hist-subtab-upcoming" class="hist-subtab-pane" style="display: none;">
+              <div class="alert alert-info" style="margin-bottom: 0.8rem; font-size: 0.82rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2); padding: 0.5rem 0.8rem; border-radius: 6px; color: #38bdf8;">
+                🛡️ <strong>Zero-Leakage Guarantee:</strong> Upcoming match scores and results are completely hidden to prevent spoilers and ensure research integrity.
+              </div>
+              <div id="hist-upcoming-fixtures-list" class="hist-fixtures-list" style="max-height: 500px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+                <!-- Loaded via JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Simulated Manager Squad, Lineup & Transfers -->
+        <div class="hist-col-squad">
+          <div class="card" style="padding: 1rem;">
+            <div class="hist-squad-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+              <h3 style="margin: 0; font-size: 1.05rem;">Simulated Squad (GW <span id="hist-squad-gw">1</span>)</h3>
+              <div class="hist-squad-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+                <select id="hist-chip-select" class="input-sm" style="width: 125px;">
+                  <option value="">No Chip</option>
+                  <option value="wildcard">Wildcard</option>
+                  <option value="free_hit">Free Hit</option>
+                  <option value="bench_boost">Bench Boost</option>
+                  <option value="triple_captain">Triple Captain</option>
+                </select>
+                <button id="btn-hist-auto-lineup" class="btn btn-secondary btn-sm" title="Optimize starting 11 for this deadline">Auto-XI</button>
+              </div>
+            </div>
+
+            <!-- Pitch & Bench -->
+            <div class="hist-pitch-wrapper">
+              <div class="pitch-container" id="hist-pitch-container" style="min-height: 380px;">
+                <div class="pitch-row" id="hist-pitch-gkp"></div>
+                <div class="pitch-row" id="hist-pitch-def"></div>
+                <div class="pitch-row" id="hist-pitch-mid"></div>
+                <div class="pitch-row" id="hist-pitch-fwd"></div>
+              </div>
+              <div class="bench-section" style="margin-top: 0.8rem;">
+                <div class="bench-title" style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 0.4rem;">Bench (Ordered)</div>
+                <div id="hist-pitch-bench" class="bench-cards"></div>
+              </div>
+            </div>
+
+            <!-- Staged Transfers & Recommendation Tools -->
+            <div class="hist-transfer-box" style="margin-top: 1rem; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.8rem; border: 1px solid rgba(255,255,255,0.08);">
+              <div class="hist-tx-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-weight: 600; font-size: 0.85rem;">Staged Transfers (<span id="hist-staged-count">0</span>)</span>
+                <button id="btn-hist-clear-tx" class="btn btn-outline btn-xs" style="color: #f87171; border-color: #f87171; padding: 1px 6px;">Clear</button>
+              </div>
+              <div id="hist-staged-tx-list" class="hist-staged-tx-list" style="min-height: 32px; font-size: 0.8rem;">
+                <div class="text-muted text-sm">No transfers staged. Click any player above to transfer out.</div>
+              </div>
+              <div class="hist-transfer-tools" style="margin-top: 0.8rem;">
+                <button id="btn-hist-recs" class="btn btn-secondary btn-sm" style="width: 100%;">💡 View Engine Recommendations (v1.2.5)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- New Simulation Modal -->
+      <div id="hist-create-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box modal-md">
+          <div class="modal-header">
+            <h3>Start New Historical Simulation</h3>
+            <button class="btn-close" id="btn-hist-close-create-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label for="create-sim-season">Season:</label>
+              <select id="create-sim-season" class="input-sm" style="width: 100%;">
+                <option value="2023-24">2023-24</option>
+                <option value="2022-23">2022-23</option>
+                <option value="2021-22">2021-22</option>
+                <option value="2024-25">2024-25</option>
+                <option value="2025-26">2025-26</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label for="create-sim-start-gw">Start Gameweek:</label>
+              <input type="number" id="create-sim-start-gw" min="1" max="38" value="1" class="input-sm" style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label for="create-sim-id">Simulation ID (unique):</label>
+              <input type="text" id="create-sim-id" placeholder="e.g. human_replay_trial_01" class="input-sm" style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label for="create-sim-manager">Manager Name:</label>
+              <input type="text" id="create-sim-manager" value="Human Manager" class="input-sm" style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label for="create-sim-strategy">Starting Squad Baseline:</label>
+              <select id="create-sim-strategy" class="input-sm" style="width: 100%;">
+                <option value="v1.2.5">Engine Baseline (v1.2.5 Balanced)</option>
+                <option value="v1.0">v1.0 Canonical Heuristic</option>
+                <option value="v0.9">v0.9 Participation-Aware</option>
+              </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+              <button class="btn btn-secondary" id="btn-cancel-create-sim">Cancel</button>
+              <button class="btn btn-primary" id="btn-confirm-create-sim">Create Simulation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player Transfer Swap Modal -->
+      <div id="hist-swap-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box modal-lg">
+          <div class="modal-header">
+            <h3 id="hist-swap-modal-title">Swap Player</h3>
+            <button class="btn-close" id="btn-hist-close-swap-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+              <input type="text" id="hist-swap-search" placeholder="Search replacement player..." class="input-sm" style="flex: 1;">
+              <select id="hist-swap-pos-filter" class="input-sm">
+                <option value="ALL">All Positions</option>
+                <option value="GKP">Goalkeeper</option>
+                <option value="DEF">Defender</option>
+                <option value="MID">Midfielder</option>
+                <option value="FWD">Forward</option>
+              </select>
+            </div>
+            <div id="hist-swap-candidates-list" style="max-height: 400px; overflow-y: auto;">
+              <!-- Replacement options table -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resolution / Report Modal -->
+      <div id="hist-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box modal-lg">
+          <div class="modal-header">
+            <h3 id="hist-modal-title">Gameweek Resolution</h3>
+            <button class="btn-close" id="btn-hist-close-modal">✕</button>
+          </div>
+          <div class="modal-body" id="hist-modal-body" style="max-height: 520px; overflow-y: auto;">
+            <!-- Content loaded via JS -->
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- TAB: STRATEGIC SQUAD STUDIO (V1.1) -->
