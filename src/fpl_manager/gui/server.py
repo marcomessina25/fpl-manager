@@ -30,6 +30,7 @@ from ..historical.standings import (
     get_historical_matchday_overview,
     get_historical_past_results,
     get_historical_upcoming_fixtures,
+    get_live_matchday_overview,
 )
 from ..lineup import build_logged_lineup, select_starting_lineup
 from ..live_matchday import get_live_gameweek_matchday_summary
@@ -438,6 +439,11 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     model=model,
                 )
                 self._send_json(rep)
+            elif path == "/api/overview":
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else None
+                data = get_live_matchday_overview(self.database_path, target_gw=gw)
+                self._send_json(data)
             elif path == "/api/historical/seasons":
                 hist_dir = PROJECT_ROOT / "data" / "historical"
                 seasons = sorted([
@@ -951,6 +957,15 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 tid = path.split("/")[3]
                 result = delete_team(tid, self.config_dir)
                 self._send_json(result)
+            elif path.startswith("/api/historical/simulations/"):
+                sid = path[len("/api/historical/simulations/"):].strip("/")
+                sim_dir = self.config_dir / "simulations"
+                sim_file = sim_dir / f"{sid}.json"
+                if sim_file.exists():
+                    sim_file.unlink()
+                    self._send_json({"success": True, "deleted_session_id": sid})
+                else:
+                    self._send_error_json(f"Simulation session '{sid}' not found", status=404)
             else:
                 self._send_error_json("Endpoint not found", status=404)
         except Exception as err:

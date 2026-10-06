@@ -1,6 +1,7 @@
 // FPL Manager Pro — Interactive Dashboard Client Controller
 
 const state = {
+  appMode: "live", // "live" | "historical"
   activeTeamId: null,
   teams: [],
   currentSquad: null,
@@ -71,6 +72,330 @@ async function api(endpoint, options = {}) {
   }
 }
 
+// Modality Switching: Live Manager vs Historical Time Machine
+function initModality() {
+  const btnLive = document.getElementById("btn-mode-live");
+  const btnHist = document.getElementById("btn-mode-historical");
+  const liveSwitcher = document.getElementById("live-switcher-bar");
+  const histSwitcher = document.getElementById("hist-switcher-bar");
+  const liveHud = document.getElementById("live-hud-bar");
+  const histHud = document.getElementById("hist-hud-bar");
+
+  // Pitch wrappers
+  const livePitchWrap = document.getElementById("live-pitch-wrapper");
+  const histPitchWrap = document.getElementById("hist-pitch-wrapper");
+
+  // Transfers wrappers
+  const liveTxWrap = document.getElementById("live-transfers-wrapper");
+  const histTxWrap = document.getElementById("hist-transfers-wrapper");
+
+  // Evaluation wrappers
+  const liveEvalWrap = document.getElementById("live-evaluation-wrapper");
+  const histEvalWrap = document.getElementById("hist-evaluation-wrapper");
+
+  const liveOnlyTabs = document.querySelectorAll(".mode-live-only");
+
+  const setMode = async (mode) => {
+    state.appMode = mode;
+
+    if (mode === "live") {
+      if (btnLive) btnLive.classList.add("active");
+      if (btnHist) btnHist.classList.remove("active");
+
+      if (liveSwitcher) liveSwitcher.style.display = "flex";
+      if (histSwitcher) histSwitcher.style.display = "none";
+      if (liveHud) liveHud.style.display = "flex";
+      if (histHud) histHud.style.display = "none";
+
+      if (livePitchWrap) livePitchWrap.style.display = "flex";
+      if (histPitchWrap) histPitchWrap.style.display = "none";
+
+      if (liveTxWrap) liveTxWrap.style.display = "block";
+      if (histTxWrap) histTxWrap.style.display = "none";
+
+      if (liveEvalWrap) liveEvalWrap.style.display = "block";
+      if (histEvalWrap) histEvalWrap.style.display = "none";
+
+      liveOnlyTabs.forEach(tab => { tab.style.display = ""; });
+
+      await loadOverview();
+      await refreshActiveTeamData();
+    } else {
+      if (btnHist) btnHist.classList.add("active");
+      if (btnLive) btnLive.classList.remove("active");
+
+      if (liveSwitcher) liveSwitcher.style.display = "none";
+      if (histSwitcher) histSwitcher.style.display = "flex";
+      if (liveHud) liveHud.style.display = "none";
+      if (histHud) histHud.style.display = "flex";
+
+      if (livePitchWrap) livePitchWrap.style.display = "none";
+      if (histPitchWrap) histPitchWrap.style.display = "block";
+
+      if (liveTxWrap) liveTxWrap.style.display = "none";
+      if (histTxWrap) histTxWrap.style.display = "block";
+
+      if (liveEvalWrap) liveEvalWrap.style.display = "none";
+      if (histEvalWrap) histEvalWrap.style.display = "block";
+
+      liveOnlyTabs.forEach(tab => {
+        tab.style.display = "none";
+        if (tab.classList.contains("active")) {
+          // Switch to overview or pitch tab if user was on a live-only tab
+          const overviewBtn = document.querySelector('.tabs-nav .tab-btn[data-tab="overview"]');
+          if (overviewBtn) overviewBtn.click();
+        }
+      });
+
+      await loadHistoricalSimulationsList();
+      await loadOverview();
+    }
+  };
+
+  if (btnLive) {
+    btnLive.addEventListener("click", () => setMode("live"));
+  }
+  if (btnHist) {
+    btnHist.addEventListener("click", () => setMode("historical"));
+  }
+
+  // Top run matchday button in historical HUD
+  const btnTopRun = document.getElementById("btn-hist-run-gw-top");
+  if (btnTopRun) {
+    btnTopRun.addEventListener("click", async () => {
+      const btnRun = document.getElementById("btn-hist-run-gw");
+      if (btnRun) {
+        btnRun.click();
+      } else if (histState.sessionId) {
+        try {
+          btnTopRun.disabled = true;
+          btnTopRun.textContent = "Resolving...";
+          const res = await api(`/api/historical/simulations/${histState.sessionId}/run-gw`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          showHistoricalResolutionModal(res.resolution);
+          await loadHistoricalSession(histState.sessionId);
+          await loadOverview();
+        } catch (err) {
+          showToast(`Failed to run matchday: ${err.message}`, true);
+        } finally {
+          btnTopRun.disabled = false;
+          btnTopRun.textContent = "▶ Run Matchday";
+        }
+      } else {
+        showToast("Please select or create a historical simulation session first.", true);
+      }
+    });
+  }
+
+  // Header "+ New Sim" button
+  const btnOpenCreateSim = document.getElementById("btn-open-create-sim");
+  if (btnOpenCreateSim) {
+    btnOpenCreateSim.addEventListener("click", () => {
+      const btnNewSim = document.getElementById("btn-hist-new-sim");
+      if (btnNewSim) btnNewSim.click();
+      else {
+        const modalCreate = document.getElementById("hist-create-modal");
+        const createSeason = document.getElementById("create-sim-season");
+        if (createSeason) createSeason.value = histState.season;
+        const createId = document.getElementById("create-sim-id");
+        if (createId) createId.value = `sim_${histState.season.replace('-', '_')}_${Date.now().toString().slice(-4)}`;
+        if (modalCreate) modalCreate.style.display = "flex";
+      }
+    });
+  }
+
+  // Header "Delete Sim" button
+  const btnDeleteSim = document.getElementById("btn-delete-sim");
+  if (btnDeleteSim) {
+    btnDeleteSim.addEventListener("click", async () => {
+      if (!histState.sessionId) {
+        showToast("No simulation selected to delete.", true);
+        return;
+      }
+      if (!confirm(`Are you sure you want to delete simulation '${histState.sessionId}'?`)) return;
+      try {
+        await api(`/api/historical/simulations/${histState.sessionId}`, { method: "DELETE" });
+        showToast(`Deleted simulation '${histState.sessionId}'`);
+        histState.sessionId = null;
+        histState.sessionData = null;
+        await loadHistoricalSimulationsList();
+        await loadOverview();
+      } catch (err) {
+        showToast(`Failed to delete simulation: ${err.message}`, true);
+      }
+    });
+  }
+}
+
+// Unified Overview Tab Controller (Live & Historical)
+async function loadOverview() {
+  const isHist = state.appMode === "historical";
+  const titleEl = document.getElementById("overview-title");
+  const subEl = document.getElementById("overview-subtitle");
+  const modeBadge = document.getElementById("overview-mode-badge");
+  const gwBadge = document.getElementById("overview-gw-badge");
+  const countEl = document.getElementById("overview-standings-count");
+  const resLabel = document.getElementById("overview-results-gw-label");
+
+  if (isHist) {
+    if (titleEl) titleEl.textContent = `🏆 Premier League Overview & Standings (${histState.season})`;
+    if (subEl) subEl.textContent = `Point-in-time official table for Season ${histState.season} up to GW ${histState.gameweek}. Zero future results revealed.`;
+    if (modeBadge) {
+      modeBadge.textContent = `Time Machine (${histState.season})`;
+      modeBadge.className = "badge badge-secondary";
+    }
+    if (gwBadge) gwBadge.textContent = `Simulated GW ${histState.gameweek}`;
+  } else {
+    if (titleEl) titleEl.textContent = "🏆 Premier League Overview & Standings";
+    if (subEl) subEl.textContent = "Point-in-time official table, completed match scores, and upcoming fixtures (zero-leakage blind replay).";
+    if (modeBadge) {
+      modeBadge.textContent = "2026/27 Live";
+      modeBadge.className = "badge badge-accent";
+    }
+    if (gwBadge) gwBadge.textContent = `GW ${state.activeGameweek || 1}`;
+  }
+
+  try {
+    const endpoint = isHist
+      ? `/api/historical/overview?season=${histState.season}&gameweek=${histState.gameweek}`
+      : `/api/overview?gameweek=${state.activeGameweek || ''}`;
+
+    const data = await api(endpoint);
+
+    // Render Standings
+    renderOverviewStandings(data.standings || []);
+    if (countEl) countEl.textContent = `${(data.standings || []).length} Clubs`;
+
+    // Render Past Results
+    renderOverviewPastResults(data.past_results || []);
+    if (resLabel) resLabel.textContent = isHist ? `GW 1 – GW ${Math.max(1, histState.gameweek - 1)}` : `Completed Matches`;
+
+    // Render Upcoming Fixtures
+    renderOverviewUpcomingFixtures(data.upcoming_fixtures || []);
+  } catch (err) {
+    console.error("Failed to load overview data:", err);
+    showToast(`Failed to load overview: ${err.message}`, true);
+  }
+}
+
+function renderOverviewStandings(standings) {
+  const tbody = document.getElementById("overview-standings-body");
+  if (!tbody) return;
+
+  if (!standings || standings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted" style="padding: 1.5rem;">No standings data available.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = standings.map(s => {
+    let posClass = "";
+    if (s.position <= 4) posClass = "pos-ucl";
+    else if (s.position === 5) posClass = "pos-uel";
+    else if (s.position >= 18) posClass = "pos-rel";
+
+    const formHtml = (s.form || []).map(f => {
+      const cls = f === "W" ? "form-w" : (f === "D" ? "form-d" : "form-l");
+      return `<span class="form-badge ${cls}">${f}</span>`;
+    }).join("");
+
+    const gdFormatted = s.goal_difference > 0 ? `+${s.goal_difference}` : s.goal_difference;
+
+    return `
+      <tr class="${posClass}">
+        <td style="text-align: center; font-weight: bold; color: #94a3b8;">${s.position}</td>
+        <td style="font-weight: 600;">
+          <span>${escapeHtml(s.name)}</span>
+          <span style="font-size: 0.72rem; color: #64748b; margin-left: 4px;">(${escapeHtml(s.short_name)})</span>
+        </td>
+        <td style="text-align: center;">${s.played}</td>
+        <td style="text-align: center;">${s.won}</td>
+        <td style="text-align: center;">${s.drawn}</td>
+        <td style="text-align: center;">${s.lost}</td>
+        <td style="text-align: center;">${s.goals_for}</td>
+        <td style="text-align: center;">${s.goals_against}</td>
+        <td style="text-align: center; color: ${s.goal_difference > 0 ? '#34d399' : (s.goal_difference < 0 ? '#f87171' : '#94a3b8')};">${gdFormatted}</td>
+        <td style="text-align: center; font-weight: bold; font-size: 0.95rem; color: #fbbf24;">${s.points}</td>
+        <td style="text-align: center;"><div class="form-badge-strip">${formHtml || "-"}</div></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderOverviewPastResults(results) {
+  const list = document.getElementById("overview-past-results-list");
+  if (!list) return;
+
+  if (!results || results.length === 0) {
+    list.innerHTML = `<div class="text-center text-muted" style="padding: 1.5rem;">No previous gameweeks completed yet.</div>`;
+    return;
+  }
+
+  // Group or sort recent results
+  const sorted = [...results].reverse();
+
+  list.innerHTML = sorted.map(r => {
+    const hWin = r.team_h_score > r.team_a_score;
+    const aWin = r.team_a_score > r.team_h_score;
+    const kickoffFormatted = r.kickoff_time
+      ? new Date(r.kickoff_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+      : `GW ${r.event}`;
+
+    return `
+      <div class="fixture-row-card">
+        <div style="font-size: 0.72rem; color: #64748b; width: 55px;">GW ${r.event}</div>
+        <div class="fixture-teams">
+          <div class="fixture-team-h" style="color: ${hWin ? '#fff' : '#94a3b8'};">
+            ${escapeHtml(r.team_h_name)}
+          </div>
+          <div class="fixture-score">
+            ${r.team_h_score} - ${r.team_a_score}
+          </div>
+          <div class="fixture-team-a" style="color: ${aWin ? '#fff' : '#94a3b8'};">
+            ${escapeHtml(r.team_a_name)}
+          </div>
+        </div>
+        <div style="font-size: 0.72rem; color: #64748b; width: 75px; text-align: right;">${kickoffFormatted}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderOverviewUpcomingFixtures(upcoming) {
+  const list = document.getElementById("overview-upcoming-fixtures-list");
+  if (!list) return;
+
+  if (!upcoming || upcoming.length === 0) {
+    list.innerHTML = `<div class="text-center text-muted" style="padding: 1.5rem;">No upcoming fixtures scheduled.</div>`;
+    return;
+  }
+
+  list.innerHTML = upcoming.map(u => {
+    const kickoffFormatted = u.kickoff_time
+      ? new Date(u.kickoff_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : `GW ${u.event}`;
+
+    return `
+      <div class="fixture-row-card">
+        <div style="font-size: 0.72rem; color: #38bdf8; font-weight: bold; width: 50px;">GW ${u.event}</div>
+        <div class="fixture-teams">
+          <div class="fixture-team-h">
+            ${escapeHtml(u.team_h_name)}
+            <span class="fdr-pill fdr-${u.team_h_difficulty}" title="FDR: ${u.team_h_difficulty}">${u.team_h_difficulty}</span>
+          </div>
+          <div class="fixture-vs">vs</div>
+          <div class="fixture-team-a">
+            <span class="fdr-pill fdr-${u.team_a_difficulty}" title="FDR: ${u.team_a_difficulty}">${u.team_a_difficulty}</span>
+            ${escapeHtml(u.team_a_name)}
+          </div>
+        </div>
+        <div style="font-size: 0.72rem; color: #94a3b8; width: 100px; text-align: right;">${kickoffFormatted}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 // Tab Switching
 function initTabs() {
   const tabBtns = document.querySelectorAll(".tabs-nav .tab-btn");
@@ -86,6 +411,22 @@ function initTabs() {
       if (targetPane) targetPane.classList.add("active");
 
       // Lazy load tab contents when switching
+      if (target === "overview") {
+        loadOverview();
+      }
+      if (target === "pitch") {
+        if (state.appMode === "historical") {
+          if (histState.sessionId) loadHistoricalSession(histState.sessionId);
+          else loadHistoricalSimulationsList();
+        } else {
+          loadLineup();
+        }
+      }
+      if (target === "transfers") {
+        if (state.appMode === "historical") {
+          if (histState.sessionId) loadHistoricalSession(histState.sessionId);
+        }
+      }
       if (target === "decisions") {
         loadDecisions();
         loadAllLeaguePlayers();
@@ -93,14 +434,25 @@ function initTabs() {
           populateDecisionLoggerSquad(state.currentSquad.players);
         }
       }
-      if (target === "historical") loadHistoricalTimeMachine();
       if (target === "strategic") loadStrategicStudio();
       if (target === "chips") loadChipStrategy();
-      if (target === "evaluation") loadEvaluation();
+      if (target === "evaluation") {
+        if (state.appMode === "historical") {
+          renderHistoricalEvaluationSummary();
+        } else {
+          loadEvaluation();
+        }
+      }
       if (target === "live") loadLiveMatchday();
       if (target === "advisor") loadAdvisor();
     });
   });
+
+  // Refresh Overview button handler
+  const btnRefreshOverview = document.getElementById("btn-refresh-overview");
+  if (btnRefreshOverview) {
+    btnRefreshOverview.addEventListener("click", () => loadOverview());
+  }
 
   // Subtab switching in transfers
   const subtabBtns = document.querySelectorAll(".subtab-btn");
@@ -3855,11 +4207,25 @@ async function loadHistoricalSession(sessionId) {
     const squadGw = document.getElementById("hist-squad-gw");
     if (squadGw) squadGw.textContent = data.current_gw;
 
-    // Badges
+    // Header Historical HUD Badges
+    const hudSeason = document.getElementById("hist-hud-season");
+    if (hudSeason) hudSeason.textContent = data.season;
+    const hudGw = document.getElementById("hist-hud-gw");
+    if (hudGw) hudGw.textContent = `GW ${data.current_gw}`;
+    const hudPts = document.getElementById("hist-hud-pts");
+    if (hudPts) hudPts.textContent = `${data.total_net_points || 0} pts`;
+    const hudBank = document.getElementById("hist-hud-bank");
+    if (hudBank) hudBank.textContent = `£${((data.bank_tenths || 0) / 10).toFixed(1)}m`;
+    const hudFt = document.getElementById("hist-hud-ft");
+    if (hudFt) hudFt.textContent = data.free_transfers;
+    const hudChip = document.getElementById("hist-hud-chip");
+    if (hudChip) hudChip.textContent = data.active_chip || "None";
+
+    // Pitch & In-tab Badges
     const badgePts = document.getElementById("hist-badge-pts");
     if (badgePts) badgePts.textContent = `Total Net: ${data.total_net_points || 0} pts`;
     const badgeBank = document.getElementById("hist-badge-bank");
-    if (badgeBank) badgeBank.textContent = `Bank: £${(data.bank_tenths || 0) / 10:.1f}m`;
+    if (badgeBank) badgeBank.textContent = `Bank: £${((data.bank_tenths || 0) / 10).toFixed(1)}m`;
     const badgeFt = document.getElementById("hist-badge-ft");
     if (badgeFt) badgeFt.textContent = `Free Tx: ${data.free_transfers}`;
     const badgeChip = document.getElementById("hist-badge-chip");
@@ -3974,7 +4340,7 @@ function renderHistoricalStagedTransfers(staged) {
   }
 
   listEl.innerHTML = staged.map(st => {
-    const costFormatted = st.cost_tenths > 0 ? `-£${st.cost_tenths/10:.1f}m` : `+£${Math.abs(st.cost_tenths)/10:.1f}m`;
+    const costFormatted = st.cost_tenths > 0 ? `-£${(st.cost_tenths/10).toFixed(1)}m` : `+£${(Math.abs(st.cost_tenths)/10).toFixed(1)}m`;
     return `
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255,255,255,0.04); border-radius: 4px; margin-bottom: 4px;">
         <div>
@@ -4227,6 +4593,85 @@ function showHistoricalReportModal(rep) {
   modal.style.display = "flex";
 }
 
+async function renderHistoricalEvaluationSummary() {
+  const ptsEl = document.getElementById("hist-eval-pts");
+  const baseEl = document.getElementById("hist-eval-baseline-pts");
+  const deltaEl = document.getElementById("hist-eval-delta");
+  const hitsEl = document.getElementById("hist-eval-hits");
+  const ledgerEl = document.getElementById("hist-eval-ledger-container");
+
+  if (!histState.sessionId) {
+    if (ptsEl) ptsEl.textContent = "- pts";
+    if (baseEl) baseEl.textContent = "- pts";
+    if (deltaEl) deltaEl.textContent = "-";
+    if (hitsEl) hitsEl.textContent = "0 pts";
+    if (ledgerEl) ledgerEl.innerHTML = `<p class="text-muted text-sm">No simulation active. Start or select a simulation session to view benchmark progression.</p>`;
+    return;
+  }
+
+  try {
+    const report = await api(`/api/historical/simulations/${histState.sessionId}/report`);
+    if (ptsEl) ptsEl.textContent = `${report.total_net_points} pts`;
+    if (baseEl) baseEl.textContent = `${report.engine_baseline_total_net_points || '-'} pts`;
+
+    if (deltaEl) {
+      const d = report.human_vs_engine_delta || 0;
+      deltaEl.textContent = `${d > 0 ? '+' : ''}${d} pts`;
+      deltaEl.style.color = d > 0 ? "var(--accent-green)" : (d < 0 ? "#f87171" : "#cbd5e1");
+    }
+
+    if (hitsEl) hitsEl.textContent = `-${report.total_transfer_hits * 4} pts (${report.total_transfer_hits} hits)`;
+
+    const history = histState.sessionData?.history || [];
+    if (history.length === 0) {
+      if (ledgerEl) ledgerEl.innerHTML = `<p class="text-muted text-sm">No gameweeks resolved yet. Advance gameweeks with "▶ Run Matchday" to build the progression log.</p>`;
+      return;
+    }
+
+    if (ledgerEl) {
+      ledgerEl.innerHTML = `
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem;">Matchday Progression History</h4>
+        <div style="overflow-x: auto;">
+          <table class="data-table" style="width: 100%; font-size: 0.85rem;">
+            <thead>
+              <tr>
+                <th style="text-align: center;">GW</th>
+                <th style="text-align: center;">Net Pts</th>
+                <th style="text-align: center;">Gross Pts</th>
+                <th style="text-align: center;">Hits</th>
+                <th>Captain</th>
+                <th>Chip</th>
+                <th style="text-align: center;">Engine Baseline</th>
+                <th style="text-align: center;">Human vs Engine</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${history.map(h => {
+                const diff = (h.net_points || 0) - (h.engine_net_points || 0);
+                const diffColor = diff > 0 ? '#34d399' : (diff < 0 ? '#f87171' : '#94a3b8');
+                return `
+                  <tr>
+                    <td style="text-align: center; font-weight: bold;">GW ${h.gameweek}</td>
+                    <td style="text-align: center; font-weight: 700; color: var(--accent-green);">${h.net_points}</td>
+                    <td style="text-align: center;">${h.gross_points}</td>
+                    <td style="text-align: center; color: ${h.transfer_hits > 0 ? '#f87171' : '#94a3b8'};">-${(h.transfer_hits || 0) * 4}</td>
+                    <td>${escapeHtml(h.effective_captain_name || 'C')} (${h.captain_points || 0}p)</td>
+                    <td><span class="badge badge-sm">${escapeHtml(h.active_chip || 'None')}</span></td>
+                    <td style="text-align: center; color: #38bdf8;">${h.engine_net_points !== undefined ? h.engine_net_points : '-'}</td>
+                    <td style="text-align: center; font-weight: bold; color: ${diffColor};">${diff > 0 ? '+' : ''}${diff}</td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+  } catch (err) {
+    if (ledgerEl) ledgerEl.innerHTML = `<p class="text-danger text-sm">Failed to load simulation report: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
 function showHistoricalRecommendationsModal(recs) {
   const modal = document.getElementById("hist-modal");
   const title = document.getElementById("hist-modal-title");
@@ -4267,6 +4712,7 @@ function showHistoricalRecommendationsModal(recs) {
 // App Initialization
 document.addEventListener("DOMContentLoaded", async () => {
   initTabs();
+  initModality();
   initModal();
   initEventListeners();
   initStrategicStudio();
@@ -4274,6 +4720,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();
+  await loadOverview();
 });
 
 

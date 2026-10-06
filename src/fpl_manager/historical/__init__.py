@@ -14,6 +14,7 @@ from .standings import (
     get_historical_matchday_overview,
     get_historical_past_results,
     get_historical_upcoming_fixtures,
+    get_live_matchday_overview,
 )
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "get_historical_matchday_overview",
     "get_historical_past_results",
     "get_historical_upcoming_fixtures",
+    "get_live_matchday_overview",
 ]
 
