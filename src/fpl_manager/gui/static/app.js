@@ -1673,7 +1673,7 @@ async function runSuggestTransfers() {
   const numTx = document.getElementById("tx-num").value;
   const gws = document.getElementById("tx-gws").value;
   const risk = document.getElementById("tx-risk").value;
-  const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.2.5";
+  const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.3.5";
 
   try {
     const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}`);
@@ -2392,10 +2392,14 @@ function initEventListeners() {
   }
 
   // Transfers & Studio Buttons
-  document.getElementById("btn-run-suggest-tx").addEventListener("click", runSuggestTransfers);
-  document.getElementById("btn-run-wildcard").addEventListener("click", runWildcard);
-  document.getElementById("btn-run-plan").addEventListener("click", runPlanner);
-  document.getElementById("btn-run-chip-strategy").addEventListener("click", loadChipStrategy);
+  const btnRunTx = document.getElementById("btn-run-suggest-tx");
+  if (btnRunTx) btnRunTx.addEventListener("click", runSuggestTransfers);
+  const btnRunWc = document.getElementById("btn-run-wildcard");
+  if (btnRunWc) btnRunWc.addEventListener("click", runWildcard);
+  const btnRunPlan = document.getElementById("btn-run-plan");
+  if (btnRunPlan) btnRunPlan.addEventListener("click", runPlanner);
+  const btnRunChips = document.getElementById("btn-run-chip-strategy");
+  if (btnRunChips) btnRunChips.addEventListener("click", loadChipStrategy);
   document.getElementById("btn-run-eval").addEventListener("click", loadEvaluation);
 
   // V0.6 Live Matchday & AI Advisor Buttons

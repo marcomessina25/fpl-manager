@@ -718,10 +718,14 @@
     <section id="tab-transfers" class="tab-pane">
       <!-- Live Transfers Wrapper -->
       <div id="live-transfers-wrapper">
-        <div class="tabs-subnav">
-        <button class="subtab-btn active" data-subtab="regular-tx">1- to 5-Transfer Optimizer</button>
-        <button class="subtab-btn" data-subtab="wildcard-opt">Wildcard & Free-Hit Studio</button>
-      </div>
+        <!-- Strategic Studio notice banner -->
+        <div class="card" style="padding: 0.75rem 1rem; margin-bottom: 1rem; background: rgba(59, 130, 246, 0.08); border-left: 4px solid var(--accent-blue); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <span style="font-weight: 600; color: var(--accent-blue);">🧠 Planning a full squad revamp or rental?</span>
+            <span class="text-muted text-sm" style="margin-left: 0.5rem;">Use <strong>Strategic Squad Studio</strong> for full Wildcard and Free-Hit multi-GW lineup optimization, locked/excluded constraints, and candidate comparison.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.querySelector('.tab-btn[data-tab=\'strategic\']').click()">Open Strategic Studio ➔</button>
+        </div>
 
       <!-- Regular Transfers Panel -->
       <div id="subtab-regular-tx" class="subtab-pane active">
@@ -751,8 +755,9 @@
           <div class="tool-group">
             <label>Engine:</label>
             <select id="tx-engine" class="form-control form-control-sm">
-              <option value="v1.2.5" selected>V1.2.5 (Lineup & Horizon)</option>
-              <option value="legacy">Legacy / V1.0 (Flat Squad)</option>
+              <option value="v1.3.5" selected>V1.3.5 / V1.4 (Hardened Baseline, H=3, γ=0.75, W_bench=0.15, GK=3.0)</option>
+              <option value="v1.2.5">V1.2.5 (Lineup-Aware, unpruned pool, H=3)</option>
+              <option value="legacy">Legacy V1.0 (Flat squad unweighted)</option>
             </select>
           </div>
           <button id="btn-run-suggest-tx" class="btn btn-primary btn-sm">Solve Optimal Moves</button>
@@ -760,36 +765,6 @@
 
         <div id="tx-results-container" class="results-grid">
           <p class="text-muted">Click "Solve Optimal Moves" to evaluate combinatorial transfers.</p>
-        </div>
-      </div>
-
-      <!-- Wildcard / Free Hit Studio -->
-      <div id="subtab-wildcard-opt" class="subtab-pane">
-        <div class="toolbar">
-          <div class="tool-group">
-            <label>Chip Mode:</label>
-            <select id="wc-mode" class="form-control form-control-sm">
-              <option value="wildcard" selected>Wildcard (Permanent 15-player revamp)</option>
-              <option value="freehit">Free Hit (1-week rental squad)</option>
-            </select>
-          </div>
-          <div class="tool-group">
-            <label>Budget (£m):</label>
-            <input type="number" id="wc-budget" step="0.5" placeholder="Current squad value" class="input-sm" style="width:100px;">
-          </div>
-          <div class="tool-group">
-            <label>Risk Profile:</label>
-            <select id="wc-risk" class="form-control form-control-sm">
-              <option value="neutral" selected>Neutral (Expected xP)</option>
-              <option value="floor">Floor (Safe rank guard)</option>
-              <option value="ceiling">Ceiling (High variance)</option>
-            </select>
-          </div>
-          <button id="btn-run-wildcard" class="btn btn-primary btn-sm">Optimize 15-Player Squad</button>
-        </div>
-
-        <div id="wc-results-container">
-          <p class="text-muted">Configure parameters and click "Optimize 15-Player Squad" to solve the optimal Wildcard lineup.</p>
         </div>
       </div>
       </div>

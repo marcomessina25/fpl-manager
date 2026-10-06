@@ -226,7 +226,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 num_tx = int(get_arg("transfers", 1))
                 gws = int(get_arg("gameweeks", 5))
                 risk = get_arg("risk", "neutral")
-                engine = get_arg("engine", "v1.2.5")
+                engine = get_arg("engine", "v1.3.5")
                 gamma_val = float(get_arg("gamma", 0.75))
                 horizon_val = int(get_arg("horizon", 3))
                 gw_param = get_arg("gameweek") or get_arg("gw")
