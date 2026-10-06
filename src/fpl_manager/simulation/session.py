@@ -615,10 +615,30 @@ class HistoricalSimulationSession:
             for out_id, in_id in rec_transfers
         ]
 
+        rec_opportunity = None
+        if rec_chip:
+            try:
+                from .chip_optimizer import ChipOpportunityOptimizer
+
+                opt = ChipOpportunityOptimizer(variant="c1_linear_decay")
+                opps = opt.evaluate_all_opportunities(
+                    gameweek=self.current_gw,
+                    available_chips=[rec_chip],
+                    squad_ids=self.squad_ids,
+                    snapshot=snapshot,
+                    projections=projections,
+                    chips_used=self.chips_used,
+                )
+                if rec_chip in opps:
+                    rec_opportunity = opps[rec_chip].to_dict()
+            except Exception:
+                pass
+
         return {
             "gameweek": self.current_gw,
             "engine_version": engine_ver,
             "recommended_chip": rec_chip,
+            "recommended_chip_opportunity": rec_opportunity,
             "recommended_transfers": transfer_details,
             "recommended_starters": best_starters,
             "recommended_bench": best_bench,

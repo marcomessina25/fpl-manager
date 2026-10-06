@@ -1,0 +1,3038 @@
+{
+  "decisions": [
+    {
+      "season": "2021-22",
+      "gameweek": 1,
+      "gross_points": 77,
+      "net_points": 77,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 2,
+      "gross_points": 49,
+      "net_points": 49,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          31,
+          185
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 3,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          36,
+          367
+        ]
+      ],
+      "captain_id": 177
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 4,
+      "gross_points": 66,
+      "net_points": 66,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          46,
+          83
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 5,
+      "gross_points": 62,
+      "net_points": 62,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          294,
+          146
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 6,
+      "gross_points": 49,
+      "net_points": 49,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          177,
+          189
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 7,
+      "gross_points": 71,
+      "net_points": 71,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          180,
+          430
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 8,
+      "gross_points": 66,
+      "net_points": 66,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          185,
+          590
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 9,
+      "gross_points": 65,
+      "net_points": 65,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          189,
+          78
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 10,
+      "gross_points": 52,
+      "net_points": 52,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          168,
+          256
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 11,
+      "gross_points": 60,
+      "net_points": 60,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          367,
+          23
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 12,
+      "gross_points": 73,
+      "net_points": 73,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          590,
+          491
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 13,
+      "gross_points": 76,
+      "net_points": 76,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 14,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 15,
+      "gross_points": 31,
+      "net_points": 31,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          59,
+          590
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 16,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          491,
+          67
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 17,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          420,
+          144
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 18,
+      "gross_points": 34,
+      "net_points": 34,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 19,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          78,
+          296
+        ]
+      ],
+      "captain_id": 256
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 20,
+      "gross_points": 35,
+      "net_points": 35,
+      "transfer_hits": 0,
+      "chip_used": "free_hit",
+      "transfers": [
+        [
+          23,
+          127
+        ],
+        [
+          64,
+          138
+        ],
+        [
+          67,
+          142
+        ],
+        [
+          69,
+          259
+        ],
+        [
+          83,
+          262
+        ],
+        [
+          146,
+          270
+        ],
+        [
+          230,
+          277
+        ],
+        [
+          240,
+          389
+        ],
+        [
+          296,
+          404
+        ],
+        [
+          307,
+          421
+        ],
+        [
+          430,
+          450
+        ],
+        [
+          590,
+          518
+        ]
+      ],
+      "captain_id": 233
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 21,
+      "gross_points": 52,
+      "net_points": 52,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          240,
+          420
+        ]
+      ],
+      "captain_id": 420
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 22,
+      "gross_points": 30,
+      "net_points": 30,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          83,
+          584
+        ]
+      ],
+      "captain_id": 69
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 23,
+      "gross_points": 28,
+      "net_points": 28,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          296,
+          450
+        ]
+      ],
+      "captain_id": 450
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 24,
+      "gross_points": 74,
+      "net_points": 74,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          230,
+          251
+        ]
+      ],
+      "captain_id": 251
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 25,
+      "gross_points": 35,
+      "net_points": 35,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          233,
+          277
+        ]
+      ],
+      "captain_id": 69
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 26,
+      "gross_points": 60,
+      "net_points": 60,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          590,
+          229
+        ]
+      ],
+      "captain_id": 229
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 27,
+      "gross_points": 20,
+      "net_points": 20,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          584,
+          585
+        ]
+      ],
+      "captain_id": 69
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 28,
+      "gross_points": 55,
+      "net_points": 55,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          146,
+          475
+        ]
+      ],
+      "captain_id": 475
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 29,
+      "gross_points": 36,
+      "net_points": 36,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          251,
+          359
+        ]
+      ],
+      "captain_id": 359
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 30,
+      "gross_points": 21,
+      "net_points": 21,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          420,
+          22
+        ]
+      ],
+      "captain_id": 23
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 31,
+      "gross_points": 40,
+      "net_points": 40,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          69,
+          112
+        ]
+      ],
+      "captain_id": 112
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 32,
+      "gross_points": 63,
+      "net_points": 63,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          64,
+          212
+        ]
+      ],
+      "captain_id": 359
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 33,
+      "gross_points": 39,
+      "net_points": 39,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          144,
+          341
+        ]
+      ],
+      "captain_id": 277
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 34,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          430,
+          315
+        ]
+      ],
+      "captain_id": 277
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 35,
+      "gross_points": 94,
+      "net_points": 94,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          585,
+          44
+        ]
+      ],
+      "captain_id": 359
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 36,
+      "gross_points": 52,
+      "net_points": 52,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          307,
+          40
+        ]
+      ],
+      "captain_id": 256
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 37,
+      "gross_points": 40,
+      "net_points": 40,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          67,
+          477
+        ]
+      ],
+      "captain_id": 44
+    },
+    {
+      "season": "2021-22",
+      "gameweek": 38,
+      "gross_points": 75,
+      "net_points": 75,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 359
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 1,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          301,
+          428
+        ]
+      ],
+      "captain_id": 428
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 2,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          5,
+          388
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 3,
+      "gross_points": 61,
+      "net_points": 61,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          221,
+          258
+        ]
+      ],
+      "captain_id": 428
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 4,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          222,
+          109
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 5,
+      "gross_points": 43,
+      "net_points": 43,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          302,
+          26
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 6,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          258,
+          357
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 7,
+      "gross_points": 0,
+      "net_points": 0,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 81
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 8,
+      "gross_points": 60,
+      "net_points": 60,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          30,
+          210
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 9,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          388,
+          475
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 10,
+      "gross_points": 39,
+      "net_points": 39,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          293,
+          111
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 11,
+      "gross_points": 65,
+      "net_points": 65,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          300,
+          261
+        ]
+      ],
+      "captain_id": 428
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 12,
+      "gross_points": 56,
+      "net_points": 56,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          475,
+          366
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 13,
+      "gross_points": 31,
+      "net_points": 31,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          261,
+          314
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 14,
+      "gross_points": 66,
+      "net_points": 66,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          109,
+          342
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 15,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          283,
+          301
+        ]
+      ],
+      "captain_id": 301
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 16,
+      "gross_points": 83,
+      "net_points": 83,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 301
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 17,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          428,
+          142
+        ]
+      ],
+      "captain_id": 26
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 18,
+      "gross_points": 61,
+      "net_points": 61,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          342,
+          306
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 19,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          306,
+          520
+        ]
+      ],
+      "captain_id": 210
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 20,
+      "gross_points": 66,
+      "net_points": 66,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          238,
+          327
+        ]
+      ],
+      "captain_id": 327
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 21,
+      "gross_points": 55,
+      "net_points": 55,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          520,
+          358
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 22,
+      "gross_points": 27,
+      "net_points": 27,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          314,
+          335
+        ]
+      ],
+      "captain_id": 327
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 23,
+      "gross_points": 64,
+      "net_points": 64,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          80,
+          318
+        ]
+      ],
+      "captain_id": 318
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 24,
+      "gross_points": 40,
+      "net_points": 40,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          111,
+          303
+        ]
+      ],
+      "captain_id": 81
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 25,
+      "gross_points": 28,
+      "net_points": 28,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          142,
+          680
+        ]
+      ],
+      "captain_id": 7
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 26,
+      "gross_points": 42,
+      "net_points": 42,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          411,
+          95
+        ]
+      ],
+      "captain_id": 318
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 27,
+      "gross_points": 53,
+      "net_points": 53,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          303,
+          124
+        ]
+      ],
+      "captain_id": 81
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 28,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": "free_hit",
+      "transfers": [
+        [
+          10,
+          13
+        ],
+        [
+          26,
+          16
+        ],
+        [
+          81,
+          40
+        ],
+        [
+          95,
+          80
+        ],
+        [
+          124,
+          133
+        ],
+        [
+          210,
+          233
+        ],
+        [
+          301,
+          377
+        ],
+        [
+          318,
+          407
+        ],
+        [
+          327,
+          427
+        ],
+        [
+          335,
+          428
+        ],
+        [
+          366,
+          478
+        ],
+        [
+          680,
+          526
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 29,
+      "gross_points": 52,
+      "net_points": 52,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          301,
+          283
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 30,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          26,
+          694
+        ]
+      ],
+      "captain_id": 327
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 31,
+      "gross_points": 76,
+      "net_points": 76,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          210,
+          80
+        ]
+      ],
+      "captain_id": 318
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 32,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          694,
+          16
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 33,
+      "gross_points": 48,
+      "net_points": 48,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          16,
+          694
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 34,
+      "gross_points": 72,
+      "net_points": 72,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          694,
+          586
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 35,
+      "gross_points": 34,
+      "net_points": 34,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          358,
+          106
+        ]
+      ],
+      "captain_id": 318
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 36,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          81,
+          376
+        ]
+      ],
+      "captain_id": 357
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 37,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          366,
+          332
+        ]
+      ],
+      "captain_id": 318
+    },
+    {
+      "season": "2022-23",
+      "gameweek": 38,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          80,
+          40
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 1,
+      "gross_points": 39,
+      "net_points": 39,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 2,
+      "gross_points": 32,
+      "net_points": 32,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          350,
+          36
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 3,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          24,
+          395
+        ]
+      ],
+      "captain_id": 395
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 4,
+      "gross_points": 77,
+      "net_points": 77,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          210,
+          108
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 5,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          349,
+          19
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 6,
+      "gross_points": 71,
+      "net_points": 71,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          641,
+          326
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 7,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          148,
+          614
+        ]
+      ],
+      "captain_id": 326
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 8,
+      "gross_points": 53,
+      "net_points": 53,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          10,
+          220
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 9,
+      "gross_points": 73,
+      "net_points": 73,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          211,
+          60
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 10,
+      "gross_points": 88,
+      "net_points": 88,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          152,
+          113
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 11,
+      "gross_points": 23,
+      "net_points": 23,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          395,
+          511
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 12,
+      "gross_points": 48,
+      "net_points": 48,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          151,
+          234
+        ]
+      ],
+      "captain_id": 516
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 13,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          509,
+          362
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 14,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          511,
+          311
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 15,
+      "gross_points": 32,
+      "net_points": 32,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          29,
+          430
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 16,
+      "gross_points": 49,
+      "net_points": 49,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          36,
+          506
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 17,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          234,
+          260
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 18,
+      "gross_points": 36,
+      "net_points": 36,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          311,
+          519
+        ]
+      ],
+      "captain_id": 516
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 19,
+      "gross_points": 38,
+      "net_points": 38,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          355,
+          85
+        ]
+      ],
+      "captain_id": 19
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 20,
+      "gross_points": 84,
+      "net_points": 84,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          108,
+          308
+        ]
+      ],
+      "captain_id": 308
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 21,
+      "gross_points": 43,
+      "net_points": 43,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          326,
+          135
+        ]
+      ],
+      "captain_id": 308
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 22,
+      "gross_points": 72,
+      "net_points": 72,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          216,
+          344
+        ]
+      ],
+      "captain_id": 308
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 23,
+      "gross_points": 88,
+      "net_points": 88,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          308,
+          353
+        ]
+      ],
+      "captain_id": 362
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 24,
+      "gross_points": 53,
+      "net_points": 53,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          516,
+          509
+        ]
+      ],
+      "captain_id": 509
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 25,
+      "gross_points": 70,
+      "net_points": 70,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          85,
+          355
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 26,
+      "gross_points": 74,
+      "net_points": 74,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          344,
+          526
+        ]
+      ],
+      "captain_id": 60
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 27,
+      "gross_points": 74,
+      "net_points": 74,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          135,
+          326
+        ]
+      ],
+      "captain_id": 355
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 28,
+      "gross_points": 49,
+      "net_points": 49,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          355,
+          85
+        ]
+      ],
+      "captain_id": 85
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 29,
+      "gross_points": 33,
+      "net_points": 33,
+      "transfer_hits": 0,
+      "chip_used": "free_hit",
+      "transfers": [
+        [
+          19,
+          36
+        ],
+        [
+          85,
+          43
+        ],
+        [
+          113,
+          117
+        ],
+        [
+          220,
+          275
+        ],
+        [
+          260,
+          283
+        ],
+        [
+          353,
+          321
+        ],
+        [
+          362,
+          504
+        ],
+        [
+          430,
+          511
+        ],
+        [
+          506,
+          516
+        ],
+        [
+          509,
+          524
+        ],
+        [
+          519,
+          688
+        ],
+        [
+          614,
+          689
+        ]
+      ],
+      "captain_id": 60
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 30,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          509,
+          516
+        ]
+      ],
+      "captain_id": 60
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 31,
+      "gross_points": 88,
+      "net_points": 88,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          430,
+          29
+        ]
+      ],
+      "captain_id": 19
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 32,
+      "gross_points": 76,
+      "net_points": 76,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          220,
+          265
+        ]
+      ],
+      "captain_id": 516
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 33,
+      "gross_points": 53,
+      "net_points": 53,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          353,
+          308
+        ]
+      ],
+      "captain_id": 308
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 34,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          526,
+          303
+        ]
+      ],
+      "captain_id": 308
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 35,
+      "gross_points": 48,
+      "net_points": 48,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          85,
+          211
+        ]
+      ],
+      "captain_id": 211
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 36,
+      "gross_points": 83,
+      "net_points": 83,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          519,
+          616
+        ]
+      ],
+      "captain_id": 19
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 37,
+      "gross_points": 49,
+      "net_points": 49,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          60,
+          415
+        ]
+      ],
+      "captain_id": 362
+    },
+    {
+      "season": "2023-24",
+      "gameweek": 38,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          260,
+          341
+        ]
+      ],
+      "captain_id": 362
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 1,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          191,
+          484
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 2,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          418,
+          350
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 3,
+      "gross_points": 69,
+      "net_points": 69,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          132,
+          177
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 4,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          421,
+          148
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 5,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          244,
+          573
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 6,
+      "gross_points": 38,
+      "net_points": 38,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          350,
+          3
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 7,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          484,
+          6
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 8,
+      "gross_points": 56,
+      "net_points": 56,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          245,
+          422
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 9,
+      "gross_points": 42,
+      "net_points": 42,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          198,
+          252
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 10,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          28,
+          372
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 11,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          329,
+          491
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 12,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          204,
+          325
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 13,
+      "gross_points": 89,
+      "net_points": 89,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          336,
+          136
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 14,
+      "gross_points": 81,
+      "net_points": 81,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          372,
+          71
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 15,
+      "gross_points": 38,
+      "net_points": 38,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          252,
+          617
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 16,
+      "gross_points": 39,
+      "net_points": 39,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          3,
+          339
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 17,
+      "gross_points": 67,
+      "net_points": 67,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          148,
+          252
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 18,
+      "gross_points": 70,
+      "net_points": 70,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          293,
+          443
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 19,
+      "gross_points": 88,
+      "net_points": 88,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          177,
+          585
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 20,
+      "gross_points": 78,
+      "net_points": 78,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          325,
+          235
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 21,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          136,
+          364
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 22,
+      "gross_points": 33,
+      "net_points": 33,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          415,
+          236
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 23,
+      "gross_points": 68,
+      "net_points": 68,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          617,
+          321
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 24,
+      "gross_points": 61,
+      "net_points": 61,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          491,
+          177
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 25,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          585,
+          54
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 26,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          321,
+          110
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 27,
+      "gross_points": 68,
+      "net_points": 68,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          364,
+          99
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 28,
+      "gross_points": 67,
+      "net_points": 67,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          177,
+          74
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 29,
+      "gross_points": 70,
+      "net_points": 70,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          99,
+          366
+        ]
+      ],
+      "captain_id": 351
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 30,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          236,
+          211
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 31,
+      "gross_points": 28,
+      "net_points": 28,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          54,
+          585
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 32,
+      "gross_points": 48,
+      "net_points": 48,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          351,
+          401
+        ]
+      ],
+      "captain_id": 401
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 33,
+      "gross_points": 38,
+      "net_points": 38,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          422,
+          18
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 34,
+      "gross_points": 36,
+      "net_points": 36,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          366,
+          182
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 35,
+      "gross_points": 40,
+      "net_points": 40,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          71,
+          762
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 36,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          6,
+          350
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 37,
+      "gross_points": 51,
+      "net_points": 51,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 328
+    },
+    {
+      "season": "2024-25",
+      "gameweek": 38,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          585,
+          71
+        ]
+      ],
+      "captain_id": 328
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 1,
+      "gross_points": 60,
+      "net_points": 60,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          72,
+          570
+        ]
+      ],
+      "captain_id": 381
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 2,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          570,
+          72
+        ]
+      ],
+      "captain_id": 381
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 3,
+      "gross_points": 54,
+      "net_points": 54,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          186,
+          444
+        ]
+      ],
+      "captain_id": 444
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 4,
+      "gross_points": 44,
+      "net_points": 44,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          465,
+          136
+        ]
+      ],
+      "captain_id": 381
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 5,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          528,
+          469
+        ]
+      ],
+      "captain_id": 381
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 6,
+      "gross_points": 35,
+      "net_points": 35,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          73,
+          261
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 7,
+      "gross_points": 43,
+      "net_points": 43,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          16,
+          237
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 8,
+      "gross_points": 62,
+      "net_points": 62,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          444,
+          8
+        ]
+      ],
+      "captain_id": 670
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 9,
+      "gross_points": 51,
+      "net_points": 51,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          382,
+          82
+        ]
+      ],
+      "captain_id": 82
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 10,
+      "gross_points": 57,
+      "net_points": 57,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          625,
+          283
+        ]
+      ],
+      "captain_id": 8
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 11,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          72,
+          226
+        ]
+      ],
+      "captain_id": 283
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 12,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          337,
+          100
+        ]
+      ],
+      "captain_id": 82
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 13,
+      "gross_points": 63,
+      "net_points": 63,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          74,
+          256
+        ]
+      ],
+      "captain_id": 136
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 14,
+      "gross_points": 33,
+      "net_points": 33,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          82,
+          119
+        ]
+      ],
+      "captain_id": 8
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 15,
+      "gross_points": 56,
+      "net_points": 56,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          226,
+          411
+        ]
+      ],
+      "captain_id": 411
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 16,
+      "gross_points": 72,
+      "net_points": 72,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          381,
+          16
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 17,
+      "gross_points": 46,
+      "net_points": 46,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          469,
+          1
+        ]
+      ],
+      "captain_id": 411
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 18,
+      "gross_points": 29,
+      "net_points": 29,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          384,
+          414
+        ]
+      ],
+      "captain_id": 8
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 19,
+      "gross_points": 52,
+      "net_points": 52,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          119,
+          82
+        ]
+      ],
+      "captain_id": 16
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 20,
+      "gross_points": 59,
+      "net_points": 59,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          261,
+          575
+        ]
+      ],
+      "captain_id": 414
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 21,
+      "gross_points": 55,
+      "net_points": 55,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          256,
+          291
+        ]
+      ],
+      "captain_id": 136
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 22,
+      "gross_points": 50,
+      "net_points": 50,
+      "transfer_hits": 0,
+      "chip_used": "bench_boost",
+      "transfers": [
+        [
+          531,
+          374
+        ]
+      ],
+      "captain_id": 136
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 23,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          449,
+          488
+        ]
+      ],
+      "captain_id": 82
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 24,
+      "gross_points": 58,
+      "net_points": 58,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          411,
+          226
+        ]
+      ],
+      "captain_id": 670
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 25,
+      "gross_points": 48,
+      "net_points": 48,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          488,
+          449
+        ]
+      ],
+      "captain_id": 8
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 26,
+      "gross_points": 40,
+      "net_points": 40,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          16,
+          21
+        ]
+      ],
+      "captain_id": 8
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 27,
+      "gross_points": 29,
+      "net_points": 29,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          414,
+          235
+        ]
+      ],
+      "captain_id": 235
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 28,
+      "gross_points": 78,
+      "net_points": 78,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          283,
+          661
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 29,
+      "gross_points": 64,
+      "net_points": 64,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          8,
+          411
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 30,
+      "gross_points": 47,
+      "net_points": 47,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 31,
+      "gross_points": 39,
+      "net_points": 39,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          670,
+          314
+        ]
+      ],
+      "captain_id": 235
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 32,
+      "gross_points": 60,
+      "net_points": 60,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          226,
+          5
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 33,
+      "gross_points": 38,
+      "net_points": 38,
+      "transfer_hits": 0,
+      "chip_used": "triple_captain",
+      "transfers": [
+        [
+          661,
+          249
+        ]
+      ],
+      "captain_id": 235
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 34,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          291,
+          373
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 35,
+      "gross_points": 45,
+      "net_points": 45,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          249,
+          691
+        ]
+      ],
+      "captain_id": 449
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 36,
+      "gross_points": 68,
+      "net_points": 68,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          374,
+          260
+        ]
+      ],
+      "captain_id": 411
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 37,
+      "gross_points": 62,
+      "net_points": 62,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [
+        [
+          575,
+          291
+        ]
+      ],
+      "captain_id": 5
+    },
+    {
+      "season": "2025-26",
+      "gameweek": 38,
+      "gross_points": 61,
+      "net_points": 61,
+      "transfer_hits": 0,
+      "chip_used": null,
+      "transfers": [],
+      "captain_id": 449
+    }
+  ],
+  "summaries": {
+    "2021-22": {
+      "season": "2021-22",
+      "track_a_net": 1954,
+      "track_b_net": 2009,
+      "chip_delta": 55,
+      "chips_used": {
+        "bench_boost": 2,
+        "free_hit": 1,
+        "triple_captain": 1
+      },
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2"
+      ],
+      "total_unplayed": 2,
+      "wc1_used": false,
+      "wc2_used": false,
+      "fh_used": true,
+      "tc_used": true,
+      "bb_used": true
+    },
+    "2022-23": {
+      "season": "2022-23",
+      "track_a_net": 1908,
+      "track_b_net": 1946,
+      "chip_delta": 38,
+      "chips_used": {
+        "bench_boost": 1,
+        "free_hit": 1,
+        "triple_captain": 1
+      },
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2"
+      ],
+      "total_unplayed": 2,
+      "wc1_used": false,
+      "wc2_used": false,
+      "fh_used": true,
+      "tc_used": true,
+      "bb_used": true
+    },
+    "2023-24": {
+      "season": "2023-24",
+      "track_a_net": 2135,
+      "track_b_net": 2180,
+      "chip_delta": 45,
+      "chips_used": {
+        "triple_captain": 2,
+        "bench_boost": 1,
+        "free_hit": 1
+      },
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2"
+      ],
+      "total_unplayed": 2,
+      "wc1_used": false,
+      "wc2_used": false,
+      "fh_used": true,
+      "tc_used": true,
+      "bb_used": true
+    },
+    "2024-25": {
+      "season": "2024-25",
+      "track_a_net": 2057,
+      "track_b_net": 2083,
+      "chip_delta": 26,
+      "chips_used": {
+        "bench_boost": 2,
+        "triple_captain": 2
+      },
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2",
+        "free_hit"
+      ],
+      "total_unplayed": 3,
+      "wc1_used": false,
+      "wc2_used": false,
+      "fh_used": false,
+      "tc_used": true,
+      "bb_used": true
+    },
+    "2025-26": {
+      "season": "2025-26",
+      "track_a_net": 1924,
+      "track_b_net": 1955,
+      "chip_delta": 31,
+      "chips_used": {
+        "bench_boost": 2,
+        "triple_captain": 1
+      },
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2",
+        "free_hit"
+      ],
+      "total_unplayed": 3,
+      "wc1_used": false,
+      "wc2_used": false,
+      "fh_used": false,
+      "tc_used": true,
+      "bb_used": true
+    }
+  }
+}

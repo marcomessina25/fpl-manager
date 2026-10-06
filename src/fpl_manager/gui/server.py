@@ -533,11 +533,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     schedule = []
                     if rec_chip:
                         norm_rec = "freehit" if rec_chip == "free_hit" else ("benchboost" if rec_chip == "bench_boost" else ("triplecaptain" if rec_chip == "triple_captain" else "wildcard"))
+                        opp = recs.get("recommended_chip_opportunity") or {}
                         schedule.append({
                             "gameweek": sim.current_gw,
                             "chip": norm_rec,
-                            "gw_type": "CALIBRATED_POLICY",
-                            "reasoning": f"Recommended by SeasonalChipPolicy for GW{sim.current_gw} based on squad state and fixtures.",
+                            "gw_type": "OPPORTUNITY_COST_OPTIMIZER",
+                            "reasoning": opp.get("reasoning") or f"Recommended by ChipOpportunityOptimizer for GW{sim.current_gw}.",
+                            "immediate_ev": opp.get("immediate_ev", 0.0),
+                            "future_opportunity": opp.get("future_max_ev", 0.0),
+                            "net_utility": opp.get("net_utility", 0.0),
+                            "confidence": opp.get("confidence", 0.9),
                         })
 
                     self._send_json({

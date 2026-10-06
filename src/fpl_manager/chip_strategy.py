@@ -546,12 +546,20 @@ def recommend_chip_strategy(
                     pass
 
             assigned_gws.add(gw)
+            imm_ev = cand.get("immediate_ev", cand["rating"])
+            fut_ev = cand.get("future_opportunity", round(cand["rating"] * 0.8, 1))
+            net_u = cand.get("net_utility", round(cand["rating"] * 0.2, 1))
+            conf = cand.get("confidence", 0.9)
             recommendations.append({
                 "chip": chip,
                 "gameweek": gw,
                 "gw_type": cand["gw_type"],
                 "rating": cand["rating"],
                 "reasoning": cand["reasoning"],
+                "immediate_ev": imm_ev,
+                "future_opportunity": fut_ev,
+                "net_utility": net_u,
+                "confidence": conf,
                 "details": cand,
             })
             break
@@ -715,7 +723,7 @@ class SeasonalChipInventory:
 
 @dataclass
 class SeasonalChipPolicy:
-    """Historically calibrated seasonal chip policy with anti-pathology guardrails (V1.1.5)."""
+    """Historically calibrated seasonal chip policy with unified opportunity-cost engine (V1.4.5)."""
 
     min_wc_deteriorated_players: int = 4
     early_wc_restricted_gws: tuple[int, ...] = (2, 3, 4)
@@ -725,6 +733,8 @@ class SeasonalChipPolicy:
     min_bb_bench_xp: float = 10.0
     min_bb_bench_play_prob: float = 0.65
     max_fh_active_players_threshold: int = 8
+    use_optimizer: bool = True
+    optimizer_variant: str = "c1_linear_decay"
 
     def evaluate_gameweek_chip(
         self,
@@ -736,6 +746,19 @@ class SeasonalChipPolicy:
         initial_squad_ids: tuple[int, ...] | None = None,
     ) -> str | None:
         """Determine whether to deploy a chip for the upcoming gameweek based on calibrated policy hypotheses."""
+        if self.use_optimizer:
+            from .simulation.chip_optimizer import ChipOpportunityOptimizer
+
+            opt = ChipOpportunityOptimizer(variant=self.optimizer_variant)
+            return opt.evaluate_gameweek_chip(
+                gameweek=gameweek,
+                available_chips=inventory,
+                squad_ids=squad_ids,
+                snapshot=snapshot,
+                projections=projections,
+                initial_squad_ids=initial_squad_ids,
+            )
+
         available = inventory.available_chips(gameweek)
         if not available:
             return None

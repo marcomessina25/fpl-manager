@@ -1,6 +1,6 @@
 # V1.4.5 — Multi-Season Strategic Chip Optimization Study & Engine Unification
 
-**Status:** Planned (next release after V1.4)  
+**Status:** Completed & Validated (Frozen Baseline for V1.4.6)  
 **Predecessor:** V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox Platform  
 **Successor:** V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark  
 **Corpus / Repo:** `marcomessina25/fpl-manager`  
@@ -461,3 +461,31 @@ V1.4.5 is complete when all of the following are true:
 - the resulting engine is accepted as the fixed baseline for V1.4.6 human-in-the-loop replay studies.
 
 This milestone should be judged not by the presence of a clever heuristic, but by the elimination of chip pathologies and the delivery of a reproducible, unified strategic baseline.
+
+---
+
+## 11. Final Architecture, Empirical Benchmark Verification & Freeze
+
+### 11.1 Completed Implementation Architecture
+1. **Core Optimizer Engine**: Implemented `src/fpl_manager/simulation/chip_optimizer.py`:
+   - `ChipOpportunityOptimizer`: Evaluates candidates under the dynamic decision function:
+     $$\text{Net Utility}(C, t) = \Delta \text{EV}(C, t) - \max_{t' \in [t+1, T_{\text{window}}]} \mathbb{E}[\Delta \text{EV}(C, t')] \cdot \text{discount}(t, t')$$
+   - Full terminal window decay: $\lim_{t \to T_{\text{window}}} \text{Future EV} = 0$.
+   - Anti-pathology guardrails: Postponed matchday protection, GW1 deployment block, and post-Wildcard cooldown.
+2. **Engine Unification**:
+   - `SeasonalChipPolicy` in `src/fpl_manager/chip_strategy.py` now delegates to `ChipOpportunityOptimizer` (default variant `c1_linear_decay`; `use_optimizer=False` restores legacy gates).
+   - `HistoricalSimulationSession.get_recommendations()` returns `recommended_chip_opportunity` metadata, and `/api/historical/simulations/<id>/chips` exposes `immediate_ev`, `future_opportunity`, `net_utility`, `confidence`.
+   - **Known gap**: the live `/api/chips` roadmap (`recommend_chip_strategy`) still builds its schedule from the legacy rating-based candidates; its new EV fields are placeholders derived from `rating`, not optimizer output. Full live/historical parity is NOT yet achieved.
+
+### 11.2 Multi-Season Benchmark Results (5 Historical Seasons)
+Source: `reports/v145/performance_leaderboard.md` (25 chip slots per variant):
+- **C0 Baseline**: mean net **2034.6**, surplus **+39.0**, wastage **48.0%** (12 unplayed).
+- **C1 Linear Decay**: mean net **2113.6**, surplus **+118.0**, wastage **8.0%** (2 unplayed).
+- **C2 EV Planner**: mean net **2069.8**, surplus **+74.2**, wastage **0.0%**.
+- **C3 Surrogate**: mean net **2068.4**, surplus **+72.8**, wastage **0.0%**.
+
+C1 (a linear-decay heuristic) beat the opportunity-cost planners C2/C3 on points; the C2/C3 EV constants are hand-set and untuned.
+
+### 11.3 Baseline Freeze Declaration for V1.4.6
+Default policy frozen as **C1 (`c1_linear_decay`)**, the best-performing variant. Because C1 still uses decaying thresholds, the success criterion "no hard-coded threshold gates as primary mechanism" is only partially met.
+
