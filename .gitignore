@@ -24,6 +24,10 @@ reports/backtests/*
 config/current_squad.json
 config/teams/*
 !config/teams/.gitkeep
+config/simulations/*
+!config/simulations/.gitkeep
+reports/simulations/*
+!reports/simulations/.gitkeep
 config/active_team.json
 players.txt
 !data/.gitkeep

@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). The next research milestone is **V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox**.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14`, establishing the **Interactive Historical Season Simulation & Time Machine Sandbox** with point-in-time standings, past scores, upcoming fixtures with strict zero future spoilers, and full stateful simulation session management.
 
 ---
 
@@ -143,11 +143,24 @@ Optimizer Decision-Quality Study & Hardened Architecture
 + DecisionEngineV135 deployed as hardened reference baseline
         ↓
 V1.4
-Interactive Historical Season Simulation & Time Machine Sandbox
+Interactive Historical Season Simulation & Time Machine Sandbox Platform
 + Step-by-step gameweek management across past seasons (2021-22 to 2025-26)
-+ Point-in-time squad creation and historical score resolution
-+ Frozen validated predictor/optimizer baseline
-+ Human-vs-engine blind replay benchmark under strict information boundaries
++ Point-in-time squad creation, standings, match results, and zero-spoiler upcoming fixtures
++ Deterministic historical scoring, autosub resolution, and isolated session state
++ Parallel baseline tracking and divergence measurement
+        ↓
+V1.4.5
+Strategic Chip Optimization & Multi-Team Isolation Hardening
++ Rigorous value-driven chip optimization (ML / EV modeled, no fixed heuristic thresholds)
++ Opportunity-cost modeling across horizons: blanks (BGWs), double gameweeks (DGWs), and squad structural deficits
++ Unified chip recommendation logic reconciling simulation policies and GUI calendar
++ Complete multi-team workspace isolation (preventing cross-team state leakage in live & historical modes)
+        ↓
+V1.4.6
+Empirical Human-in-the-Loop Replay Benchmark Study
++ Formal human vs engine benchmark execution under strict information boundaries
++ Multi-track comparison: Engine baseline, Human-assisted, and Human-only blind control
++ Decision divergence logging and human override alpha analysis
         ↓
 V1.5
 Multi-provider expansion & combinatorial strategic advisory
@@ -182,8 +195,9 @@ Automated learning loops
 | **V1.2** | **Strategic squad balancing (XI vs bench weighting) + long-term unavailability (bans/ACLs)** | **Completed, validated, and merged into master (#16)** |
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
 | **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
-| **V1.3.5** | **Optimizer decision-quality study, candidate pool regularization & hardened baseline** | **Completed and validated on branch `v135`** |
-| V1.4 | Interactive historical season simulation & human-in-the-loop benchmark platform | Planned (next milestone) |
+| **V1.4** | **Interactive historical season simulation & Time Machine sandbox platform** | **Completed and validated on branch `v14`** |
+| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Planned (Next release)** |
+| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study** | **Planned (Follows V1.4.5)** |
 | V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
@@ -1733,8 +1747,17 @@ Integrated into `fpl_manager.backtest.decision_engine:DecisionEngineV135` and re
 
 # 24. V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
 
-**Status: planned (follows V1.3.5).**  
+**Status: completed and validated on branch `v14`.**  
 **Specification:** [`docs/v1.4/v14_historical_simulation.md`](v1.4/v14_historical_simulation.md)
+
+### Delivery Summary & Implemented Architecture
+
+V1.4 delivers the full **Interactive Historical Season Simulation & Time Machine Sandbox** across CLI, Web Studio GUI, and programmatic APIs:
+- **Historical Standings & Match Results (`src/fpl_manager/historical/standings.py`)**: Computes authentic point-in-time league tables (Pos, P, W, D, L, GF, GA, GD, Pts, Form), displays completed match scores, and generates upcoming fixtures with strict zero-leakage masking of future outcomes.
+- **Enriched Historical Fixture Datasets**: Enriched `data/historical/<season>/fixtures.json` across all 5 historical seasons (`2021-22` through `2025-26`) with historical match scores while updating ingestion parsers.
+- **Isolated Simulation Sessions (`src/fpl_manager/simulation/`)**: Stateful sessions stored under `config/simulations/<session_id>.json` with complete legality validation, transfer staging, multi-chip rules (Wildcard windows, Free Hit squad reversion, Bench Boost, Triple Captain), deterministic matchday resolution with autosubs, transfer hit accounting, and parallel baseline tracking (`DecisionEngineV125` / `DecisionEngineV135`).
+- **Interactive Web Studio GUI Time Machine**: Dedicated `⏳ Historical Time Machine` tab featuring interactive Premier League table, recent match results panel, upcoming fixture cards with FDR, interactive pitch squad view with captaincy toggles, transfer staging modal, and matchday step execution.
+- **Comprehensive CLI Interface (`fpl sim`)**: Full suite of subcommands (`create`, `list`, `status`, `overview`, `transfer`, `clear-transfers`, `chip`, `recommendations`, `run-gw`, `report`).
 
 ### Purpose & Vision
 
@@ -1775,6 +1798,46 @@ within documented tolerances for the frozen engine.
 - engine-only parity validation;
 - human-vs-engine benchmark protocol;
 - reproducible season-end analytics.
+
+---
+
+# 24.5. V1.4.5 — Strategic Chip Optimization & Multi-Team Isolation Hardening
+
+**Status: planned for next release (following V1.4).**
+
+### Core Problems Addressed
+1. **Flawed Heuristic & Fixed Threshold Paradigms**: Current chip triggers in both live mode (`chip_strategy.py`) and historical backtests (`SeasonalChipPolicy`) rely on hard-coded gates, arbitrary delta cutoffs, or static calendars. Fixed thresholding is structurally brittle:
+   - It can recommend high-value chips (like Free Hit) immediately after GW1 or right after Wildcard deployment simply because of superficial short-term deltas, despite the squad already being freshly optimal.
+   - Conversely, it can hoard chips indefinitely across entire segments (GW1–19, GW20–38) if hard threshold margins are narrowly missed, failing to realize the chip's value before expiration.
+   - Hard thresholds cannot dynamically evaluate the **opportunity cost** of burning a chip now versus conserving it for upcoming Blank Gameweeks (BGWs) or Double Gameweeks (DGWs).
+2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: The historical simulation engine and the GUI Chip Strategy calendar currently execute disconnected pipelines. A single unified chip optimization model must power both, guaranteeing that backtest simulations and user-facing advisory recommendations are strictly identical and reproducible.
+3. **Multi-Team State Isolation**: Ensuring all decision logging, chip availability, bank budgets, staged transfers, and gameweek contexts remain strictly isolated across multiple live teams and historical simulation sessions without cross-contamination.
+
+### Key Deliverables & Architecture
+- **Value-Driven Strategic Chip Optimization Engine (ML / EV Optimization)**:
+  - Eliminate all fixed, arbitrary thresholds. Every chip decision is modeled as an **expected value (EV) optimization problem** balancing immediate point yield against terminal opportunity cost across the remaining segment horizon.
+  - Explore an ML/surrogate-value based chip valuation policy or dynamic multi-stage trajectory evaluation:
+    - *Free Hit Valuation*: Compares the EV of current squad vs temporary squad under fixture constraints. If a squad was just restructured via Wildcard or at season launch (GW1), its immediate gain from a Free Hit is negligible relative to the future opportunity cost of navigating massive blank fixtures or mega-doubles, naturally penalizing premature deployment to near-zero without ad-hoc rules.
+    - *Blank & Double Gameweek Awareness (especially GW20–38)*: Segment 2 planning must explicitly forecast and factor in rescheduled fixture congestion, major blank weekends (FA Cup clashes), and double gameweeks. The optimizer scores the expected utility of Triple Captain, Bench Boost, and Free Hit across these volatile weeks.
+    - *Segment Window Expiration*: The opportunity cost of a chip naturally decays to zero as the final gameweeks of the segment approach (GW19 and GW38), allowing the mathematical optimizer to deploy the chip on the global maximum of the remaining fixtures rather than discarding it unplayed.
+- **Unified Chip Policy Model**: Share a single deterministic chip optimization engine between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
+- **Strict Multi-Team Workspace Scoping**: Explicit `team_id` / `session_id` database partitioning ensuring zero shared state between different live teams or between live and historical modes.
+
+---
+
+# 24.6. V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark Study
+
+**Status: planned following V1.4.5.**  
+**Specification:** [`docs/v1.4.6/v146_human_benchmark.md`](v1.4.6/v146_human_benchmark.md)
+
+### Core Objectives
+1. **Execute Controlled Replay Benchmark**: Deploy the validated V1.4 Time Machine sandbox with the unified, ML/EV-optimized V1.4.5 chip and transfer engines for empirical human trials.
+2. **Multi-Track Evaluation**: Compare performance under identical historical conditions:
+   - *Track A (Engine-Only)*: Autonomous execution of frozen reference engine.
+   - *Track B (Human-Assisted)*: Manager provided with engine xP, transfer candidate rankings, and chip advisory, but retaining final override authority.
+   - *Track C (Human Blind Control)*: Manager provided with historical facts, standings, and match results without algorithmic assistance.
+3. **Decision Divergence & Human Alpha Analysis**: Quantify the empirical frequency and score consequence of human overrides across regular fixtures, blank weekends, and double gameweeks.
+4. **Reproducible Report Artifacts**: Publish audited benchmark trajectory logs and regret decompositions in `reports/v146/`.
 
 ---
 
@@ -2147,17 +2210,17 @@ Use distinct states:
 - [x] Produce multi-season decision-level reports (`reports/v135/`).
 - [x] Deploy and freeze `DecisionEngineV135` before V1.4.
 
-## Now — V1.4 Historical Simulation Platform
+## Completed — V1.4 Historical Simulation Platform
 
-- [ ] Implement isolated historical simulation state.
-- [ ] Implement historical deadline/time isolation.
-- [ ] Implement deterministic GW scoring and autosubs.
-- [ ] Implement transfer/chip state progression.
-- [ ] Validate simulator-vs-batch parity.
-- [ ] Build CLI Time Machine workflow.
-- [ ] Build GUI Time Machine workflow.
-- [ ] Implement human-vs-engine benchmark protocol.
-- [ ] Generate reproducible season-end analytics.
+- [x] Implement isolated historical simulation state (`config/simulations/<id>.json`).
+- [x] Implement historical deadline/time isolation and zero future spoilers.
+- [x] Implement deterministic GW scoring and autosubs.
+- [x] Implement transfer/chip state progression.
+- [x] Validate simulator-vs-batch parity and parallel baseline tracking.
+- [x] Build CLI Time Machine workflow (`fpl sim`).
+- [x] Build GUI Time Machine workflow (`/api/historical/*` + Web Studio tab).
+- [x] Implement human-vs-engine benchmark protocol and divergence logging.
+- [x] Generate reproducible season-end analytics and Markdown/JSON reporting.
 
 ## Later — V1.5
 

@@ -345,3 +345,36 @@ def test_cli_chip_strategy_segments(
     out2 = capsys.readouterr().out
     assert "Gameweeks 20-38 (Second Half)" in out2
     assert "Second Half Active" in out2
+
+
+def test_recommend_chip_strategy_post_wildcard_cooldown(chip_planner_env: tuple[Path, Path]) -> None:
+    db_path, squad_path = chip_planner_env
+    store = SnapshotStore(db_path)
+
+    # Simulate that user played Wildcard in GW 2
+    record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=list(range(1, 16)),
+        starting_player_ids=[1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14],
+        bench_player_ids=[2, 6, 7, 15],
+        captain_id=13,
+        vice_captain_id=8,
+        chip_played="wildcard",
+        team_id="team1",
+        database_path=db_path,
+    )
+
+    # Query roadmap starting from GW 3
+    res = recommend_chip_strategy(
+        squad_path=squad_path,
+        database_path=db_path,
+        start_gw=3,
+        end_gw=6,
+        team_id='team1',
+    )
+
+    # Neither Free Hit nor Wildcard should be scheduled in GW 3 or GW 4 (cooldown)
+    for rec in res["recommended_schedule"]:
+        if rec["chip"] in ("freehit", "wildcard"):
+            assert rec["gameweek"] not in (3, 4), f"{rec['chip']} was scheduled in cooldown GW {rec['gameweek']}"
+

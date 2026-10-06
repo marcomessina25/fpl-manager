@@ -7,7 +7,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-11T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 2,
@@ -17,7 +19,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-08-12T12:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 3,
@@ -27,7 +31,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 4,
@@ -37,7 +43,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 5,
@@ -47,7 +55,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 6,
@@ -57,7 +67,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-12T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 1
   },
   {
     "fixture_id": 7,
@@ -67,7 +79,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 8,
@@ -77,7 +91,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-13T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 9,
@@ -87,7 +103,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-13T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 10,
@@ -97,7 +115,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-14T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 11,
@@ -107,7 +127,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-20T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 0
   },
   {
     "fixture_id": 12,
@@ -117,7 +139,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-21T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 13,
@@ -127,7 +151,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-19T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 14,
@@ -137,7 +163,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-08-19T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 16,
@@ -147,7 +175,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-08-19T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 17,
@@ -157,7 +187,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-18T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 18,
@@ -167,7 +199,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-19T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 19,
@@ -177,7 +211,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-20T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 20,
@@ -187,7 +223,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-19T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 21,
@@ -197,7 +235,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-08-26T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 22,
@@ -207,7 +247,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-26T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 23,
@@ -217,7 +259,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-26T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 24,
@@ -227,7 +271,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-26T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 25,
@@ -237,7 +283,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-27T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 26,
@@ -247,7 +295,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-08-25T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 27,
@@ -257,7 +307,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-26T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 28,
@@ -267,7 +319,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-26T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 29,
@@ -277,7 +331,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-08-27T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 30,
@@ -287,7 +343,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-08-27T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 31,
@@ -297,7 +355,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-03T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 32,
@@ -307,7 +367,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-02T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 33,
@@ -317,7 +379,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-02T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 34,
@@ -327,7 +391,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-02T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 5
   },
   {
     "fixture_id": 35,
@@ -337,7 +403,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-02T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 36,
@@ -347,7 +415,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-03T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 37,
@@ -357,7 +427,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-03T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 38,
@@ -367,7 +439,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-01T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 39,
@@ -377,7 +451,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-02T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 1
   },
   {
     "fixture_id": 40,
@@ -387,7 +463,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-02T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 41,
@@ -397,7 +475,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-16T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 42,
@@ -407,7 +487,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-17T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 43,
@@ -417,7 +499,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-17T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 44,
@@ -427,7 +511,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-16T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 45,
@@ -437,7 +523,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-16T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 46,
@@ -447,7 +535,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-16T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 47,
@@ -457,7 +547,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-18T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 48,
@@ -467,7 +559,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-16T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 49,
@@ -477,7 +571,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-16T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 50,
@@ -487,7 +583,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-16T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 51,
@@ -497,7 +595,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-24T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 52,
@@ -507,7 +607,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-23T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 53,
@@ -517,7 +619,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-24T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 54,
@@ -527,7 +631,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-23T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 55,
@@ -537,7 +643,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-24T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 56,
@@ -547,7 +655,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-23T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 57,
@@ -557,7 +667,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-24T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 58,
@@ -567,7 +679,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-23T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 59,
@@ -577,7 +691,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-09-23T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 60,
@@ -587,7 +703,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-24T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 8
   },
   {
     "fixture_id": 15,
@@ -597,7 +715,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-03T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 61,
@@ -607,7 +727,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-30T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 6,
+    "team_a_score": 1
   },
   {
     "fixture_id": 62,
@@ -617,7 +739,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 4
   },
   {
     "fixture_id": 63,
@@ -627,7 +751,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 64,
@@ -637,7 +763,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-02T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 65,
@@ -647,7 +775,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 66,
@@ -657,7 +787,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 67,
@@ -667,7 +799,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-01T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 68,
@@ -677,7 +811,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-09-30T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 69,
@@ -687,7 +823,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 70,
@@ -697,7 +835,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-09-30T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 71,
@@ -707,7 +847,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-10-08T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 72,
@@ -717,7 +859,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-08T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 73,
@@ -727,7 +871,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-07T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 74,
@@ -737,7 +883,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-07T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 75,
@@ -747,7 +895,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-07T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 76,
@@ -757,7 +907,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-07T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 77,
@@ -767,7 +919,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-07T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 78,
@@ -777,7 +931,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-07T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 79,
@@ -787,7 +943,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-08T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 80,
@@ -797,7 +955,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-08T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 81,
@@ -807,7 +967,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-22T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 82,
@@ -817,7 +979,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 83,
@@ -827,7 +991,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 84,
@@ -837,7 +1003,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-21T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 85,
@@ -847,7 +1015,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-10-21T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 86,
@@ -857,7 +1027,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-10-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 87,
@@ -867,7 +1039,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 0
   },
   {
     "fixture_id": 88,
@@ -877,7 +1051,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 89,
@@ -887,7 +1063,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-21T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 90,
@@ -897,7 +1075,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-23T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 91,
@@ -907,7 +1087,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-10-28T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 92,
@@ -917,7 +1099,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-29T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 93,
@@ -927,7 +1111,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-28T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 94,
@@ -937,7 +1123,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-29T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 95,
@@ -947,7 +1135,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-28T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 96,
@@ -957,7 +1147,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-27T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 97,
@@ -967,7 +1159,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-10-29T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 98,
@@ -977,7 +1171,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-10-29T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 99,
@@ -987,7 +1183,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-10-29T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 100,
@@ -997,7 +1195,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-10-28T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 101,
@@ -1007,7 +1207,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-04T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 102,
@@ -1017,7 +1219,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-04T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 103,
@@ -1027,7 +1231,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-04T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 104,
@@ -1037,7 +1243,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-11-04T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 105,
@@ -1047,7 +1255,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-05T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 106,
@@ -1057,7 +1267,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-11-04T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 6,
+    "team_a_score": 1
   },
   {
     "fixture_id": 107,
@@ -1067,7 +1279,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-04T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 108,
@@ -1077,7 +1291,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-05T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 109,
@@ -1087,7 +1303,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-04T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 110,
@@ -1097,7 +1315,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-06T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 111,
@@ -1107,7 +1327,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-11-11T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 112,
@@ -1117,7 +1339,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 113,
@@ -1127,7 +1351,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-11T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 114,
@@ -1137,7 +1363,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-11-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 115,
@@ -1147,7 +1375,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-11-12T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 4
   },
   {
     "fixture_id": 116,
@@ -1157,7 +1387,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-11T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 117,
@@ -1167,7 +1399,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-11-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 118,
@@ -1177,7 +1411,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-11T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 119,
@@ -1187,7 +1423,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-11-12T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 120,
@@ -1197,7 +1435,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-11T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 121,
@@ -1207,7 +1447,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-25T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 122,
@@ -1217,7 +1459,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-25T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 123,
@@ -1227,7 +1471,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-26T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 124,
@@ -1237,7 +1483,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-11-27T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 125,
@@ -1247,7 +1495,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-25T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 126,
@@ -1257,7 +1507,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-11-25T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 127,
@@ -1267,7 +1519,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-25T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 128,
@@ -1277,7 +1531,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-25T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 129,
@@ -1287,7 +1543,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-11-25T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 130,
@@ -1297,7 +1555,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-11-26T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 131,
@@ -1307,7 +1567,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 132,
@@ -1317,7 +1579,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-03T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 133,
@@ -1327,7 +1591,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 134,
@@ -1337,7 +1603,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 135,
@@ -1347,7 +1615,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-03T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 136,
@@ -1357,7 +1627,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-03T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 3
   },
   {
     "fixture_id": 137,
@@ -1367,7 +1639,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-03T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 3
   },
   {
     "fixture_id": 138,
@@ -1377,7 +1651,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-02T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 139,
@@ -1387,7 +1663,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-02T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 140,
@@ -1397,7 +1675,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-03T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 141,
@@ -1407,7 +1687,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-06T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 142,
@@ -1417,7 +1699,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-06T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 143,
@@ -1427,7 +1711,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-06T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 144,
@@ -1437,7 +1723,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-07T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 145,
@@ -1447,7 +1735,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-06T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 146,
@@ -1457,7 +1747,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-05T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 4
   },
   {
     "fixture_id": 147,
@@ -1467,7 +1759,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-06T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 148,
@@ -1477,7 +1771,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-07T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 149,
@@ -1487,7 +1783,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-05T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 150,
@@ -1497,7 +1795,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-06T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 151,
@@ -1507,7 +1807,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-09T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 152,
@@ -1517,7 +1819,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 153,
@@ -1527,7 +1831,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-09T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 154,
@@ -1537,7 +1843,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-10T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 155,
@@ -1547,7 +1855,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-10T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 156,
@@ -1557,7 +1867,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-10T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 157,
@@ -1567,7 +1879,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 158,
@@ -1577,7 +1891,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 159,
@@ -1587,7 +1903,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-10T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 160,
@@ -1597,7 +1915,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 161,
@@ -1607,7 +1927,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-17T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 163,
@@ -1617,7 +1939,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-17T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 164,
@@ -1627,7 +1951,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-16T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 165,
@@ -1637,7 +1963,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-16T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 166,
@@ -1647,7 +1975,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-17T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 167,
@@ -1657,7 +1987,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-16T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 168,
@@ -1667,7 +1999,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-16T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 169,
@@ -1677,7 +2011,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-15T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 170,
@@ -1687,7 +2023,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-17T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 171,
@@ -1697,7 +2035,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-22T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 172,
@@ -1707,7 +2047,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-21T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 173,
@@ -1717,7 +2059,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-23T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 174,
@@ -1727,7 +2071,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-23T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 175,
@@ -1737,7 +2083,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-23T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 177,
@@ -1747,7 +2095,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-23T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 178,
@@ -1757,7 +2107,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-23T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 179,
@@ -1767,7 +2119,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-23T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 180,
@@ -1777,7 +2131,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-24T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 181,
@@ -1787,7 +2143,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-28T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 182,
@@ -1797,7 +2155,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-26T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 183,
@@ -1807,7 +2167,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-27T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 184,
@@ -1817,7 +2179,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-28T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 185,
@@ -1827,7 +2191,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-26T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 186,
@@ -1837,7 +2203,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-27T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 187,
@@ -1847,7 +2215,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-27T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 188,
@@ -1857,7 +2227,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-26T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 189,
@@ -1867,7 +2239,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-26T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 190,
@@ -1877,7 +2251,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-26T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 191,
@@ -1887,7 +2263,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 192,
@@ -1897,7 +2275,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 193,
@@ -1907,7 +2287,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2023-12-31T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 194,
@@ -1917,7 +2299,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-01-01T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 195,
@@ -1927,7 +2311,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-30T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 196,
@@ -1937,7 +2323,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2023-12-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 197,
@@ -1947,7 +2335,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-30T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 198,
@@ -1957,7 +2347,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2023-12-31T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 199,
@@ -1967,7 +2359,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-01-02T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 200,
@@ -1977,7 +2371,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2023-12-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 201,
@@ -1987,7 +2383,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-01-20T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 202,
@@ -1997,7 +2395,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-21T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 4
   },
   {
     "fixture_id": 203,
@@ -2007,7 +2407,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-20T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 204,
@@ -2017,7 +2419,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-01-22T19:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 205,
@@ -2027,7 +2431,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-12T19:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 206,
@@ -2037,7 +2443,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-01-13T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 207,
@@ -2047,7 +2455,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-14T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 208,
@@ -2057,7 +2467,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-01-14T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 209,
@@ -2067,7 +2479,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-01-13T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 210,
@@ -2077,7 +2491,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 211,
@@ -2087,7 +2503,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-01-30T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 212,
@@ -2097,7 +2515,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-30T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 213,
@@ -2107,7 +2527,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-01-30T19:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 214,
@@ -2117,7 +2539,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-30T19:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 0
   },
   {
     "fixture_id": 215,
@@ -2127,7 +2551,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-01-30T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 216,
@@ -2137,7 +2563,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-01-31T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 217,
@@ -2147,7 +2575,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-01T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 218,
@@ -2157,7 +2587,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-01T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 4
   },
   {
     "fixture_id": 219,
@@ -2167,7 +2599,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-01-31T20:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 220,
@@ -2177,7 +2611,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-01-31T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 221,
@@ -2187,7 +2623,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-04T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 222,
@@ -2197,7 +2635,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 223,
@@ -2207,7 +2647,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-05T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 224,
@@ -2217,7 +2659,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-03T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 225,
@@ -2227,7 +2671,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-03T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 226,
@@ -2237,7 +2683,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 4
   },
   {
     "fixture_id": 227,
@@ -2247,7 +2695,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-03T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 228,
@@ -2257,7 +2707,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 229,
@@ -2267,7 +2719,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-03T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 4
   },
   {
     "fixture_id": 230,
@@ -2277,7 +2731,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-03T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 5
   },
   {
     "fixture_id": 231,
@@ -2287,7 +2743,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-11T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 232,
@@ -2297,7 +2755,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-12T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 233,
@@ -2307,7 +2767,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-10T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 234,
@@ -2317,7 +2779,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-10T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 235,
@@ -2327,7 +2791,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-10T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 236,
@@ -2337,7 +2803,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-10T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 237,
@@ -2347,7 +2815,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-10T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 238,
@@ -2357,7 +2827,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-10T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 239,
@@ -2367,7 +2839,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 6
   },
   {
     "fixture_id": 240,
@@ -2377,7 +2851,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-10T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 176,
@@ -2387,7 +2863,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-20T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 241,
@@ -2397,7 +2875,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-17T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 242,
@@ -2407,7 +2887,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-17T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 5
   },
   {
     "fixture_id": 243,
@@ -2417,7 +2899,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-19T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 244,
@@ -2427,7 +2911,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-17T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 245,
@@ -2437,7 +2923,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-18T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 246,
@@ -2447,7 +2935,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-17T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 247,
@@ -2457,7 +2947,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-17T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 248,
@@ -2467,7 +2959,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-17T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 249,
@@ -2477,7 +2971,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-18T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 5
   },
   {
     "fixture_id": 250,
@@ -2487,7 +2983,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-17T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 257,
@@ -2497,7 +2995,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-21T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 251,
@@ -2507,7 +3007,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-02-24T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 252,
@@ -2517,7 +3019,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-24T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 253,
@@ -2527,7 +3031,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-24T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 254,
@@ -2537,7 +3043,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-24T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 256,
@@ -2547,7 +3055,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-24T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 258,
@@ -2557,7 +3067,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-02-24T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 259,
@@ -2567,7 +3079,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-02-26T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 260,
@@ -2577,7 +3091,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-02-25T13:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 261,
@@ -2587,7 +3103,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 262,
@@ -2597,7 +3115,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-03T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 263,
@@ -2607,7 +3127,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 264,
@@ -2617,7 +3139,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 265,
@@ -2627,7 +3151,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-02T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 266,
@@ -2637,7 +3163,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-03-03T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 267,
@@ -2647,7 +3175,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 268,
@@ -2657,7 +3187,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 269,
@@ -2667,7 +3199,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-04T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 6
   },
   {
     "fixture_id": 270,
@@ -2677,7 +3211,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-02T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 162,
@@ -2687,7 +3223,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-13T19:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 3
   },
   {
     "fixture_id": 271,
@@ -2697,7 +3235,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-03-09T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 272,
@@ -2707,7 +3247,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-10T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 4
   },
   {
     "fixture_id": 273,
@@ -2717,7 +3259,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 274,
@@ -2727,7 +3271,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-10T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 275,
@@ -2737,7 +3283,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-11T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 276,
@@ -2747,7 +3295,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 277,
@@ -2757,7 +3307,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-03-10T15:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 278,
@@ -2767,7 +3319,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-09T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 279,
@@ -2777,7 +3331,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-10T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 280,
@@ -2787,7 +3343,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-09T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 283,
@@ -2797,7 +3355,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-16T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 286,
@@ -2807,7 +3367,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-16T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 287,
@@ -2817,7 +3379,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-16T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 289,
@@ -2827,7 +3391,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-17T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 291,
@@ -2837,7 +3403,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-30T17:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 292,
@@ -2847,7 +3415,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 293,
@@ -2857,7 +3427,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-30T20:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 294,
@@ -2867,7 +3439,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-03-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 295,
@@ -2877,7 +3451,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-03-31T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 296,
@@ -2887,7 +3463,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-03-31T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 297,
@@ -2897,7 +3475,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-30T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 3
   },
   {
     "fixture_id": 298,
@@ -2907,7 +3487,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 299,
@@ -2917,7 +3499,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-03-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 3
   },
   {
     "fixture_id": 300,
@@ -2927,7 +3511,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-03-30T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 301,
@@ -2937,7 +3523,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-03T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 302,
@@ -2947,7 +3535,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-02T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 303,
@@ -2957,7 +3547,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-03T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 304,
@@ -2967,7 +3559,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-02T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 305,
@@ -2977,7 +3571,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-02T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 306,
@@ -2987,7 +3583,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-02T19:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 307,
@@ -2997,7 +3595,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-04T19:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 3
   },
   {
     "fixture_id": 308,
@@ -3007,7 +3607,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-04T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 309,
@@ -3017,7 +3619,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-03T19:15:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 1
   },
   {
     "fixture_id": 310,
@@ -3027,7 +3631,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-02T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 311,
@@ -3037,7 +3643,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-06T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 3
   },
   {
     "fixture_id": 312,
@@ -3047,7 +3655,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-06T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   },
   {
     "fixture_id": 313,
@@ -3057,7 +3667,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-06T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 4
   },
   {
     "fixture_id": 314,
@@ -3067,7 +3679,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-06T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 315,
@@ -3077,7 +3691,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-06T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 316,
@@ -3087,7 +3703,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-06T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 317,
@@ -3097,7 +3715,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-07T14:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 318,
@@ -3107,7 +3727,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-07T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 319,
@@ -3117,7 +3739,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-07T17:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 320,
@@ -3127,7 +3751,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-06T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 321,
@@ -3137,7 +3763,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-14T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 322,
@@ -3147,7 +3775,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-13T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 323,
@@ -3157,7 +3787,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-13T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 324,
@@ -3167,7 +3799,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-13T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 325,
@@ -3177,7 +3811,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-15T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 6,
+    "team_a_score": 0
   },
   {
     "fixture_id": 326,
@@ -3187,7 +3823,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-14T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 327,
@@ -3197,7 +3835,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-13T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 1
   },
   {
     "fixture_id": 328,
@@ -3207,7 +3847,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-13T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 0
   },
   {
     "fixture_id": 329,
@@ -3217,7 +3859,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-13T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 330,
@@ -3227,7 +3871,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-14T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 281,
@@ -3237,7 +3883,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-04-23T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 282,
@@ -3247,7 +3895,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-25T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 4
   },
   {
     "fixture_id": 284,
@@ -3257,7 +3907,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-24T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 285,
@@ -3267,7 +3919,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-24T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 288,
@@ -3277,7 +3931,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-24T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 290,
@@ -3287,7 +3943,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-24T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 331,
@@ -3297,7 +3955,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 333,
@@ -3307,7 +3967,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-21T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 2
   },
   {
     "fixture_id": 334,
@@ -3317,7 +3979,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-21T12:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 335,
@@ -3327,7 +3991,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-21T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 336,
@@ -3337,7 +4003,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-20T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 5
   },
   {
     "fixture_id": 338,
@@ -3347,7 +4015,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-20T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 340,
@@ -3357,7 +4027,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-20T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 255,
@@ -3367,7 +4039,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-02T18:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 341,
@@ -3377,7 +4051,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-27T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 342,
@@ -3387,7 +4063,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-28T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 343,
@@ -3397,7 +4075,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-27T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 344,
@@ -3407,7 +4087,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-27T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 345,
@@ -3417,7 +4099,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-27T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 346,
@@ -3427,7 +4111,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-27T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 1
   },
   {
     "fixture_id": 347,
@@ -3437,7 +4123,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-28T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 348,
@@ -3447,7 +4135,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-04-28T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 349,
@@ -3457,7 +4147,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-04-27T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 2
   },
   {
     "fixture_id": 350,
@@ -3467,7 +4159,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-04-27T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 351,
@@ -3477,7 +4171,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-04T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 0
   },
   {
     "fixture_id": 352,
@@ -3487,7 +4183,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 0
   },
   {
     "fixture_id": 353,
@@ -3497,7 +4195,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-05T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 354,
@@ -3507,7 +4207,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 4
   },
   {
     "fixture_id": 355,
@@ -3517,7 +4219,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-05T13:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 356,
@@ -3527,7 +4231,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-06T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 0
   },
   {
     "fixture_id": 357,
@@ -3537,7 +4243,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-05T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 4,
+    "team_a_score": 2
   },
   {
     "fixture_id": 358,
@@ -3547,7 +4255,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-03T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 359,
@@ -3557,7 +4267,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-04T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 1
   },
   {
     "fixture_id": 360,
@@ -3567,7 +4279,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-04T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 332,
@@ -3577,7 +4291,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-15T18:45:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 337,
@@ -3587,7 +4303,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-15T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 2
   },
   {
     "fixture_id": 339,
@@ -3597,7 +4315,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-14T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 361,
@@ -3607,7 +4327,9 @@
     "team_h_difficulty": 4,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-13T19:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 3
   },
   {
     "fixture_id": 362,
@@ -3617,7 +4339,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 363,
@@ -3627,7 +4351,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 0
   },
   {
     "fixture_id": 364,
@@ -3637,7 +4363,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-11T11:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 4
   },
   {
     "fixture_id": 365,
@@ -3647,7 +4375,9 @@
     "team_h_difficulty": 5,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-12T15:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 1
   },
   {
     "fixture_id": 366,
@@ -3657,7 +4387,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 1
   },
   {
     "fixture_id": 367,
@@ -3667,7 +4399,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-11T16:30:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 3
   },
   {
     "fixture_id": 368,
@@ -3677,7 +4411,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 4,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 369,
@@ -3687,7 +4423,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 370,
@@ -3697,7 +4435,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-11T14:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 3
   },
   {
     "fixture_id": 371,
@@ -3707,7 +4447,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 372,
@@ -3717,7 +4459,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 4
   },
   {
     "fixture_id": 373,
@@ -3727,7 +4471,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 2
   },
   {
     "fixture_id": 374,
@@ -3737,7 +4483,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 1,
+    "team_a_score": 2
   },
   {
     "fixture_id": 375,
@@ -3747,7 +4495,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 3,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 1
   },
   {
     "fixture_id": 376,
@@ -3757,7 +4507,9 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 5,
+    "team_a_score": 0
   },
   {
     "fixture_id": 377,
@@ -3767,7 +4519,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 0
   },
   {
     "fixture_id": 378,
@@ -3777,7 +4531,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 2,
+    "team_a_score": 4
   },
   {
     "fixture_id": 379,
@@ -3787,7 +4543,9 @@
     "team_h_difficulty": 2,
     "team_a_difficulty": 5,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 3,
+    "team_a_score": 1
   },
   {
     "fixture_id": 380,
@@ -3797,6 +4555,8 @@
     "team_h_difficulty": 3,
     "team_a_difficulty": 2,
     "kickoff_time": "2024-05-19T15:00:00Z",
-    "finished": 1
+    "finished": 1,
+    "team_h_score": 0,
+    "team_a_score": 3
   }
 ]

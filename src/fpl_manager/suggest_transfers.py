@@ -165,15 +165,15 @@ def suggest_transfers(
     report_path: Path = TRANSFERS_REPORT_PATH,
     gameweek: int | None = None,
     dead_capital_weight: float = 3.0,
-    engine: str = "v1.2.5",
+    engine: str = "v1.3.5",
     gamma: float = 0.75,
     horizon: int = 3,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad.
 
-    Supports V1.2.5 Lineup-Aware Evaluation with rolling discounted horizon, candidate pool
-    expansion, goalkeeper churn suppression, and reason breakdown tracking, with optional
-    fallback to legacy unweighted squad optimization.
+    Supports V1.3.5/V1.4 Hardened Baseline Lineup-Aware Evaluation with rolling discounted horizon,
+    pruned candidate search pool, goalkeeper churn suppression, and reason breakdown tracking, with optional
+    fallback to V1.2.5 or legacy unweighted squad optimization.
     """
     if num_transfers < 1 or num_transfers > 5:
         raise ValueError(
@@ -184,7 +184,9 @@ def suggest_transfers(
     clean_engine = str(engine).lower().strip()
     is_legacy = clean_engine in ("legacy", "v1.0", "v1.0.1", "v10", "v101")
     is_v12 = clean_engine in ("v1.2", "v12")
-    is_v125 = clean_engine in ("v1.2.5", "v125", "default") or (not is_legacy and not is_v12)
+    is_v125 = clean_engine in ("v1.2.5", "v125")
+    is_v135 = clean_engine in ("v1.3.5", "v1.4", "v135", "v14", "default") or (not is_legacy and not is_v12 and not is_v125)
+    engine_name = "v1.3.5" if is_v135 else ("v1.2.5" if is_v125 else ("v1.2" if is_v12 else "legacy"))
 
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
@@ -220,8 +222,13 @@ def suggest_transfers(
         and not is_long_term_unavailable(p)
     ]
 
-    # Candidate pool expansion (Pillar 1)
-    cand_search_max = max(max_results * 2, 25) if not is_legacy else max_results
+    # Candidate pool expansion vs pruning: V1.3.5/V1.4 uses pruned candidate pool (size 5) to mitigate regret tail
+    if is_v135:
+        cand_search_max = max(max_results, 5)
+    elif not is_legacy:
+        cand_search_max = max(max_results * 2, 25)
+    else:
+        cand_search_max = max_results
     raw_results, total_evaluated = solve_transfers(
         num_transfers=num_transfers,
         squad_players=squad_players,
@@ -370,14 +377,14 @@ def suggest_transfers(
             "num_transfers": num_transfers,
             "free_transfers_available": state.free_transfers,
             "risk_profile": risk_profile,
-            "engine": "v1.2.5" if is_v125 else "v1.2",
+            "engine": engine_name,
             "target_gameweeks": target_gws,
             "evaluation_horizon_gws": eff_horizon,
             "gamma": eff_gamma,
             "total_options_evaluated": total_evaluated,
             "top_suggestions": top_results,
             "transfer_reason_breakdown": {
-                "engine": "v1.2.5" if is_v125 else "v1.2",
+                "engine": engine_name,
                 "pool_expansion_candidates": sum(
                     1 for r in top_results if r.get("reason_breakdown", {}).get("pool_expansion_surfaced")
                 ),

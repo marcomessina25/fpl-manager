@@ -321,8 +321,10 @@ def evaluate_chip_candidates(
         })
 
         # 2. Free Hit Candidate Evaluation
-        fh_urgency = (squad_blanks * 4.0) + (10.0 if gw_type == "BLANK" else 0.0) + (15.0 if gw_type == "DOUBLE" and squad_doubles == 0 else 0.0)
-        fh_expected_gain = round(squad_blanks * 3.5 + (8.0 if gw_type in ("BLANK", "DOUBLE") else 0.0), 1)
+        is_bgw = gw_type in ("BLANK", "BLANK_AND_DOUBLE")
+        is_dgw = gw_type in ("DOUBLE", "BLANK_AND_DOUBLE")
+        fh_urgency = (squad_blanks * 4.0) + (10.0 if is_bgw else 0.0) + (15.0 if is_dgw and squad_doubles == 0 else 0.0)
+        fh_expected_gain = round(squad_blanks * 3.5 + (8.0 if is_bgw or is_dgw else 0.0), 1)
 
         fh_candidates.append({
             "gameweek": gw,
@@ -472,6 +474,27 @@ def recommend_chip_strategy(
         database_path=database_path,
     )
 
+    # Detect recently played wildcard to prevent anti-synergistic immediate chip deployment (cooldown)
+    recent_wc_gw: int | None = None
+    try:
+        with closing(store._connect()) as connection:
+            wc_q = """
+                SELECT gameweek FROM decisions
+                WHERE chip_played IN ('wildcard', 'wildcard_1', 'wildcard_2')
+            """
+            params: list[Any] = []
+            if team_id:
+                wc_q += " AND team_id = ?"
+                params.append(team_id)
+            wc_q += " ORDER BY gameweek DESC LIMIT 1"
+            row = connection.execute(wc_q, params).fetchone()
+            if row:
+                recent_wc_gw = int(row[0])
+    except Exception:
+        pass
+
+    cooldown_gws = {recent_wc_gw + 1, recent_wc_gw + 2} if recent_wc_gw is not None else set()
+
     assigned_gws: set[int] = set()
     recommendations: list[dict[str, Any]] = []
 
@@ -482,17 +505,56 @@ def recommend_chip_strategy(
         chip_cand_list = candidates.get(chip, [])
         for cand in chip_cand_list:
             gw = cand["gameweek"]
-            if gw not in assigned_gws:
-                assigned_gws.add(gw)
-                recommendations.append({
-                    "chip": chip,
-                    "gameweek": gw,
-                    "gw_type": cand["gw_type"],
-                    "rating": cand["rating"],
-                    "reasoning": cand["reasoning"],
-                    "details": cand,
-                })
-                break
+            if gw in assigned_gws:
+                continue
+
+            # Anti-pathology cooldown: prevent Free Hit or Wildcard immediately following a recent Wildcard
+            if gw in cooldown_gws and chip in ("freehit", "wildcard"):
+                continue
+
+            # Threshold guard: Free Hit must target a confirmed BGW/DGW or a gameweek with >= 2 squad blanks
+            if chip == "freehit":
+                is_bgw_or_dgw = cand.get("gw_type") in ("BLANK", "DOUBLE", "BLANK_AND_DOUBLE")
+                has_squad_blanks = cand.get("squad_blanks", 0) >= 2
+                if not is_bgw_or_dgw and not has_squad_blanks and cand.get("rating", 0.0) < 10.0:
+                    continue
+
+            # Immediate gameweek guard: if scheduling for immediate deadline start_gw, verify SeasonalChipPolicy endorses deployment
+            if gw == start_gw:
+                try:
+                    s_state = load_current_squad(squad_path)
+                    s_projs = project_gameweek(start_gw, database_path=database_path)
+                    s_snap = store.get_latest_snapshot()
+                    s_inv = SeasonalChipInventory(
+                        wildcard_w1="wildcard" in available and start_gw <= 19,
+                        free_hit_w1="freehit" in available and start_gw <= 19,
+                        triple_captain_w1="triplecaptain" in available and start_gw <= 19,
+                        bench_boost_w1="benchboost" in available and start_gw <= 19,
+                        wildcard_w2="wildcard" in available and start_gw >= 20,
+                        free_hit_w2="freehit" in available and start_gw >= 20,
+                        triple_captain_w2="triplecaptain" in available and start_gw >= 20,
+                        bench_boost_w2="benchboost" in available and start_gw >= 20,
+                    )
+                    pol_chip = SeasonalChipPolicy().evaluate_gameweek_chip(
+                        start_gw, s_inv, s_state.player_ids, s_snap, s_projs, tuple(s_state.player_ids)
+                    )
+                    norm_pol = CHIP_ALIASES.get(pol_chip, pol_chip) if pol_chip else None
+                    if norm_pol != chip:
+                        # SeasonalChipPolicy does not endorse playing this chip immediately at start_gw
+                        continue
+                except Exception:
+                    pass
+
+            assigned_gws.add(gw)
+            recommendations.append({
+                "chip": chip,
+                "gameweek": gw,
+                "gw_type": cand["gw_type"],
+                "rating": cand["rating"],
+                "reasoning": cand["reasoning"],
+                "details": cand,
+            })
+            break
 
     recommendations.sort(key=lambda x: x["gameweek"])
 
