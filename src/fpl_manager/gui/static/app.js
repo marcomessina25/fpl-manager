@@ -3966,16 +3966,22 @@ function initHistoricalTimeMachine() {
   const btnCancelCreate = document.getElementById("btn-cancel-create-sim");
   const btnConfirmCreate = document.getElementById("btn-confirm-create-sim");
 
+  const closeModal = (modal) => {
+    if (!modal) return;
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  };
+
   if (btnNewSim) {
     btnNewSim.addEventListener("click", () => {
       openCreateSimulationModal();
     });
   }
   if (btnCloseCreate && modalCreate) {
-    btnCloseCreate.addEventListener("click", () => modalCreate.classList.add("hidden"));
+    btnCloseCreate.addEventListener("click", () => closeModal(modalCreate));
   }
   if (btnCancelCreate && modalCreate) {
-    btnCancelCreate.addEventListener("click", () => modalCreate.classList.add("hidden"));
+    btnCancelCreate.addEventListener("click", () => closeModal(modalCreate));
   }
 
   if (btnConfirmCreate) {
@@ -3999,11 +4005,15 @@ function initHistoricalTimeMachine() {
             manager_name: manager,
           }),
         });
+
+        // Close modal immediately upon successful creation
+        closeModal(modalCreate);
         showToast(`Simulation '${simId}' created!`);
-        if (modalCreate) modalCreate.classList.add("hidden");
+
         histState.season = season;
         const seasonSelect = document.getElementById("hist-season-select");
         if (seasonSelect) seasonSelect.value = season;
+
         await loadHistoricalSimulationsList();
         await loadHistoricalSession(simId);
         await loadOverview();
@@ -4157,13 +4167,13 @@ function initHistoricalTimeMachine() {
   const btnCloseModal = document.getElementById("btn-hist-close-modal");
   const modalBox = document.getElementById("hist-modal");
   if (btnCloseModal && modalBox) {
-    btnCloseModal.addEventListener("click", () => modalBox.classList.add("hidden"));
+    btnCloseModal.addEventListener("click", () => closeModal(modalBox));
   }
 
   const btnCloseSwap = document.getElementById("btn-hist-close-swap-modal");
   const modalSwap = document.getElementById("hist-swap-modal");
   if (btnCloseSwap && modalSwap) {
-    btnCloseSwap.addEventListener("click", () => modalSwap.classList.add("hidden"));
+    btnCloseSwap.addEventListener("click", () => closeModal(modalSwap));
   }
 
   // Initial loads

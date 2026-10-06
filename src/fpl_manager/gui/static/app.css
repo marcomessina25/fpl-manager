@@ -1130,7 +1130,7 @@ body {
   padding: 1rem;
 }
 
-.modal-overlay.hidden { display: none; }
+.modal-overlay.hidden { display: none !important; }
 
 .modal-dialog {
   background: var(--bg-secondary);
