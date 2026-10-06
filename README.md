@@ -308,7 +308,7 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-### Current scope (V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox)
+### Current scope (V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox Platform)
 
 V1.4 transforms FPL Manager into an interactive **Historical Season Simulation / FPL Time Machine** built on the frozen quantitative and optimizer baseline established by V1.3/V1.3.5:
 
@@ -317,7 +317,11 @@ V1.4 transforms FPL Manager into an interactive **Historical Season Simulation /
 - **Stateful Isolated Simulation Sessions (`src/fpl_manager/simulation/`)**: Sessions are isolated under `config/simulations/<session_id>.json` (never touching live squad or database). Features full legality validation, transfer staging, multi-chip mechanics (Wildcard windows, Free Hit squad reversion, Bench Boost, Triple Captain), deterministic matchday scoring with autosubs, transfer hit accounting, and parallel baseline tracking (`DecisionEngineV125` / `DecisionEngineV135`).
 - **Web Studio GUI Time Machine Interface**: Interactive interface featuring Premier League Standings table, Recent Match Results, Upcoming Fixtures with FDR ratings, Interactive Pitch squad view with captaincy toggles, transfer staging modal, and matchday progression.
 - **Full CLI Suite (`fpl sim`)**: Direct command-line control for headless simulation runs, batch experiments, and report generation.
-- Full specification: [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md).
+- **Milestone Sequencing Handoff (V1.4 → V1.4.5 → V1.4.6)**: 
+  - To ensure that human benchmark evaluations are conducted against a truly optimal, unified software baseline rather than brittle heuristic threshold artifacts, the empirical Human-in-the-Loop benchmark has been decoupled to **V1.4.6**.
+  - **V1.4.5 (Next)** will conduct a comprehensive multi-season study to deliver an **ML / EV-driven Strategic Chip Optimizer** without fixed thresholds, unifying simulation and GUI chip models.
+  - **V1.4.6 (Follow-up)** will execute the controlled **Human-in-the-Loop Replay Benchmark Study** across the finalized V1.4.5 baseline.
+- Full specifications: [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md), [`docs/v1.4.5/v145_chip_optimization.md`](docs/v1.4.5/v145_chip_optimization.md), and [`docs/v1.4.6/v146_human_benchmark.md`](docs/v1.4.6/v146_human_benchmark.md).
 
 ---
 

@@ -1,6 +1,6 @@
-# V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
+# V1.4 — Interactive Historical Season Simulation & Time Machine Sandbox Platform
 
-**Status:** Completed  
+**Status:** Completed (Simulation & Time Machine Sandbox Platform Delivered; Experimental Benchmark Sequence decoupled to V1.4.5 & V1.4.6)  
 **Predecessor:** V1.3.5 — Optimizer Decision-Quality Study  
 **Corpus / Repo:** `marcomessina25/fpl-manager`
 
@@ -10,16 +10,18 @@
 
 V1.4 transforms FPL Manager from a batch backtesting system into an **interactive historical FPL Time Machine**.
 
-The user should be able to enter a past Premier League season, receive only the information that would have been available at each historical deadline, make decisions, resolve the actual historical gameweek, and continue through the season.
+The user can enter any past Premier League season (`2021-22` through `2025-26`), receive strictly verified point-in-time information available at each historical deadline (standings, past results with actual scores, masked upcoming fixtures), make transfers and lineup adjustments, deploy chips, resolve authentic historical gameweek results with deterministic scoring and autosubs, and step through the season.
 
-The purpose is twofold:
+The purpose of V1.4 is to:
+1. Provide a rigorous, fully isolated interactive historical simulation environment across both CLI (`fpl sim`) and Web Studio GUI (`⏳ Historical Time Machine`);
+2. Deliver the software instrumentation, session state engine, and zero-spoiler data boundaries necessary for reproducible research.
 
-1. provide a rigorous interactive historical simulation environment;
-2. establish an empirical benchmark for human + software decision-making under strict point-in-time information constraints.
-
-V1.4 begins only after the quantitative predictor and optimizer research of V1.3/V1.3.5 has been frozen sufficiently to provide a stable experimental baseline.
-
-> **V1.4 is not primarily a new optimization milestone. It is the historical simulation and human-in-the-loop validation layer built on the validated quantitative core.**
+> **Methodological Sequence Alignment (V1.4 → V1.4.5 → V1.4.6):**
+> Following rigorous review of seasonal chip behavior in multi-season simulations, human-in-the-loop benchmark studies cannot produce trustworthy comparative metrics if the underlying chip policy relies on heuristic fixed thresholds that cause unspent chip wastage or premature burns. 
+> Therefore, the empirical human benchmark originally envisioned for V1.4 is decoupled:
+> - **V1.4 (Current)**: Delivers the complete simulation platform, GUI Time Machine, and zero-leakage standings/fixture engines.
+> - **V1.4.5 (Next)**: Deep multi-season study designing an ML / EV-driven strategic chip optimization model without fixed thresholds.
+> - **V1.4.6 (Follow-up)**: Execution of the controlled Human-in-the-Loop Replay Benchmark on top of the finalized, audited V1.4.5 optimization engine.
 
 ---
 
@@ -445,50 +447,47 @@ The PR should include the experimental protocol and the exact configuration used
 
 ---
 
-# 17. Definition of Done
-
-V1.4 is complete when:
-
-- [x] historical sessions are isolated from live state;
-- [x] all supported seasons can be loaded;
-- [x] historical GW state is point-in-time isolated;
-- [x] squad creation is deterministic and/or explicitly human-controlled;
-- [x] transfer legality is enforced;
-- [x] lineup/captain/bench state is persisted;
-- [x] official scoring and autosubs are resolved correctly;
-- [x] chip state is correctly maintained;
-- [x] batch/simulator parity passes;
-- [x] CLI workflow works end-to-end (`fpl sim create/list/status/overview/transfer/chip/run-gw/report`);
-- [x] GUI workflow works end-to-end (Time Machine workspace with Standings, Past Results, Upcoming Fixtures with zero spoilers);
-- [x] engine-only historical replay reproduces the frozen baseline;
-- [x] human decisions are stored separately from engine recommendations;
-- [x] season-end analytics are reproducible;
-- [x] no future information leaks into the simulation (strict zero-spoiler discipline);
-- [x] human benchmark protocol is documented;
-- [x] benchmark conclusions are limited to the observed study population and conditions.
+# 17. Definition of Done for V1.4
+ 
+ V1.4 is complete when:
+ 
+ - [x] historical sessions are isolated from live state;
+ - [x] all supported seasons (`2021-22` to `2025-26`) can be loaded;
+ - [x] historical GW state is point-in-time isolated;
+ - [x] squad creation is deterministic and/or explicitly human-controlled;
+ - [x] transfer legality is enforced with club quotas and financial accounting;
+ - [x] lineup/captain/bench state is persisted;
+ - [x] official scoring and autosubs are resolved correctly;
+ - [x] chip state transitions are correctly maintained (Wildcard windows, Free Hit squad reversion);
+ - [x] batch/simulator parity passes;
+ - [x] CLI workflow works end-to-end (`fpl sim create/list/status/overview/transfer/chip/run-gw/report`);
+ - [x] GUI workflow works end-to-end (Time Machine workspace with Standings, Past Results, Upcoming Fixtures with zero spoilers);
+ - [x] engine-only historical replay reproduces the frozen baseline;
+ - [x] human decisions are stored separately from engine recommendations;
+ - [x] no future information leaks into the simulation (strict zero-spoiler discipline);
+ - [x] human benchmark protocol is documented and scheduled for execution in V1.4.6 (following V1.4.5 strategic chip optimization).
 
 ---
 
-# 18. Long-Term Boundary
+# 18. Milestone Sequencing
 
-V1.4 should **not** become an uncontrolled combination of historical simulation, new prediction research, optimizer research, and LLM experimentation.
-
-The intended architecture is:
+The updated release architecture is:
 
 ```text
-V1.3
-Predictor research
+V1.3 / V1.3.5
+Predictor & optimizer research baseline
         ↓
-V1.3.5
-Optimizer research
+V1.4 (Current Release)
+Historical Season Simulation & Time Machine Sandbox Platform
         ↓
-Frozen quantitative core
+V1.4.5
+Multi-Season Strategic Chip Optimization Study (ML / EV Optimization)
         ↓
-V1.4
-Historical Time Machine + human benchmark
+V1.4.6
+Empirical Human-in-the-Loop Replay Benchmark Execution
         ↓
 V1.5
 Multi-provider / combinatorial advisory research
 ```
 
-This separation preserves the scientific value of each milestone.
+This ensures that human benchmark participants are evaluated against a rigorously optimized baseline engine rather than heuristic threshold artifacts.

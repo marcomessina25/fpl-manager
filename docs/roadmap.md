@@ -143,18 +143,24 @@ Optimizer Decision-Quality Study & Hardened Architecture
 + DecisionEngineV135 deployed as hardened reference baseline
         ↓
 V1.4
-Interactive Historical Season Simulation & Time Machine Sandbox
+Interactive Historical Season Simulation & Time Machine Sandbox Platform
 + Step-by-step gameweek management across past seasons (2021-22 to 2025-26)
-+ Point-in-time squad creation and historical score resolution
-+ Frozen validated predictor/optimizer baseline
-+ Human-vs-engine blind replay benchmark under strict information boundaries
++ Point-in-time squad creation, standings, match results, and zero-spoiler upcoming fixtures
++ Deterministic historical scoring, autosub resolution, and isolated session state
++ Parallel baseline tracking and divergence measurement
         ↓
 V1.4.5
 Strategic Chip Optimization & Multi-Team Isolation Hardening
-+ Rigorous value-driven chip optimization (ML / expected-value modeled, no fixed heuristic thresholds)
++ Rigorous value-driven chip optimization (ML / EV modeled, no fixed heuristic thresholds)
 + Opportunity-cost modeling across horizons: blanks (BGWs), double gameweeks (DGWs), and squad structural deficits
 + Unified chip recommendation logic reconciling simulation policies and GUI calendar
 + Complete multi-team workspace isolation (preventing cross-team state leakage in live & historical modes)
+        ↓
+V1.4.6
+Empirical Human-in-the-Loop Replay Benchmark Study
++ Formal human vs engine benchmark execution under strict information boundaries
++ Multi-track comparison: Engine baseline, Human-assisted, and Human-only blind control
++ Decision divergence logging and human override alpha analysis
         ↓
 V1.5
 Multi-provider expansion & combinatorial strategic advisory
@@ -190,6 +196,8 @@ Automated learning loops
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
 | **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
 | **V1.4** | **Interactive historical season simulation & Time Machine sandbox platform** | **Completed and validated on branch `v14`** |
+| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Planned (Next release)** |
+| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study** | **Planned (Follows V1.4.5)** |
 | V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
@@ -1814,6 +1822,22 @@ within documented tolerances for the frozen engine.
     - *Segment Window Expiration*: The opportunity cost of a chip naturally decays to zero as the final gameweeks of the segment approach (GW19 and GW38), allowing the mathematical optimizer to deploy the chip on the global maximum of the remaining fixtures rather than discarding it unplayed.
 - **Unified Chip Policy Model**: Share a single deterministic chip optimization engine between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
 - **Strict Multi-Team Workspace Scoping**: Explicit `team_id` / `session_id` database partitioning ensuring zero shared state between different live teams or between live and historical modes.
+
+---
+
+# 24.6. V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark Study
+
+**Status: planned following V1.4.5.**  
+**Specification:** [`docs/v1.4.6/v146_human_benchmark.md`](v1.4.6/v146_human_benchmark.md)
+
+### Core Objectives
+1. **Execute Controlled Replay Benchmark**: Deploy the validated V1.4 Time Machine sandbox with the unified, ML/EV-optimized V1.4.5 chip and transfer engines for empirical human trials.
+2. **Multi-Track Evaluation**: Compare performance under identical historical conditions:
+   - *Track A (Engine-Only)*: Autonomous execution of frozen reference engine.
+   - *Track B (Human-Assisted)*: Manager provided with engine xP, transfer candidate rankings, and chip advisory, but retaining final override authority.
+   - *Track C (Human Blind Control)*: Manager provided with historical facts, standings, and match results without algorithmic assistance.
+3. **Decision Divergence & Human Alpha Analysis**: Quantify the empirical frequency and score consequence of human overrides across regular fixtures, blank weekends, and double gameweeks.
+4. **Reproducible Report Artifacts**: Publish audited benchmark trajectory logs and regret decompositions in `reports/v146/`.
 
 ---
 
