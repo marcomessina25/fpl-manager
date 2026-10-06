@@ -488,6 +488,68 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if action == "recommendations":
                     recs = sim.get_recommendations()
                     self._send_json(recs)
+                elif action == "chips":
+                    start_gw_arg = get_arg("start_gw")
+                    start_gw = int(start_gw_arg) if start_gw_arg else sim.current_gw
+                    recs = sim.get_recommendations()
+                    rec_chip = recs.get("recommended_chip")
+                    is_seg1 = start_gw <= 19
+                    seg_name = "1-19" if is_seg1 else "20-38"
+
+                    # Map session chips to standard representation
+                    remaining_clean = []
+                    for c in sim.chips_remaining:
+                        norm = c.lower().replace("-", "_")
+                        if norm in ("wildcard_1", "wildcard_2", "wildcard"):
+                            if (is_seg1 and norm in ("wildcard_1", "wildcard")) or (not is_seg1 and norm in ("wildcard_2", "wildcard")):
+                                if "wildcard" not in remaining_clean:
+                                    remaining_clean.append("wildcard")
+                        elif norm in ("free_hit", "freehit"):
+                            if "freehit" not in remaining_clean:
+                                remaining_clean.append("freehit")
+                        elif norm in ("bench_boost", "benchboost"):
+                            if "benchboost" not in remaining_clean:
+                                remaining_clean.append("benchboost")
+                        elif norm in ("triple_captain", "triplecaptain"):
+                            if "triplecaptain" not in remaining_clean:
+                                remaining_clean.append("triplecaptain")
+
+                    used_clean = []
+                    for c in sim.chips_used.keys():
+                        norm = c.lower().replace("-", "_")
+                        if norm in ("wildcard_1", "wildcard_2", "wildcard"):
+                            if "wildcard" not in used_clean:
+                                used_clean.append("wildcard")
+                        elif norm in ("free_hit", "freehit"):
+                            if "freehit" not in used_clean:
+                                used_clean.append("freehit")
+                        elif norm in ("bench_boost", "benchboost"):
+                            if "benchboost" not in used_clean:
+                                used_clean.append("benchboost")
+                        elif norm in ("triple_captain", "triplecaptain"):
+                            if "triplecaptain" not in used_clean:
+                                used_clean.append("triplecaptain")
+
+                    schedule = []
+                    if rec_chip:
+                        norm_rec = "freehit" if rec_chip == "free_hit" else ("benchboost" if rec_chip == "bench_boost" else ("triplecaptain" if rec_chip == "triple_captain" else "wildcard"))
+                        schedule.append({
+                            "gameweek": sim.current_gw,
+                            "chip": norm_rec,
+                            "gw_type": "CALIBRATED_POLICY",
+                            "reasoning": f"Recommended by SeasonalChipPolicy for GW{sim.current_gw} based on squad state and fixtures.",
+                        })
+
+                    self._send_json({
+                        "session_id": sim.session_id,
+                        "season": sim.season,
+                        "gameweek": sim.current_gw,
+                        "segment": seg_name,
+                        "available_chips": remaining_clean,
+                        "used_chips": used_clean,
+                        "active_chip": sim.active_chip,
+                        "recommended_schedule": schedule,
+                    })
                 elif action == "report":
                     summary = sim.generate_summary()
                     self._send_json(summary.to_dict())

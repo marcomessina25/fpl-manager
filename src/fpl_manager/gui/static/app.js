@@ -2194,11 +2194,39 @@ async function loadChipStrategy() {
   const container = document.getElementById("chip-results-container");
   container.innerHTML = '<p class="text-muted">Evaluating Blank/Double gameweeks and computing optimal chip roadmap...</p>';
 
-  const startGw = document.getElementById("chip-start-gw").value;
+  const isHist = state.appMode === "historical";
+  const startGwInput = document.getElementById("chip-start-gw");
+  let startGw = startGwInput ? startGwInput.value : "";
+
+  // If in historical mode, default start GW to historical session gameweek
+  if (isHist && (!startGw || startGw === "")) {
+    startGw = histState.gameweek || 1;
+    if (startGwInput) startGwInput.value = startGw;
+  } else if (!isHist && (!startGw || startGw === "")) {
+    if (startGwInput && !startGwInput.value) {
+      startGw = state.activeGameweek || 1;
+      startGwInput.value = startGw;
+    }
+  }
+
   const startParam = startGw ? `&start_gw=${startGw}` : "";
 
   try {
-    const data = await api(`/api/chips?team=${state.activeTeamId}${startParam}`);
+    let data;
+    if (isHist) {
+      if (!histState.sessionId) {
+        container.innerHTML = `
+          <div class="panel card" style="margin-top: 1rem; padding: 1.5rem; text-align: center;">
+            <p class="text-muted">No historical simulation session selected. Please select or create a historical simulation session to view its chip strategy.</p>
+          </div>
+        `;
+        return;
+      }
+      data = await api(`/api/historical/simulations/${histState.sessionId}/chips?start_gw=${startGw}`);
+    } else {
+      data = await api(`/api/chips?team=${state.activeTeamId}${startParam}`);
+    }
+
     const infoEl = document.getElementById("chip-status-info");
     if (infoEl) {
       const usedArr = data.used_chips || [];
@@ -2213,10 +2241,12 @@ async function loadChipStrategy() {
       ? sched.map(s => `<li><strong>GW${s.gameweek}</strong> [${s.gw_type}]: <strong>${s.chip.toUpperCase()}</strong> — ${s.reasoning}</li>`).join("")
       : "<li>No chips recommended in current horizon.</li>";
 
+    const titlePrefix = isHist ? `Historical Simulation (${escapeHtml(data.session_id || histState.sessionId)})` : `Team: ${escapeHtml(data.team_id || state.activeTeamId)}`;
+
     container.innerHTML = `
       <div class="panel card" style="margin-top: 1rem;">
         <div class="panel-header">
-          <h3>Season Segment: Gameweeks ${data.segment} (Chips reset after GW19)</h3>
+          <h3>${titlePrefix} — Gameweeks ${data.segment} (Chips reset after GW19)</h3>
           <span class="badge badge-info">Available: ${data.available_chips.join(", ") || "None"}</span>
         </div>
         <div class="panel-body">
@@ -4466,8 +4496,18 @@ async function loadHistoricalSession(sessionId) {
     renderHistoricalPitch(data.squad || []);
     renderHistoricalStagedTransfers(data.transfers_staged || []);
 
+    // Synchronize chip-start-gw input if present
+    const chipGwInput = document.getElementById("chip-start-gw");
+    if (chipGwInput) chipGwInput.value = data.current_gw;
+
     // Refresh matchday center
     await loadHistoricalOverview();
+
+    // If chip tab is currently active, refresh chip strategy view
+    const chipsTab = document.getElementById("tab-chips");
+    if (chipsTab && chipsTab.classList.contains("active")) {
+      loadChipStrategy();
+    }
   } catch (err) {
     console.error("Failed to load historical session:", err);
     showToast(`Error loading simulation ${sessionId}: ${err.message}`, true);

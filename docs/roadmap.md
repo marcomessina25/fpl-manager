@@ -149,6 +149,13 @@ Interactive Historical Season Simulation & Time Machine Sandbox
 + Frozen validated predictor/optimizer baseline
 + Human-vs-engine blind replay benchmark under strict information boundaries
         ↓
+V1.4.5
+Seasonal Chip Optimization & Multi-Team Isolation Hardening
++ Dynamic chip deployment optimization (eliminating wasted or unspent chips across segments)
++ Unified chip recommendation logic reconciling simulation policies and GUI calendar
++ Non-zero Free Hit targeting ensuring optimal deployment on blanks/doubles/deficits
++ Complete multi-team workspace isolation (preventing cross-team state leakage in live & historical modes)
+        ↓
 V1.5
 Multi-provider expansion & combinatorial strategic advisory
 + Extended LLM model research (Claude, OpenAI, DeepSeek, Local Ollama)
@@ -1783,6 +1790,22 @@ within documented tolerances for the frozen engine.
 - engine-only parity validation;
 - human-vs-engine benchmark protocol;
 - reproducible season-end analytics.
+
+---
+
+# 24.5. V1.4.5 — Seasonal Chip Optimization & Multi-Team Isolation Hardening
+
+**Status: planned for next release (following V1.4).**
+
+### Core Problems Addressed
+1. **Unspent Chip Wastage in Historical Simulations**: In past season simulations, heuristic chip models occasionally completed an entire half-season window without ever deploying a high-value chip (e.g. Free Hit, Triple Captain, or Bench Boost) because static hurdle thresholds were not met. Under FPL rules, chips expire at GW19 and GW38, making "holding forever" strictly suboptimal compared to deploying on the best available local peak.
+2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: The historical backtest engine (`SeasonalChipPolicy`) and the GUI Chip Strategy (`recommend_chip_strategy`) historically relied on different heuristic evaluation pipelines, creating discrepancies where the GUI suggested a roadmap that differed from what simulation benchmarks executed.
+3. **Multi-Team State Isolation**: Ensuring all decision logging, chip availability, bank budgets, staged transfers, and gameweek contexts remain strictly isolated across multiple live teams and historical simulation sessions without cross-contamination.
+
+### Key Deliverables
+- **Dynamic End-of-Window Chip Forcing**: When approaching deadline expiration (GW17-19 in Segment 1, GW36-38 in Segment 2), relax static hurdle gates dynamically to guarantee full chip utilization on the best candidate matchday.
+- **Unified Chip Policy Model**: Share a single deterministic chip policy between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
+- **Strict Multi-Team Workspace Scoping**: Explicit `team_id` / `session_id` database partitioning ensuring zero shared state between different live teams or between live and historical modes.
 
 ---
 
