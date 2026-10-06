@@ -11,6 +11,9 @@ const state = {
   lineupMode: "auto",
   subbingPlayer: null,
   allLeaguePlayers: [],
+  overviewPastGw: null,
+  overviewFutureGw: null,
+  overviewData: null,
 };
 
 // Toast notification helper
@@ -193,16 +196,7 @@ function initModality() {
   const btnOpenCreateSim = document.getElementById("btn-open-create-sim");
   if (btnOpenCreateSim) {
     btnOpenCreateSim.addEventListener("click", () => {
-      const btnNewSim = document.getElementById("btn-hist-new-sim");
-      if (btnNewSim) btnNewSim.click();
-      else {
-        const modalCreate = document.getElementById("hist-create-modal");
-        const createSeason = document.getElementById("create-sim-season");
-        if (createSeason) createSeason.value = histState.season;
-        const createId = document.getElementById("create-sim-id");
-        if (createId) createId.value = `sim_${histState.season.replace('-', '_')}_${Date.now().toString().slice(-4)}`;
-        if (modalCreate) modalCreate.style.display = "flex";
-      }
+      openCreateSimulationModal();
     });
   }
 
@@ -257,23 +251,47 @@ async function loadOverview() {
     if (gwBadge) gwBadge.textContent = `GW ${state.activeGameweek || 1}`;
   }
 
+  const currentGw = isHist ? (histState.gameweek || 1) : (state.activeGameweek || 1);
+  const pastGw = isHist ? histState.overviewPastGw : state.overviewPastGw;
+  const futureGw = isHist ? histState.overviewFutureGw : state.overviewFutureGw;
+
   try {
-    const endpoint = isHist
-      ? `/api/historical/overview?season=${histState.season}&gameweek=${histState.gameweek}`
-      : `/api/overview?gameweek=${state.activeGameweek || ''}`;
+    let endpoint = isHist
+      ? `/api/historical/overview?season=${encodeURIComponent(histState.season)}&gameweek=${currentGw}`
+      : `/api/overview?gameweek=${currentGw}`;
+
+    if (pastGw !== null && pastGw !== undefined) {
+      endpoint += `&past_gw=${pastGw}`;
+    }
+    if (futureGw !== null && futureGw !== undefined) {
+      endpoint += `&future_gw=${futureGw}`;
+    }
 
     const data = await api(endpoint);
+
+    // Save overview data
+    if (isHist) {
+      histState.overviewData = data;
+    } else {
+      state.overviewData = data;
+    }
 
     // Render Standings
     renderOverviewStandings(data.standings || []);
     if (countEl) countEl.textContent = `${(data.standings || []).length} Clubs`;
 
-    // Render Past Results
-    renderOverviewPastResults(data.past_results || []);
-    if (resLabel) resLabel.textContent = isHist ? `GW 1 – GW ${Math.max(1, histState.gameweek - 1)}` : `Completed Matches`;
+    // Render Past Results with Navigation
+    renderOverviewPastResults(data);
+    if (resLabel) {
+      if (data.past_gw_viewed) {
+        resLabel.textContent = `Gameweek ${data.past_gw_viewed}`;
+      } else {
+        resLabel.textContent = isHist ? `GW 1 – GW ${Math.max(1, currentGw - 1)}` : `Completed Matches`;
+      }
+    }
 
-    // Render Upcoming Fixtures
-    renderOverviewUpcomingFixtures(data.upcoming_fixtures || []);
+    // Render Upcoming Fixtures with Navigation
+    renderOverviewUpcomingFixtures(data);
   } catch (err) {
     console.error("Failed to load overview data:", err);
     showToast(`Failed to load overview: ${err.message}`, true);
@@ -323,18 +341,91 @@ function renderOverviewStandings(standings) {
   }).join("");
 }
 
-function renderOverviewPastResults(results) {
+function renderOverviewPastResults(overviewData) {
   const list = document.getElementById("overview-past-results-list");
+  const select = document.getElementById("overview-results-gw-select");
+  const btnPrev = document.getElementById("btn-results-prev-gw");
+  const btnNext = document.getElementById("btn-results-next-gw");
   if (!list) return;
+
+  const results = overviewData?.past_results || [];
+  const availableGws = overviewData?.available_past_gws || [];
+  const selectedGw = overviewData?.past_gw_viewed ?? "all";
+
+  // Update dropdown options
+  if (select) {
+    let optionsHtml = `<option value="all">All Past GWs</option>`;
+    availableGws.forEach(gw => {
+      const isSel = (selectedGw !== "all" && Number(selectedGw) === Number(gw)) ? "selected" : "";
+      optionsHtml += `<option value="${gw}" ${isSel}>GW ${gw}</option>`;
+    });
+    select.innerHTML = optionsHtml;
+    select.value = selectedGw.toString();
+
+    // Attach change handler once
+    if (!select._hasChangeHandler) {
+      select._hasChangeHandler = true;
+      select.addEventListener("change", async (e) => {
+        const val = e.target.value === "all" ? null : parseInt(e.target.value, 10);
+        if (state.appMode === "historical") {
+          histState.overviewPastGw = val;
+        } else {
+          state.overviewPastGw = val;
+        }
+        await loadOverview();
+      });
+    }
+  }
+
+  // Update Prev / Next buttons
+  if (btnPrev && !btnPrev._hasClickHandler) {
+    btnPrev._hasClickHandler = true;
+    btnPrev.addEventListener("click", async () => {
+      const isHist = state.appMode === "historical";
+      const gws = (isHist ? histState.overviewData : state.overviewData)?.available_past_gws || [];
+      if (gws.length === 0) return;
+      const current = isHist ? histState.overviewPastGw : state.overviewPastGw;
+      let nextGw = gws[0];
+      if (current === null || current === undefined) {
+        nextGw = gws[gws.length - 1]; // jump to most recent past GW
+      } else {
+        const idx = gws.indexOf(Number(current));
+        if (idx > 0) nextGw = gws[idx - 1];
+        else nextGw = gws[0];
+      }
+      if (isHist) histState.overviewPastGw = nextGw;
+      else state.overviewPastGw = nextGw;
+      await loadOverview();
+    });
+  }
+
+  if (btnNext && !btnNext._hasClickHandler) {
+    btnNext._hasClickHandler = true;
+    btnNext.addEventListener("click", async () => {
+      const isHist = state.appMode === "historical";
+      const gws = (isHist ? histState.overviewData : state.overviewData)?.available_past_gws || [];
+      if (gws.length === 0) return;
+      const current = isHist ? histState.overviewPastGw : state.overviewPastGw;
+      if (current === null || current === undefined) return;
+      const idx = gws.indexOf(Number(current));
+      if (idx !== -1 && idx < gws.length - 1) {
+        const nextGw = gws[idx + 1];
+        if (isHist) histState.overviewPastGw = nextGw;
+        else state.overviewPastGw = nextGw;
+      } else {
+        if (isHist) histState.overviewPastGw = null;
+        else state.overviewPastGw = null;
+      }
+      await loadOverview();
+    });
+  }
 
   if (!results || results.length === 0) {
     list.innerHTML = `<div class="text-center text-muted" style="padding: 1.5rem;">No previous gameweeks completed yet.</div>`;
     return;
   }
 
-  // Group or sort recent results
   const sorted = [...results].reverse();
-
   list.innerHTML = sorted.map(r => {
     const hWin = r.team_h_score > r.team_a_score;
     const aWin = r.team_a_score > r.team_h_score;
@@ -362,12 +453,78 @@ function renderOverviewPastResults(results) {
   }).join("");
 }
 
-function renderOverviewUpcomingFixtures(upcoming) {
+function renderOverviewUpcomingFixtures(overviewData) {
   const list = document.getElementById("overview-upcoming-fixtures-list");
+  const select = document.getElementById("overview-fixtures-gw-select");
+  const btnPrev = document.getElementById("btn-fixtures-prev-gw");
+  const btnNext = document.getElementById("btn-fixtures-next-gw");
   if (!list) return;
 
+  const upcoming = overviewData?.upcoming_fixtures || [];
+  const availableGws = overviewData?.available_future_gws || [];
+  const viewedGw = overviewData?.future_gw_viewed || overviewData?.gameweek || 1;
+
+  // Update dropdown options
+  if (select) {
+    let optionsHtml = "";
+    availableGws.forEach(gw => {
+      const isSel = Number(gw) === Number(viewedGw) ? "selected" : "";
+      optionsHtml += `<option value="${gw}" ${isSel}>GW ${gw}</option>`;
+    });
+    select.innerHTML = optionsHtml || `<option value="${viewedGw}">GW ${viewedGw}</option>`;
+    select.value = viewedGw.toString();
+
+    if (!select._hasChangeHandler) {
+      select._hasChangeHandler = true;
+      select.addEventListener("change", async (e) => {
+        const val = parseInt(e.target.value, 10);
+        if (state.appMode === "historical") {
+          histState.overviewFutureGw = val;
+        } else {
+          state.overviewFutureGw = val;
+        }
+        await loadOverview();
+      });
+    }
+  }
+
+  // Update Prev / Next buttons
+  if (btnPrev && !btnPrev._hasClickHandler) {
+    btnPrev._hasClickHandler = true;
+    btnPrev.addEventListener("click", async () => {
+      const isHist = state.appMode === "historical";
+      const gws = (isHist ? histState.overviewData : state.overviewData)?.available_future_gws || [];
+      if (gws.length === 0) return;
+      const current = isHist ? (histState.overviewFutureGw || histState.gameweek) : (state.overviewFutureGw || state.activeGameweek || 1);
+      const idx = gws.indexOf(Number(current));
+      if (idx > 0) {
+        const nextGw = gws[idx - 1];
+        if (isHist) histState.overviewFutureGw = nextGw;
+        else state.overviewFutureGw = nextGw;
+        await loadOverview();
+      }
+    });
+  }
+
+  if (btnNext && !btnNext._hasClickHandler) {
+    btnNext._hasClickHandler = true;
+    btnNext.addEventListener("click", async () => {
+      const isHist = state.appMode === "historical";
+      const gws = (isHist ? histState.overviewData : state.overviewData)?.available_future_gws || [];
+      if (gws.length === 0) return;
+      const current = isHist ? (histState.overviewFutureGw || histState.gameweek) : (state.overviewFutureGw || state.activeGameweek || 1);
+      const idx = gws.indexOf(Number(current));
+      if (idx !== -1 && idx < gws.length - 1) {
+        const nextGw = gws[idx + 1];
+        if (isHist) histState.overviewFutureGw = nextGw;
+        else state.overviewFutureGw = nextGw;
+        await loadOverview();
+      }
+    });
+  }
+
   if (!upcoming || upcoming.length === 0) {
-    list.innerHTML = `<div class="text-center text-muted" style="padding: 1.5rem;">No upcoming fixtures scheduled.</div>`;
+    list.innerHTML = `<div class="text-center text-muted" style="padding: 1.5rem;">No upcoming fixtures scheduled for GW ${viewedGw}.</div>`;
     return;
   }
 
@@ -3740,6 +3897,9 @@ const histState = {
   sessionData: null,
   overviewData: null,
   swapOutPlayer: null,
+  overviewPastGw: null,
+  overviewFutureGw: null,
+  availableSeasons: [],
   initialized: false,
 };
 
@@ -3806,20 +3966,16 @@ function initHistoricalTimeMachine() {
   const btnCancelCreate = document.getElementById("btn-cancel-create-sim");
   const btnConfirmCreate = document.getElementById("btn-confirm-create-sim");
 
-  if (btnNewSim && modalCreate) {
+  if (btnNewSim) {
     btnNewSim.addEventListener("click", () => {
-      const createSeason = document.getElementById("create-sim-season");
-      if (createSeason) createSeason.value = histState.season;
-      const createId = document.getElementById("create-sim-id");
-      if (createId) createId.value = `sim_${histState.season.replace('-', '_')}_${Date.now().toString().slice(-4)}`;
-      modalCreate.style.display = "flex";
+      openCreateSimulationModal();
     });
   }
   if (btnCloseCreate && modalCreate) {
-    btnCloseCreate.addEventListener("click", () => modalCreate.style.display = "none");
+    btnCloseCreate.addEventListener("click", () => modalCreate.classList.add("hidden"));
   }
   if (btnCancelCreate && modalCreate) {
-    btnCancelCreate.addEventListener("click", () => modalCreate.style.display = "none");
+    btnCancelCreate.addEventListener("click", () => modalCreate.classList.add("hidden"));
   }
 
   if (btnConfirmCreate) {
@@ -3844,9 +4000,13 @@ function initHistoricalTimeMachine() {
           }),
         });
         showToast(`Simulation '${simId}' created!`);
-        modalCreate.style.display = "none";
+        if (modalCreate) modalCreate.classList.add("hidden");
+        histState.season = season;
+        const seasonSelect = document.getElementById("hist-season-select");
+        if (seasonSelect) seasonSelect.value = season;
         await loadHistoricalSimulationsList();
         await loadHistoricalSession(simId);
+        await loadOverview();
       } catch (err) {
         showToast(`Failed to create simulation: ${err.message}`, true);
       } finally {
@@ -3997,22 +4157,76 @@ function initHistoricalTimeMachine() {
   const btnCloseModal = document.getElementById("btn-hist-close-modal");
   const modalBox = document.getElementById("hist-modal");
   if (btnCloseModal && modalBox) {
-    btnCloseModal.addEventListener("click", () => modalBox.style.display = "none");
+    btnCloseModal.addEventListener("click", () => modalBox.classList.add("hidden"));
   }
 
   const btnCloseSwap = document.getElementById("btn-hist-close-swap-modal");
   const modalSwap = document.getElementById("hist-swap-modal");
   if (btnCloseSwap && modalSwap) {
-    btnCloseSwap.addEventListener("click", () => modalSwap.style.display = "none");
+    btnCloseSwap.addEventListener("click", () => modalSwap.classList.add("hidden"));
   }
 
   // Initial loads
+  loadHistoricalSeasons();
   loadHistoricalOverview();
   loadHistoricalSimulationsList();
 }
 
+async function loadHistoricalSeasons() {
+  try {
+    const res = await api("/api/historical/seasons");
+    const seasons = res.seasons || [];
+    if (seasons.length > 0) {
+      histState.availableSeasons = seasons;
+      if (!seasons.includes(histState.season)) {
+        histState.season = seasons[0];
+      }
+
+      // Populate header season dropdown
+      const seasonSelect = document.getElementById("hist-season-select");
+      if (seasonSelect) {
+        seasonSelect.innerHTML = seasons.map(s => `
+          <option value="${s}" ${s === histState.season ? "selected" : ""}>${s}</option>
+        `).join("");
+      }
+
+      // Populate modal season dropdown
+      const createSeason = document.getElementById("create-sim-season");
+      if (createSeason) {
+        createSeason.innerHTML = seasons.map(s => `
+          <option value="${s}" ${s === histState.season ? "selected" : ""}>${s}</option>
+        `).join("");
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load historical seasons:", err);
+  }
+}
+
+function openCreateSimulationModal() {
+  const modalCreate = document.getElementById("hist-create-modal");
+  const createSeason = document.getElementById("create-sim-season");
+  if (createSeason) {
+    if (histState.availableSeasons && histState.availableSeasons.length > 0) {
+      createSeason.innerHTML = histState.availableSeasons.map(s => `
+        <option value="${s}" ${s === histState.season ? "selected" : ""}>${s}</option>
+      `).join("");
+    }
+    createSeason.value = histState.season;
+  }
+  const createId = document.getElementById("create-sim-id");
+  if (createId) {
+    createId.value = `sim_${histState.season.replace('-', '_')}_${Date.now().toString().slice(-4)}`;
+  }
+  if (modalCreate) {
+    modalCreate.classList.remove("hidden");
+    modalCreate.style.display = "flex";
+  }
+}
+
 async function loadHistoricalTimeMachine() {
   initHistoricalTimeMachine();
+  await loadHistoricalSeasons();
   await loadHistoricalOverview();
   await loadHistoricalSimulationsList();
 }
@@ -4406,6 +4620,7 @@ async function openHistoricalSwapModal(outPlayer) {
   if (posFilter) posFilter.value = outPlayer.pos_abbr;
   if (searchInput) searchInput.value = "";
 
+  modal.classList.remove("hidden");
   modal.style.display = "flex";
   list.innerHTML = `<div class="text-center text-muted" style="padding: 2rem;">Loading candidates from Gameweek ${histState.gameweek} snapshot...</div>`;
 
@@ -4549,6 +4764,7 @@ function showHistoricalResolutionModal(res) {
     </div>
   `;
 
+  modal.classList.remove("hidden");
   modal.style.display = "flex";
 }
 
@@ -4594,6 +4810,7 @@ function showHistoricalReportModal(rep) {
     </div>
   `;
 
+  modal.classList.remove("hidden");
   modal.style.display = "flex";
 }
 
@@ -4781,6 +4998,7 @@ function showHistoricalRecommendationsModal(recs) {
     });
   }
 
+  modal.classList.remove("hidden");
   modal.style.display = "flex";
 }
 

@@ -40,6 +40,14 @@
 
       <!-- Historical Simulation Switcher Bar -->
       <div id="hist-switcher-bar" class="team-switcher-container" style="display: none;">
+        <label for="hist-season-select" class="switcher-label">Season:</label>
+        <select id="hist-season-select" class="team-dropdown" style="max-width: 110px;">
+          <option value="2023-24" selected>2023-24</option>
+          <option value="2022-23">2022-23</option>
+          <option value="2021-22">2021-22</option>
+          <option value="2024-25">2024-25</option>
+          <option value="2025-26">2025-26</option>
+        </select>
         <label for="hist-session-select" class="switcher-label">Simulation:</label>
         <select id="hist-session-select" class="team-dropdown">
           <option value="" disabled selected>Loading simulations...</option>
@@ -181,9 +189,18 @@
           <div style="display: flex; flex-direction: column; gap: 1rem;">
             <!-- Past Match Results -->
             <div class="card" style="padding: 1rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <h3 style="font-size: 1.05rem; margin: 0;">⏮️ Recent Match Results</h3>
-                <span class="text-muted text-sm" id="overview-results-gw-label">Completed Matches</span>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <h3 style="font-size: 1.05rem; margin: 0;">⏮️ Recent Match Results</h3>
+                  <span class="text-muted text-sm" id="overview-results-gw-label">Completed Matches</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <button id="btn-results-prev-gw" class="btn btn-secondary btn-sm" style="padding: 2px 7px;" title="Previous Gameweek">◀</button>
+                  <select id="overview-results-gw-select" class="input-sm" style="font-size: 0.78rem; padding: 2px 4px; height: 26px;">
+                    <option value="all">All Past GWs</option>
+                  </select>
+                  <button id="btn-results-next-gw" class="btn btn-secondary btn-sm" style="padding: 2px 7px;" title="Next Gameweek">▶</button>
+                </div>
               </div>
               <div id="overview-past-results-list" class="hist-results-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto;">
                 <div class="text-muted text-sm">No recent matches recorded.</div>
@@ -192,9 +209,18 @@
 
             <!-- Upcoming Fixtures (Zero Spoilers) -->
             <div class="card" style="padding: 1rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                <h3 style="font-size: 1.05rem; margin: 0;">⏭️ Upcoming Fixtures</h3>
-                <span class="badge badge-sm" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #34d399;">Zero Spoilers Guaranteed</span>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <h3 style="font-size: 1.05rem; margin: 0;">⏭️ Upcoming Fixtures</h3>
+                  <span class="badge badge-sm" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #34d399;">Zero Spoilers Guaranteed</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <button id="btn-fixtures-prev-gw" class="btn btn-secondary btn-sm" style="padding: 2px 7px;" title="Previous Upcoming Gameweek">◀</button>
+                  <select id="overview-fixtures-gw-select" class="input-sm" style="font-size: 0.78rem; padding: 2px 4px; height: 26px;">
+                    <option value="">Next Gameweek</option>
+                  </select>
+                  <button id="btn-fixtures-next-gw" class="btn btn-secondary btn-sm" style="padding: 2px 7px;" title="Next Upcoming Gameweek">▶</button>
+                </div>
               </div>
               <div id="overview-upcoming-fixtures-list" class="hist-fixtures-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto;">
                 <div class="text-muted text-sm">No upcoming fixtures scheduled.</div>
@@ -1054,12 +1080,14 @@
         <button type="button" class="btn btn-secondary btn-sm" id="btn-close-ps-footer">Close</button>
       </div>
     </div>
+  </div>
+
   <!-- MODAL: HISTORICAL CREATE SIMULATION -->
-  <div id="hist-create-modal" class="modal-backdrop" style="display: none;">
-    <div class="modal-box modal-md">
+  <div id="hist-create-modal" class="modal-overlay hidden">
+    <div class="modal-dialog" style="max-width: 500px;">
       <div class="modal-header">
-        <h3>Start New Historical Simulation</h3>
-        <button class="btn-close" id="btn-hist-close-create-modal">✕</button>
+        <h3 style="margin: 0;">Start New Historical Simulation</h3>
+        <button class="modal-close" id="btn-hist-close-create-modal">&times;</button>
       </div>
       <div class="modal-body">
         <div class="form-group" style="margin-bottom: 1rem;">
@@ -1093,20 +1121,20 @@
             <option value="v0.9">v0.9 Participation-Aware</option>
           </select>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-          <button class="btn btn-secondary" id="btn-cancel-create-sim">Cancel</button>
-          <button class="btn btn-primary" id="btn-confirm-create-sim">Create Simulation</button>
+        <div class="modal-footer" style="margin: 0; padding: 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button class="btn btn-secondary btn-sm" id="btn-cancel-create-sim">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="btn-confirm-create-sim">Create Simulation</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- MODAL: HISTORICAL PLAYER TRANSFER SWAP -->
-  <div id="hist-swap-modal" class="modal-backdrop" style="display: none;">
-    <div class="modal-box modal-lg">
+  <div id="hist-swap-modal" class="modal-overlay hidden">
+    <div class="modal-dialog" style="max-width: 660px;">
       <div class="modal-header">
-        <h3 id="hist-swap-modal-title">Swap Player</h3>
-        <button class="btn-close" id="btn-hist-close-swap-modal">✕</button>
+        <h3 id="hist-swap-modal-title" style="margin: 0;">Swap Player</h3>
+        <button class="modal-close" id="btn-hist-close-swap-modal">&times;</button>
       </div>
       <div class="modal-body">
         <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
@@ -1127,11 +1155,11 @@
   </div>
 
   <!-- MODAL: HISTORICAL RESOLUTION / REPORT -->
-  <div id="hist-modal" class="modal-backdrop" style="display: none;">
-    <div class="modal-box modal-lg">
+  <div id="hist-modal" class="modal-overlay hidden">
+    <div class="modal-dialog" style="max-width: 660px;">
       <div class="modal-header">
-        <h3 id="hist-modal-title">Gameweek Resolution</h3>
-        <button class="btn-close" id="btn-hist-close-modal">✕</button>
+        <h3 id="hist-modal-title" style="margin: 0;">Gameweek Resolution</h3>
+        <button class="modal-close" id="btn-hist-close-modal">&times;</button>
       </div>
       <div class="modal-body" id="hist-modal-body" style="max-height: 520px; overflow-y: auto;">
         <!-- Content loaded via JS -->

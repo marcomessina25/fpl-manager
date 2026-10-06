@@ -442,7 +442,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/overview":
                 gw_arg = get_arg("gameweek")
                 gw = int(gw_arg) if gw_arg else None
-                data = get_live_matchday_overview(self.database_path, target_gw=gw)
+                past_gw_arg = get_arg("past_gw")
+                past_gw = int(past_gw_arg) if past_gw_arg else None
+                future_gw_arg = get_arg("future_gw")
+                future_gw = int(future_gw_arg) if future_gw_arg else None
+                data = get_live_matchday_overview(
+                    self.database_path,
+                    target_gw=gw,
+                    past_gw=past_gw,
+                    future_gw=future_gw,
+                )
                 self._send_json(data)
             elif path == "/api/historical/seasons":
                 hist_dir = PROJECT_ROOT / "data" / "historical"
@@ -454,7 +463,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/historical/overview":
                 season = get_arg("season", "2023-24")
                 gw = int(get_arg("gameweek", 1))
-                data = get_historical_matchday_overview(season, gw)
+                past_gw_arg = get_arg("past_gw")
+                past_gw = int(past_gw_arg) if past_gw_arg else None
+                future_gw_arg = get_arg("future_gw")
+                future_gw = int(future_gw_arg) if future_gw_arg else None
+                data = get_historical_matchday_overview(
+                    season,
+                    gw,
+                    past_gw=past_gw,
+                    future_gw=future_gw,
+                )
                 self._send_json(data)
             elif path == "/api/historical/simulations":
                 sim_dir = self.config_dir / "simulations"

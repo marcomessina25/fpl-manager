@@ -355,11 +355,27 @@ def get_historical_matchday_overview(
     season: str,
     gameweek: int,
     data_dir: Path | None = None,
+    past_gw: int | None = None,
+    future_gw: int | None = None,
 ) -> dict[str, Any]:
-    """Full point-in-time matchday overview for historical gameweek."""
-    standings = compute_historical_standings(season, up_to_gw=gameweek, data_dir=data_dir)
-    past_results = get_historical_past_results(season, up_to_gw=gameweek, data_dir=data_dir)
-    upcoming_fixtures = get_historical_upcoming_fixtures(season, target_gw=gameweek, horizon=1, data_dir=data_dir)
+    """Full point-in-time matchday overview for historical gameweek with zero-spoiler browsing."""
+    season_dir = _get_season_dir(season, data_dir)
+    teams_map = _load_teams_map(season_dir)
+    fixtures_data = _load_fixtures_data(season_dir)
+
+    standings = compute_standings_from_data(fixtures_data, teams_map, up_to_gw=gameweek)
+
+    # Past results can be browsed for any completed gameweek strictly < gameweek
+    filter_past = past_gw if (past_gw is not None and past_gw < gameweek) else None
+    past_results = get_past_results_from_data(fixtures_data, teams_map, up_to_gw=gameweek, gameweek=filter_past)
+
+    # Upcoming fixtures can be browsed starting at gameweek up to future_gw without ever revealing scores
+    target_future = max(gameweek, future_gw) if future_gw is not None else gameweek
+    upcoming_fixtures = get_upcoming_fixtures_from_data(fixtures_data, teams_map, target_gw=target_future, horizon=1)
+
+    # Calculate available past and future GW ranges for UI pagination
+    past_gws = sorted(list({f["event"] for f in fixtures_data if f.get("event") and f.get("event") < gameweek and f.get("finished")}))
+    future_gws = sorted(list({f["event"] for f in fixtures_data if f.get("event") and f.get("event") >= gameweek}))
 
     return {
         "season": season,
@@ -367,14 +383,20 @@ def get_historical_matchday_overview(
         "standings": [s.to_dict() for s in standings],
         "past_results": [r.to_dict() for r in past_results],
         "upcoming_fixtures": [u.to_dict() for u in upcoming_fixtures],
+        "past_gw_viewed": filter_past,
+        "future_gw_viewed": target_future,
+        "available_past_gws": past_gws,
+        "available_future_gws": future_gws,
     }
 
 
 def get_live_matchday_overview(
     database_path: Path | None = None,
     target_gw: int | None = None,
+    past_gw: int | None = None,
+    future_gw: int | None = None,
 ) -> dict[str, Any]:
-    """Point-in-time Premier League matchday overview for the live season."""
+    """Point-in-time Premier League matchday overview for the live season with zero-spoiler navigation."""
     import glob
     import sqlite3
 
@@ -434,8 +456,15 @@ def get_live_matchday_overview(
     current_gw = min(38, max(1, current_gw))
 
     standings = compute_standings_from_data(fixtures_data, teams_map, up_to_gw=current_gw)
-    past_results = get_past_results_from_data(fixtures_data, teams_map, up_to_gw=current_gw)
-    upcoming_fixtures = get_upcoming_fixtures_from_data(fixtures_data, teams_map, target_gw=current_gw, horizon=2)
+
+    filter_past = past_gw if (past_gw is not None and past_gw < current_gw) else None
+    past_results = get_past_results_from_data(fixtures_data, teams_map, up_to_gw=current_gw, gameweek=filter_past)
+
+    target_future = max(current_gw, future_gw) if future_gw is not None else current_gw
+    upcoming_fixtures = get_upcoming_fixtures_from_data(fixtures_data, teams_map, target_gw=target_future, horizon=1)
+
+    past_gws = sorted(list({f["event"] for f in fixtures_data if f.get("event") and f.get("event") < current_gw and f.get("finished")}))
+    future_gws = sorted(list({f["event"] for f in fixtures_data if f.get("event") and f.get("event") >= current_gw}))
 
     return {
         "season": "2026-27",
@@ -443,5 +472,9 @@ def get_live_matchday_overview(
         "standings": [s.to_dict() for s in standings],
         "past_results": [r.to_dict() for r in past_results],
         "upcoming_fixtures": [u.to_dict() for u in upcoming_fixtures],
+        "past_gw_viewed": filter_past,
+        "future_gw_viewed": target_future,
+        "available_past_gws": past_gws,
+        "available_future_gws": future_gws,
     }
 
