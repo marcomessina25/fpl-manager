@@ -18,6 +18,7 @@ from typing import Any
 from ..backtest.decision_engine import BaseDecisionEngine, resolve_decision_engine
 from ..backtest.engine import select_best_lineup, simulate_autosubs_and_score
 from ..chip_strategy import SeasonalChipInventory, SeasonalChipPolicy
+from ..errors import DataIntegrityError
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
@@ -307,7 +308,11 @@ class HistoricalSimulationSession:
                     "created_at": data.get("experiment_metadata", {}).get("created_at"),
                     "manager_name": data.get("experiment_metadata", {}).get("manager_name", "Human"),
                 })
-            except Exception:
+            except json.JSONDecodeError as err:
+                LOGGER.error("Corrupt session JSON in %s: %s", p, err)
+                continue
+            except Exception as err:
+                LOGGER.warning("Failed to load session %s: %s", p.stem, err)
                 continue
         sessions.sort(key=lambda s: s.get("created_at") or "", reverse=True)
         return sessions
@@ -560,16 +565,23 @@ class HistoricalSimulationSession:
         )
         policy = SeasonalChipPolicy()
         starting_tuple = tuple(self.squad_ids) if not self.history else tuple(self.history[0].get("squad_ids_after", self.squad_ids))
-        rec_chip = policy.evaluate_gameweek_chip(
-            self.current_gw,
-            chip_inventory,
-            self.squad_ids,
-            snapshot,
-            projections,
-            starting_tuple,
-        )
+        try:
+            rec_chip = policy.evaluate_gameweek_chip(
+                self.current_gw,
+                chip_inventory,
+                self.squad_ids,
+                snapshot,
+                projections,
+                starting_tuple,
+            )
+        except Exception as err:
+            LOGGER.warning("Chip policy evaluation failed in GW %d: %s", self.current_gw, err)
+            rec_chip = None
 
-        free_hits_active = self.active_chip in ("wildcard_1", "wildcard_2", "free_hit") or rec_chip in ("wildcard", "free_hit")
+        free_hits_active = (
+            self.active_chip in ("wildcard_1", "wildcard_2", "free_hit")
+            or (rec_chip is not None and rec_chip in ("wildcard", "free_hit"))
+        )
         eff_fts = 999 if free_hits_active else self.free_transfers
 
         # Get optimal lineup on current squad
@@ -825,8 +837,14 @@ class HistoricalSimulationSession:
                 self.starting_ids, self.bench_ids, self.captain_id, self.vice_captain_id, _ = select_best_lineup(
                     self.squad_ids, next_proj
                 )
-            except Exception:
-                pass
+            except Exception as err:
+                LOGGER.warning("Failed to auto-align lineup for GW %d: %s", self.current_gw, err)
+                if "warnings" not in self.experiment_metadata:
+                    self.experiment_metadata["warnings"] = []
+                self.experiment_metadata["warnings"].append({
+                    "gameweek": self.current_gw,
+                    "issue": f"Lineup auto-update failed: {err}",
+                })
 
         self.save()
         return resolution.to_dict()
@@ -887,8 +905,12 @@ class HistoricalSimulationSession:
                 fixtures = getattr(snapshot, "fixtures", [])
                 team_counts: dict[int, int] = {}
                 for f in fixtures:
-                    team_counts[f["team_h"]] = team_counts.get(f["team_h"], 0) + 1
-                    team_counts[f["team_a"]] = team_counts.get(f["team_a"], 0) + 1
+                    th = f.team_h if hasattr(f, "team_h") else f.get("team_h")
+                    ta = f.team_a if hasattr(f, "team_a") else f.get("team_a")
+                    if th:
+                        team_counts[th] = team_counts.get(th, 0) + 1
+                    if ta:
+                        team_counts[ta] = team_counts.get(ta, 0) + 1
                 if any(cnt >= 2 for cnt in team_counts.values()):
                     eff_bench_weight = 0.60
 
@@ -920,14 +942,26 @@ class HistoricalSimulationSession:
                     self.engine_baseline_purchase_prices = {str(k): v for k, v in new_prices_int.items()}
                     self.engine_baseline_bank_tenths = new_bank
                 else:
-                    txs = []
-            except Exception:
-                txs = []
+                    LOGGER.error(
+                        "Baseline engine chip squad initialization returned %d players (expected 15) for %s in GW %d",
+                        len(new_squad_ids), current_chip, gw
+                    )
+                    raise DataIntegrityError(
+                        f"Baseline engine chip squad initialization returned {len(new_squad_ids)} players (expected 15)",
+                        details={"gameweek": gw, "chip": current_chip, "returned_count": len(new_squad_ids)},
+                    )
+            except Exception as err:
+                LOGGER.error("Baseline engine chip deployment failed for %s in GW %d: %s", current_chip, gw, err)
+                raise DataIntegrityError(
+                    f"Baseline engine chip deployment failed for {current_chip} in GW {gw}: {err}",
+                    details={"gameweek": gw, "chip": current_chip, "error": str(err)},
+                ) from err
             hits = 0
             self.engine_baseline_free_transfers = 1
         else:
             purch_prices_int = {int(k): v for k, v in self.engine_baseline_purchase_prices.items()}
             old_bw = getattr(engine, "bench_weight", 0.15)
+            txs: list[tuple[int, int]] = []
             try:
                 if is_dynamic_chip:
                     engine.bench_weight = eff_bench_weight
@@ -940,6 +974,12 @@ class HistoricalSimulationSession:
                     snapshot=snapshot,
                     projections=projections,
                 )
+            except Exception as err:
+                LOGGER.error("Baseline engine transfer optimization failed in GW %d: %s", gw, err)
+                raise DataIntegrityError(
+                    f"Baseline engine transfer optimization failed in GW {gw}: {err}",
+                    details={"gameweek": gw, "error": str(err)},
+                ) from err
             finally:
                 if is_dynamic_chip:
                     engine.bench_weight = old_bw

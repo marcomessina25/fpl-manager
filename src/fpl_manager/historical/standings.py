@@ -8,8 +8,11 @@ Ensures strict zero-leakage / no spoilers for historical simulation (V1.4):
 
 from dataclasses import asdict, dataclass
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HISTORICAL_DIR = PROJECT_ROOT / "data" / "historical"
@@ -402,6 +405,7 @@ def get_live_matchday_overview(
 
     db_path = database_path or (PROJECT_ROOT / "data" / "fpl.sqlite3")
     teams_map: dict[int, dict[str, Any]] = {}
+    data_load_warnings: list[str] = []
 
     if db_path.exists():
         try:
@@ -417,7 +421,9 @@ def get_live_matchday_overview(
                         r[0]: {"team_id": r[0], "name": r[1], "short_name": r[2]}
                         for r in rows
                     }
-        except Exception:
+        except Exception as err:
+            LOGGER.warning("Failed to load teams from sqlite database %s: %s", db_path, err)
+            data_load_warnings.append(f"Database read error: {err}")
             teams_map = {}
 
     # Load raw fixtures (contains team_h_score and team_a_score for finished games)
@@ -428,7 +434,9 @@ def get_live_matchday_overview(
         if raw_fix_files:
             try:
                 fixtures_data = json.loads(raw_fix_files[-1].read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as err:
+                LOGGER.warning("Failed to load fixtures JSON from %s: %s", raw_fix_files[-1], err)
+                data_load_warnings.append(f"Fixtures JSON load error: {err}")
                 fixtures_data = []
 
         if not teams_map:
@@ -442,7 +450,9 @@ def get_live_matchday_overview(
                             "name": t["name"],
                             "short_name": t["short_name"],
                         }
-                except Exception:
+                except Exception as err:
+                    LOGGER.warning("Failed to load teams from bootstrap-static %s: %s", raw_boot_files[-1], err)
+                    data_load_warnings.append(f"Bootstrap-static read error: {err}")
                     pass
 
     # Determine current gameweek
@@ -476,5 +486,6 @@ def get_live_matchday_overview(
         "future_gw_viewed": target_future,
         "available_past_gws": past_gws,
         "available_future_gws": future_gws,
+        "data_load_warnings": data_load_warnings,
     }
 

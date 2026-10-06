@@ -215,3 +215,52 @@ def test_historical_recommendations_and_reproducibility(temp_sim_dir: Path) -> N
     assert divergence["point_delta_vs_engine"] == 0
     assert res["net_points"] == res["engine_net_points"]
 
+
+def test_list_sessions_skips_corrupted_json_with_log(tmp_path: Path) -> None:
+    """Verify list_sessions logs and skips corrupted JSON without silent failure."""
+    valid_session = {
+        "session_id": "valid_session",
+        "season": "2023-24",
+        "current_gw": 2,
+        "status": "in_progress",
+        "history": [],
+        "experiment_metadata": {"created_at": "2026-10-06T12:00:00Z"},
+    }
+    (tmp_path / "valid.json").write_text(json.dumps(valid_session), encoding="utf-8")
+    (tmp_path / "corrupt.json").write_text("{ incomplete json ...", encoding="utf-8")
+
+    sessions = HistoricalSimulationSession.list_sessions(config_dir=tmp_path)
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == "valid_session"
+
+
+def test_baseline_engine_wildcard_failure_raises_data_integrity(tmp_path: Path) -> None:
+    """Verify that a broken solver in baseline chip deployment raises DataIntegrityError."""
+    from unittest.mock import patch
+    from src.fpl_manager.errors import DataIntegrityError
+    from src.fpl_manager.historical.models import GameweekOutcome, Position
+
+    sim = HistoricalSimulationSession(
+        session_id="solver_fail_test",
+        season="2023-24",
+        config_dir=tmp_path,
+        squad_ids=list(range(1, 16)),
+        engine_baseline_squad_ids=list(range(1, 16)),
+    )
+    sim.active_chip = "wildcard"
+
+    snap = sim.get_current_snapshot()
+    outcomes = {pid: GameweekOutcome(pid, 5, 90, 0, 0, 0, 0, 0, 0, 0, 0) for pid in range(1, 16)}
+    positions = {pid: Position.MIDFIELDER for pid in range(1, 16)}
+
+    with patch("src.fpl_manager.simulation.session.SeasonalChipPolicy.evaluate_gameweek_chip", return_value="wildcard"), \
+         patch("src.fpl_manager.simulation.session.resolve_decision_engine") as mock_resolve:
+        mock_engine = mock_resolve.return_value
+        mock_engine.version = "v1.3.5"
+        mock_engine.initialize_squad.side_effect = RuntimeError("Infeasible budget solver")
+        
+        with pytest.raises(DataIntegrityError) as exc_info:
+            sim._step_baseline_engine(1, snap, outcomes, positions)
+        assert "Baseline engine chip deployment failed" in str(exc_info.value)
+
+
