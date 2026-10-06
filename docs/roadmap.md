@@ -150,10 +150,10 @@ Interactive Historical Season Simulation & Time Machine Sandbox
 + Human-vs-engine blind replay benchmark under strict information boundaries
         ↓
 V1.4.5
-Seasonal Chip Optimization & Multi-Team Isolation Hardening
-+ Dynamic chip deployment optimization (eliminating wasted or unspent chips across segments)
+Strategic Chip Optimization & Multi-Team Isolation Hardening
++ Rigorous value-driven chip optimization (ML / expected-value modeled, no fixed heuristic thresholds)
++ Opportunity-cost modeling across horizons: blanks (BGWs), double gameweeks (DGWs), and squad structural deficits
 + Unified chip recommendation logic reconciling simulation policies and GUI calendar
-+ Non-zero Free Hit targeting ensuring optimal deployment on blanks/doubles/deficits
 + Complete multi-team workspace isolation (preventing cross-team state leakage in live & historical modes)
         ↓
 V1.5
@@ -1793,18 +1793,26 @@ within documented tolerances for the frozen engine.
 
 ---
 
-# 24.5. V1.4.5 — Seasonal Chip Optimization & Multi-Team Isolation Hardening
+# 24.5. V1.4.5 — Strategic Chip Optimization & Multi-Team Isolation Hardening
 
 **Status: planned for next release (following V1.4).**
 
 ### Core Problems Addressed
-1. **Unspent Chip Wastage in Historical Simulations**: In past season simulations, heuristic chip models occasionally completed an entire half-season window without ever deploying a high-value chip (e.g. Free Hit, Triple Captain, or Bench Boost) because static hurdle thresholds were not met. Under FPL rules, chips expire at GW19 and GW38, making "holding forever" strictly suboptimal compared to deploying on the best available local peak.
-2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: The historical backtest engine (`SeasonalChipPolicy`) and the GUI Chip Strategy (`recommend_chip_strategy`) historically relied on different heuristic evaluation pipelines, creating discrepancies where the GUI suggested a roadmap that differed from what simulation benchmarks executed.
+1. **Flawed Heuristic & Fixed Threshold Paradigms**: Current chip triggers in both live mode (`chip_strategy.py`) and historical backtests (`SeasonalChipPolicy`) rely on hard-coded gates, arbitrary delta cutoffs, or static calendars. Fixed thresholding is structurally brittle:
+   - It can recommend high-value chips (like Free Hit) immediately after GW1 or right after Wildcard deployment simply because of superficial short-term deltas, despite the squad already being freshly optimal.
+   - Conversely, it can hoard chips indefinitely across entire segments (GW1–19, GW20–38) if hard threshold margins are narrowly missed, failing to realize the chip's value before expiration.
+   - Hard thresholds cannot dynamically evaluate the **opportunity cost** of burning a chip now versus conserving it for upcoming Blank Gameweeks (BGWs) or Double Gameweeks (DGWs).
+2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: The historical simulation engine and the GUI Chip Strategy calendar currently execute disconnected pipelines. A single unified chip optimization model must power both, guaranteeing that backtest simulations and user-facing advisory recommendations are strictly identical and reproducible.
 3. **Multi-Team State Isolation**: Ensuring all decision logging, chip availability, bank budgets, staged transfers, and gameweek contexts remain strictly isolated across multiple live teams and historical simulation sessions without cross-contamination.
 
-### Key Deliverables
-- **Dynamic End-of-Window Chip Forcing**: When approaching deadline expiration (GW17-19 in Segment 1, GW36-38 in Segment 2), relax static hurdle gates dynamically to guarantee full chip utilization on the best candidate matchday.
-- **Unified Chip Policy Model**: Share a single deterministic chip policy between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
+### Key Deliverables & Architecture
+- **Value-Driven Strategic Chip Optimization Engine (ML / EV Optimization)**:
+  - Eliminate all fixed, arbitrary thresholds. Every chip decision is modeled as an **expected value (EV) optimization problem** balancing immediate point yield against terminal opportunity cost across the remaining segment horizon.
+  - Explore an ML/surrogate-value based chip valuation policy or dynamic multi-stage trajectory evaluation:
+    - *Free Hit Valuation*: Compares the EV of current squad vs temporary squad under fixture constraints. If a squad was just restructured via Wildcard or at season launch (GW1), its immediate gain from a Free Hit is negligible relative to the future opportunity cost of navigating massive blank fixtures or mega-doubles, naturally penalizing premature deployment to near-zero without ad-hoc rules.
+    - *Blank & Double Gameweek Awareness (especially GW20–38)*: Segment 2 planning must explicitly forecast and factor in rescheduled fixture congestion, major blank weekends (FA Cup clashes), and double gameweeks. The optimizer scores the expected utility of Triple Captain, Bench Boost, and Free Hit across these volatile weeks.
+    - *Segment Window Expiration*: The opportunity cost of a chip naturally decays to zero as the final gameweeks of the segment approach (GW19 and GW38), allowing the mathematical optimizer to deploy the chip on the global maximum of the remaining fixtures rather than discarding it unplayed.
+- **Unified Chip Policy Model**: Share a single deterministic chip optimization engine between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
 - **Strict Multi-Team Workspace Scoping**: Explicit `team_id` / `session_id` database partitioning ensuring zero shared state between different live teams or between live and historical modes.
 
 ---
