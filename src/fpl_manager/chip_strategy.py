@@ -519,10 +519,31 @@ def recommend_chip_strategy(
                 if not is_bgw_or_dgw and not has_squad_blanks and cand.get("rating", 0.0) < 10.0:
                     continue
 
-            # Threshold guard: Bench Boost should have sufficient bench strength or be near end of window
-            if chip == "benchboost":
-                if cand.get("rating", 0.0) < 5.0 and gw not in (18, 19, 37, 38):
-                    continue
+            # Immediate gameweek guard: if scheduling for immediate deadline start_gw, verify SeasonalChipPolicy endorses deployment
+            if gw == start_gw:
+                try:
+                    s_state = load_current_squad(squad_path)
+                    s_projs = project_gameweek(start_gw, database_path=database_path)
+                    s_snap = store.get_latest_snapshot()
+                    s_inv = SeasonalChipInventory(
+                        wildcard_w1="wildcard" in available and start_gw <= 19,
+                        free_hit_w1="freehit" in available and start_gw <= 19,
+                        triple_captain_w1="triplecaptain" in available and start_gw <= 19,
+                        bench_boost_w1="benchboost" in available and start_gw <= 19,
+                        wildcard_w2="wildcard" in available and start_gw >= 20,
+                        free_hit_w2="freehit" in available and start_gw >= 20,
+                        triple_captain_w2="triplecaptain" in available and start_gw >= 20,
+                        bench_boost_w2="benchboost" in available and start_gw >= 20,
+                    )
+                    pol_chip = SeasonalChipPolicy().evaluate_gameweek_chip(
+                        start_gw, s_inv, s_state.player_ids, s_snap, s_projs, tuple(s_state.player_ids)
+                    )
+                    norm_pol = CHIP_ALIASES.get(pol_chip, pol_chip) if pol_chip else None
+                    if norm_pol != chip:
+                        # SeasonalChipPolicy does not endorse playing this chip immediately at start_gw
+                        continue
+                except Exception:
+                    pass
 
             assigned_gws.add(gw)
             recommendations.append({

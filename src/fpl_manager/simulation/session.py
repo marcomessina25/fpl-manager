@@ -62,6 +62,9 @@ class HistoricalSimulationSession:
         engine_baseline_bank_tenths: int = 0,
         engine_baseline_free_transfers: int = 1,
         engine_baseline_history: list[dict[str, Any]] | None = None,
+        engine_baseline_chips_remaining: list[str] | None = None,
+        engine_baseline_chips_used: dict[str, int] | None = None,
+        engine_baseline_version: str = "v1.3.5",
         experiment_metadata: dict[str, Any] | None = None,
         config_dir: Path | None = None,
         historical_dir: Path | None = None,
@@ -89,12 +92,19 @@ class HistoricalSimulationSession:
         self.transfers_staged = list(transfers_staged or [])
         self.history = list(history or [])
 
-        # Parallel baseline engine tracking (frozen v1.2.5/v1.3.5)
+        # Parallel baseline engine tracking (frozen v1.3.5 default, or specified version)
+        self.engine_baseline_version = engine_baseline_version
         self.engine_baseline_squad_ids = list(engine_baseline_squad_ids or self.squad_ids)
         self.engine_baseline_purchase_prices = dict(engine_baseline_purchase_prices or self.purchase_prices_tenths)
         self.engine_baseline_bank_tenths = engine_baseline_bank_tenths
         self.engine_baseline_free_transfers = engine_baseline_free_transfers
         self.engine_baseline_history = list(engine_baseline_history or [])
+        self.engine_baseline_chips_remaining = list(
+            engine_baseline_chips_remaining
+            if engine_baseline_chips_remaining is not None
+            else ["wildcard_1", "wildcard_2", "free_hit", "bench_boost", "triple_captain"]
+        )
+        self.engine_baseline_chips_used = dict(engine_baseline_chips_used or {})
 
         self.experiment_metadata = dict(experiment_metadata or {})
         self.config_dir = config_dir or DEFAULT_SIMULATIONS_DIR
@@ -168,7 +178,7 @@ class HistoricalSimulationSession:
             "manager_name": manager_name,
             "starting_strategy": starting_strategy,
             "starting_policy": "custom" if initial_squad_ids else "engine_baseline",
-            "frozen_engine_version": "v1.2.5",
+            "frozen_engine_version": "v1.3.5",
         }
 
         session = cls(
@@ -184,6 +194,7 @@ class HistoricalSimulationSession:
             bench_ids=bench,
             captain_id=cap,
             vice_captain_id=vc,
+            engine_baseline_version="v1.3.5",
             engine_baseline_squad_ids=baseline_squad,
             engine_baseline_purchase_prices=baseline_prices,
             engine_baseline_bank_tenths=baseline_bank,
@@ -218,10 +229,13 @@ class HistoricalSimulationSession:
             "vice_captain_id": self.vice_captain_id,
             "transfers_staged": self.transfers_staged,
             "history": self.history,
+            "engine_baseline_version": self.engine_baseline_version,
             "engine_baseline_squad_ids": self.engine_baseline_squad_ids,
             "engine_baseline_purchase_prices": self.engine_baseline_purchase_prices,
             "engine_baseline_bank_tenths": self.engine_baseline_bank_tenths,
             "engine_baseline_free_transfers": self.engine_baseline_free_transfers,
+            "engine_baseline_chips_remaining": self.engine_baseline_chips_remaining,
+            "engine_baseline_chips_used": self.engine_baseline_chips_used,
             "engine_baseline_history": self.engine_baseline_history,
             "experiment_metadata": self.experiment_metadata,
         }
@@ -260,10 +274,13 @@ class HistoricalSimulationSession:
             vice_captain_id=data.get("vice_captain_id", 0),
             transfers_staged=data.get("transfers_staged", []),
             history=data.get("history", []),
+            engine_baseline_version=data.get("engine_baseline_version", "v1.3.5"),
             engine_baseline_squad_ids=data.get("engine_baseline_squad_ids"),
             engine_baseline_purchase_prices=data.get("engine_baseline_purchase_prices"),
             engine_baseline_bank_tenths=data.get("engine_baseline_bank_tenths", 0),
             engine_baseline_free_transfers=data.get("engine_baseline_free_transfers", 1),
+            engine_baseline_chips_remaining=data.get("engine_baseline_chips_remaining"),
+            engine_baseline_chips_used=data.get("engine_baseline_chips_used", {}),
             engine_baseline_history=data.get("engine_baseline_history", []),
             experiment_metadata=data.get("experiment_metadata", {}),
             config_dir=c_dir,
@@ -522,13 +539,37 @@ class HistoricalSimulationSession:
     # -------------------------------------------------------------------------
 
     def get_recommendations(self) -> dict[str, Any]:
-        """Generate point-in-time recommendations using frozen baseline engine."""
+        """Generate point-in-time recommendations using frozen baseline engine and seasonal chip policy."""
         snapshot = self.get_current_snapshot()
         projections = reconstruct_features_and_project(snapshot)
         proj_map = {p.player_id: p for p in projections}
 
-        engine = resolve_decision_engine("v1.2.5")
-        free_hits_active = self.active_chip in ("wildcard_1", "wildcard_2", "free_hit")
+        engine_ver = getattr(self, "engine_baseline_version", "v1.3.5")
+        engine = resolve_decision_engine(engine_ver)
+
+        # 1. Evaluate chip recommendation via SeasonalChipPolicy (exact simulation alignment)
+        chip_inventory = SeasonalChipInventory(
+            wildcard_w1="wildcard_1" in self.chips_remaining,
+            free_hit_w1="free_hit" in self.chips_remaining and self.current_gw <= 19,
+            triple_captain_w1="triple_captain" in self.chips_remaining and self.current_gw <= 19,
+            bench_boost_w1="bench_boost" in self.chips_remaining and self.current_gw <= 19,
+            wildcard_w2="wildcard_2" in self.chips_remaining,
+            free_hit_w2="free_hit" in self.chips_remaining and self.current_gw >= 20,
+            triple_captain_w2="triple_captain" in self.chips_remaining and self.current_gw >= 20,
+            bench_boost_w2="bench_boost" in self.chips_remaining and self.current_gw >= 20,
+        )
+        policy = SeasonalChipPolicy()
+        starting_tuple = tuple(self.squad_ids) if not self.history else tuple(self.history[0].get("squad_ids_after", self.squad_ids))
+        rec_chip = policy.evaluate_gameweek_chip(
+            self.current_gw,
+            chip_inventory,
+            self.squad_ids,
+            snapshot,
+            projections,
+            starting_tuple,
+        )
+
+        free_hits_active = self.active_chip in ("wildcard_1", "wildcard_2", "free_hit") or rec_chip in ("wildcard", "free_hit")
         eff_fts = 999 if free_hits_active else self.free_transfers
 
         # Get optimal lineup on current squad
@@ -564,6 +605,8 @@ class HistoricalSimulationSession:
 
         return {
             "gameweek": self.current_gw,
+            "engine_version": engine_ver,
+            "recommended_chip": rec_chip,
             "recommended_transfers": transfer_details,
             "recommended_starters": best_starters,
             "recommended_bench": best_bench,
@@ -795,52 +838,157 @@ class HistoricalSimulationSession:
         outcomes: dict[int, GameweekOutcome],
         player_positions: dict[int, Position],
     ) -> int:
-        """Step the parallel frozen baseline engine on its own squad trajectory."""
-        engine = resolve_decision_engine("v1.2.5")
+        """Step the parallel frozen baseline engine on its own squad trajectory with chip execution."""
+        engine_ver = getattr(self, "engine_baseline_version", "v1.3.5")
+        engine = resolve_decision_engine(engine_ver)
         projections = reconstruct_features_and_project(snapshot)
-        purch_prices_int = {int(k): v for k, v in self.engine_baseline_purchase_prices.items()}
+        proj_map = {p.player_id: p for p in projections}
+        players_by_id = {p.player_id: p for p in snapshot.players}
 
-        txs = engine.decide_transfers(
-            strategy_name="balanced",
-            current_squad_ids=self.engine_baseline_squad_ids,
-            purchase_prices=purch_prices_int,
-            bank_tenths=self.engine_baseline_bank_tenths,
-            free_transfers=self.engine_baseline_free_transfers,
-            snapshot=snapshot,
-            projections=projections,
+        # 1. Evaluate chip deployment via SeasonalChipPolicy
+        chip_inventory = SeasonalChipInventory(
+            wildcard_w1="wildcard_1" in self.engine_baseline_chips_remaining,
+            free_hit_w1="free_hit" in self.engine_baseline_chips_remaining and gw <= 19,
+            triple_captain_w1="triple_captain" in self.engine_baseline_chips_remaining and gw <= 19,
+            bench_boost_w1="bench_boost" in self.engine_baseline_chips_remaining and gw <= 19,
+            wildcard_w2="wildcard_2" in self.engine_baseline_chips_remaining,
+            free_hit_w2="free_hit" in self.engine_baseline_chips_remaining and gw >= 20,
+            triple_captain_w2="triple_captain" in self.engine_baseline_chips_remaining and gw >= 20,
+            bench_boost_w2="bench_boost" in self.engine_baseline_chips_remaining and gw >= 20,
+        )
+        policy = SeasonalChipPolicy()
+        starting_tuple = (
+            tuple(self.engine_baseline_squad_ids)
+            if not self.engine_baseline_history
+            else tuple(self.engine_baseline_history[0].get("squad_ids", self.engine_baseline_squad_ids))
+        )
+        current_chip = policy.evaluate_gameweek_chip(
+            gw,
+            chip_inventory,
+            self.engine_baseline_squad_ids,
+            snapshot,
+            projections,
+            starting_tuple,
         )
 
-        players_by_id = {p.player_id: p for p in snapshot.players}
-        for out_id, in_id in txs:
-            out_p = players_by_id.get(out_id)
-            in_p = players_by_id.get(in_id)
-            if out_p and in_p and out_id in self.engine_baseline_squad_ids:
-                cur_out_price = out_p.price_tenths
-                bought_price = self.engine_baseline_purchase_prices.get(str(out_id), cur_out_price)
-                sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
-                self.engine_baseline_bank_tenths += sell_price - in_p.price_tenths
-                idx = self.engine_baseline_squad_ids.index(out_id)
-                self.engine_baseline_squad_ids[idx] = in_id
-                self.engine_baseline_purchase_prices.pop(str(out_id), None)
-                self.engine_baseline_purchase_prices[str(in_id)] = in_p.price_tenths
+        saved_squad_ids = None
+        saved_prices = None
+        saved_bank = None
 
-        hits = max(0, len(txs) - self.engine_baseline_free_transfers) * 4
+        # Determine dynamic chip-aware bench weight
+        eff_bench_weight = getattr(engine, "bench_weight", 0.15)
+        is_dynamic_chip = engine.version in ("v1.2.5", "v1.3") or getattr(engine, "is_chip_aware", False) or engine.version.startswith("v1.3.5")
+        if current_chip and is_dynamic_chip:
+            if current_chip == "free_hit":
+                eff_bench_weight = 0.05
+            elif current_chip == "bench_boost":
+                eff_bench_weight = 0.99
+            elif "bench_boost" in chip_inventory.available_chips(gw):
+                fixtures = getattr(snapshot, "fixtures", [])
+                team_counts: dict[int, int] = {}
+                for f in fixtures:
+                    team_counts[f["team_h"]] = team_counts.get(f["team_h"], 0) + 1
+                    team_counts[f["team_a"]] = team_counts.get(f["team_a"], 0) + 1
+                if any(cnt >= 2 for cnt in team_counts.values()):
+                    eff_bench_weight = 0.60
 
-        b_starters, b_bench, b_cap, b_vc, _ = select_best_lineup(self.engine_baseline_squad_ids, projections)
+        if current_chip in ("wildcard", "free_hit"):
+            if current_chip == "free_hit":
+                saved_squad_ids = list(self.engine_baseline_squad_ids)
+                saved_prices = dict(self.engine_baseline_purchase_prices)
+                saved_bank = self.engine_baseline_bank_tenths
+
+            selling_prices = {
+                pid: self.engine_baseline_purchase_prices.get(str(pid), players_by_id[pid].price_tenths if pid in players_by_id else 50)
+                + max(0, ((proj_map[pid].price_tenths if pid in proj_map else 50) - self.engine_baseline_purchase_prices.get(str(pid), 50)) // 2)
+                for pid in self.engine_baseline_squad_ids
+            }
+            total_funds = self.engine_baseline_bank_tenths + sum(selling_prices.values())
+
+            try:
+                chip_mode = "free_hit" if current_chip == "free_hit" else None
+                new_squad_ids, new_prices_int, new_bank = engine.initialize_squad(
+                    snapshot, projections, budget_tenths=total_funds, bench_weight=eff_bench_weight, mode=chip_mode
+                )
+                if len(new_squad_ids) == 15:
+                    old_set = set(self.engine_baseline_squad_ids)
+                    new_set = set(new_squad_ids)
+                    out_list = sorted(list(old_set - new_set))
+                    in_list = sorted(list(new_set - old_set))
+                    txs = list(zip(out_list, in_list))
+                    self.engine_baseline_squad_ids = new_squad_ids
+                    self.engine_baseline_purchase_prices = {str(k): v for k, v in new_prices_int.items()}
+                    self.engine_baseline_bank_tenths = new_bank
+                else:
+                    txs = []
+            except Exception:
+                txs = []
+            hits = 0
+            self.engine_baseline_free_transfers = 1
+        else:
+            purch_prices_int = {int(k): v for k, v in self.engine_baseline_purchase_prices.items()}
+            old_bw = getattr(engine, "bench_weight", 0.15)
+            try:
+                if is_dynamic_chip:
+                    engine.bench_weight = eff_bench_weight
+                txs = engine.decide_transfers(
+                    strategy_name="balanced",
+                    current_squad_ids=self.engine_baseline_squad_ids,
+                    purchase_prices=purch_prices_int,
+                    bank_tenths=self.engine_baseline_bank_tenths,
+                    free_transfers=self.engine_baseline_free_transfers,
+                    snapshot=snapshot,
+                    projections=projections,
+                )
+            finally:
+                if is_dynamic_chip:
+                    engine.bench_weight = old_bw
+
+            for out_id, in_id in txs:
+                out_p = players_by_id.get(out_id)
+                in_p = players_by_id.get(in_id)
+                if out_p and in_p and out_id in self.engine_baseline_squad_ids:
+                    cur_out_price = out_p.price_tenths
+                    bought_price = self.engine_baseline_purchase_prices.get(str(out_id), cur_out_price)
+                    sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
+                    self.engine_baseline_bank_tenths += sell_price - in_p.price_tenths
+                    idx = self.engine_baseline_squad_ids.index(out_id)
+                    self.engine_baseline_squad_ids[idx] = in_id
+                    self.engine_baseline_purchase_prices.pop(str(out_id), None)
+                    self.engine_baseline_purchase_prices[str(in_id)] = in_p.price_tenths
+
+            hits = max(0, len(txs) - self.engine_baseline_free_transfers) * 4
+            used_ft = min(len(txs), self.engine_baseline_free_transfers)
+            rem_ft = self.engine_baseline_free_transfers - used_ft
+            self.engine_baseline_free_transfers = min(self.max_free_transfers, rem_ft + 1)
+
+        b_starters, b_bench, b_cap, b_vc, _ = engine.select_lineup(self.engine_baseline_squad_ids, projections)
         gross_pts, _, _ = simulate_autosubs_and_score(
-            b_starters, b_bench, b_cap, b_vc, outcomes, player_positions
+            b_starters, b_bench, b_cap, b_vc, outcomes, player_positions, chip_used=current_chip
         )
         net_pts = gross_pts - hits
 
-        used_ft = min(len(txs), self.engine_baseline_free_transfers)
-        rem_ft = self.engine_baseline_free_transfers - used_ft
-        self.engine_baseline_free_transfers = min(self.max_free_transfers, rem_ft + 1)
+        # Record consumed chip in engine baseline state
+        if current_chip:
+            canon_key = "wildcard_1" if (current_chip == "wildcard" and gw <= 19) else (
+                "wildcard_2" if current_chip == "wildcard" else current_chip
+            )
+            self.engine_baseline_chips_used[canon_key] = gw
+            if canon_key in self.engine_baseline_chips_remaining:
+                self.engine_baseline_chips_remaining.remove(canon_key)
+
+        # Free hit squad revert
+        if current_chip == "free_hit" and saved_squad_ids is not None:
+            self.engine_baseline_squad_ids = saved_squad_ids
+            self.engine_baseline_purchase_prices = saved_prices
+            self.engine_baseline_bank_tenths = saved_bank
 
         self.engine_baseline_history.append({
             "gameweek": gw,
             "gross_points": gross_pts,
             "transfer_hits": hits,
             "net_points": net_pts,
+            "chip_used": current_chip,
             "transfers": txs,
             "squad_ids": list(self.engine_baseline_squad_ids),
             "bank_tenths": self.engine_baseline_bank_tenths,
@@ -917,7 +1065,7 @@ class HistoricalSimulationSession:
             f"- **Captain Points Contributed:** {summary.captain_points}",
             f"- **Autosub Events:** {summary.autosubs_count}",
             "",
-            "## Benchmark Comparison vs Frozen Engine (v1.2.5)",
+            f"## Benchmark Comparison vs Frozen Engine ({self.engine_baseline_version})",
             "",
             f"- **Engine Baseline Total Net Points:** {summary.engine_baseline_total_net_points}",
             f"- **Human-vs-Engine Delta:** {'+' if (summary.human_vs_engine_delta or 0) > 0 else ''}{summary.human_vs_engine_delta} pts",

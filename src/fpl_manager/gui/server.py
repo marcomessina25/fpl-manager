@@ -858,7 +858,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 sim_id = body.get("session_id") or f"sim_{body.get('season', '2023-24').replace('-', '_')}_{int(time.time())}"
                 season = body.get("season", "2023-24")
                 start_gw = int(body.get("start_gw", 1))
-                strategy = body.get("starting_strategy", "v1.2.5")
+                strategy = body.get("starting_strategy", "v1.3.5")
                 manager_name = body.get("manager_name", "Human Manager")
                 sim_dir = self.config_dir / "simulations"
                 sim = HistoricalSimulationSession.create(

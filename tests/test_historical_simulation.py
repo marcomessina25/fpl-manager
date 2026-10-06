@@ -170,3 +170,48 @@ def test_gameweek_resolution_autosubs_and_divergence(temp_sim_dir: Path) -> None
     j_path, m_path = sim.export_report(output_dir=temp_sim_dir / "reports")
     assert j_path.exists()
     assert m_path.exists()
+
+
+def test_historical_recommendations_and_reproducibility(temp_sim_dir: Path) -> None:
+    """Historical recommendations must provide unified chip, transfer, and lineup suggestions matching baseline engine."""
+    sim = HistoricalSimulationSession.create(
+        session_id="test_recs_repro",
+        season="2023-24",
+        start_gw=1,
+        starting_strategy="v1.3.5",
+        config_dir=temp_sim_dir,
+    )
+    recs = sim.get_recommendations()
+    assert recs["gameweek"] == 1
+    assert "recommended_starters" in recs
+    assert len(recs["recommended_starters"]) == 11
+    assert "recommended_bench" in recs
+    assert len(recs["recommended_bench"]) == 4
+    assert "recommended_captain" in recs
+    assert "recommended_vice_captain" in recs
+    assert "predicted_lineup_xp" in recs
+    assert "recommended_transfers" in recs
+    assert "recommended_chip" in recs
+
+    # In GW 1 fresh squad, recommended_transfers should be empty and recommended_chip should be None
+    assert recs["recommended_chip"] is None
+
+    # Apply recommendations to session squad
+    sim.set_lineup(
+        recs["recommended_starters"],
+        recs["recommended_bench"],
+        recs["recommended_captain"],
+        recs["recommended_vice_captain"],
+    )
+    if recs["recommended_chip"]:
+        sim.play_chip(recs["recommended_chip"])
+
+    res = sim.run_gameweek()
+    # When all recommendations are applied, human and engine net points should match exactly
+    divergence = res["human_engine_divergence"]
+    assert divergence["human_override"] is False
+    assert divergence["transfers_differed"] is False
+    assert divergence["captain_differed"] is False
+    assert divergence["point_delta_vs_engine"] == 0
+    assert res["net_points"] == res["engine_net_points"]
+

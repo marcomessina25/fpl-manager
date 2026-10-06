@@ -4682,7 +4682,13 @@ function showHistoricalRecommendationsModal(recs) {
   const body = document.getElementById("hist-modal-body");
   if (!modal || !body) return;
 
-  if (title) title.textContent = `Frozen Engine Recommendations (GW ${recs.gameweek})`;
+  const engVer = recs.engine_version || "v1.3.5";
+  if (title) title.textContent = `Decision Engine Recommendations (${engVer} - GW ${recs.gameweek})`;
+
+  const chipRec = recs.recommended_chip;
+  const chipBadge = chipRec
+    ? `<span class="badge" style="background: var(--accent-purple); color: #fff; font-weight: bold; font-size: 0.85rem; padding: 4px 10px;">⚡ ${chipRec.toUpperCase().replace('_', ' ')}</span>`
+    : `<span class="badge" style="background: rgba(255,255,255,0.1); color: #94a3b8; font-size: 0.85rem; padding: 4px 10px;">Save Chips (None Recommended)</span>`;
 
   const txsHtml = (recs.recommended_transfers && recs.recommended_transfers.length > 0)
     ? recs.recommended_transfers.map(t => `
@@ -4698,17 +4704,82 @@ function showHistoricalRecommendationsModal(recs) {
     : `<div class="text-muted text-sm">Engine suggests rolling the free transfer (no moves).</div>`;
 
   body.innerHTML = `
+    <div style="margin-bottom: 1.25rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+      <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem; font-weight: 600;">Seasonal Chip Strategy Evaluation</div>
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>Recommended Chip for Deadline:</div>
+        <div>${chipBadge}</div>
+      </div>
+    </div>
+
     <div style="margin-bottom: 1.25rem;">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers (v1.2.5 Baseline)</h4>
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers (${engVer} Baseline)</h4>
       ${txsHtml}
     </div>
-    <div style="margin-bottom: 1rem;">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Predicted Lineup</h4>
+
+    <div style="margin-bottom: 1.25rem;">
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Predicted Optimal Lineup</h4>
       <div style="font-size: 0.85rem; color: #94a3b8;">
         Lineup Expected Value: <strong style="color: #38bdf8;">${recs.predicted_lineup_xp} xP</strong>
       </div>
     </div>
+
+    <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem;">
+      <button class="btn btn-primary" id="btn-hist-apply-all-recs" style="background: linear-gradient(135deg, #059669, #10b981); font-weight: 700;">
+        ⚡ Apply All Engine Recommendations
+      </button>
+    </div>
   `;
+
+  const btnApplyAll = document.getElementById("btn-hist-apply-all-recs");
+  if (btnApplyAll) {
+    btnApplyAll.addEventListener("click", async () => {
+      btnApplyAll.disabled = true;
+      btnApplyAll.textContent = "Applying...";
+      try {
+        // 1. Stage transfers if any
+        if (recs.recommended_transfers && recs.recommended_transfers.length > 0) {
+          await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+            method: "POST",
+            body: JSON.stringify({ action: "clear" }),
+          });
+          for (const t of recs.recommended_transfers) {
+            await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+              method: "POST",
+              body: JSON.stringify({ out_id: t.out_id, in_id: t.in_id }),
+            });
+          }
+        }
+        // 2. Set lineup and captaincy
+        if (recs.recommended_starters && recs.recommended_starters.length === 11) {
+          await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
+            method: "POST",
+            body: JSON.stringify({
+              starting_ids: recs.recommended_starters,
+              bench_ids: recs.recommended_bench,
+              captain_id: recs.recommended_captain,
+              vice_captain_id: recs.recommended_vice_captain,
+            }),
+          });
+        }
+        // 3. Set chip if recommended
+        if (recs.recommended_chip) {
+          await api(`/api/historical/simulations/${histState.sessionId}/chip`, {
+            method: "POST",
+            body: JSON.stringify({ chip: recs.recommended_chip }),
+          });
+        }
+        showToast("Successfully applied all engine recommendations!");
+        modal.style.display = "none";
+        await loadHistoricalSession(histState.sessionId);
+      } catch (err) {
+        showToast(`Failed to apply recommendations: ${err.message}`, true);
+      } finally {
+        btnApplyAll.disabled = false;
+        btnApplyAll.textContent = "⚡ Apply All Engine Recommendations";
+      }
+    });
+  }
 
   modal.style.display = "flex";
 }
