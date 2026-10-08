@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14`, establishing the **Interactive Historical Season Simulation & Time Machine Sandbox**. V1.4.5 is implemented on branch `v145`, delivering the **Multi-Season Strategic Chip Optimization Study & Unified Engine** (`ChipOpportunityOptimizer`); the historical simulator uses it (default `c1_linear_decay`, wastage 48% to 8%), while full live `/api/chips` parity remains open.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14` (#20), establishing the **Interactive Historical Season Simulation & Time Machine Sandbox**. V1.4.5 is completed and validated on branch `v145`, delivering the **Multi-Season Strategic Chip Optimization Study & Unified Engine** (`ChipOpportunityOptimizer`); the winning C1 linear decay baseline (+118.0 pts mean surplus, 8.0% wastage rate vs legacy 48.0%) is fully wired across the historical simulation engine and live `/api/chips` endpoint with 100% decision and contract parity.
 
 ---
 
@@ -1803,24 +1803,34 @@ within documented tolerances for the frozen engine.
 
 # 24.5. V1.4.5 — Strategic Chip Optimization & Multi-Team Isolation Hardening
 
-**Status: completed and validated on branch `v145`.**
+**Status: completed, validated, and PR-ready on branch `v145`.**  
+**Specification:** [`docs/v1.4.5/v145_chip_optimization.md`](v1.4.5/v145_chip_optimization.md)  
+**Reports:** [`reports/v145/performance_leaderboard.md`](../reports/v145/performance_leaderboard.md), [`reports/v145/ablation_summary.md`](../reports/v145/ablation_summary.md)
 
 ### Core Problems Addressed
-1. **Flawed Heuristic & Fixed Threshold Paradigms**: Current chip triggers in both live mode (`chip_strategy.py`) and historical backtests (`SeasonalChipPolicy`) rely on hard-coded gates, arbitrary delta cutoffs, or static calendars. Fixed thresholding is structurally brittle:
-   - It can recommend high-value chips (like Free Hit) immediately after GW1 or right after Wildcard deployment simply because of superficial short-term deltas, despite the squad already being freshly optimal.
-   - Conversely, it can hoard chips indefinitely across entire segments (GW1–19, GW20–38) if hard threshold margins are narrowly missed, failing to realize the chip's value before expiration.
-   - Hard thresholds cannot dynamically evaluate the **opportunity cost** of burning a chip now versus conserving it for upcoming Blank Gameweeks (BGWs) or Double Gameweeks (DGWs).
-2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: The historical simulation engine and the GUI Chip Strategy calendar currently execute disconnected pipelines. A single unified chip optimization model must power both, guaranteeing that backtest simulations and user-facing advisory recommendations are strictly identical and reproducible.
-3. **Multi-Team State Isolation**: Ensuring all decision logging, chip availability, bank budgets, staged transfers, and gameweek contexts remain strictly isolated across multiple live teams and historical simulation sessions without cross-contamination.
+1. **Flawed Heuristic & Fixed Threshold Paradigms**: Legacy chip triggers in both live mode (`chip_strategy.py`) and historical backtests (`SeasonalChipPolicy`) relied on hard-coded gates, arbitrary delta cutoffs, or static calendars. Fixed thresholding was structurally brittle:
+   - Caused a **100% Wildcard hoarding pathology** where Wildcards were hoarded across entire seasons and expired unused (0/10 Wildcards played across 5 historical seasons).
+   - Suffered a **48.0% aggregate chip wastage rate** (12/25 chips unplayed across 5 seasons) under baseline C0.
+   - Failed to dynamically model the **opportunity cost** of deploying a chip now versus conserving it for future blank/double gameweeks.
+2. **Reconciliation of Simulation Engine vs GUI Chip Strategy**: Unified both live `/api/chips` and historical sandbox simulation `/api/historical/simulations/<id>/chips` endpoints to share 100% architectural, decision, and contract parity under `ChipOpportunityOptimizer`.
+3. **Multi-Team State Isolation**: Guaranteed strict isolation across teams and simulation sessions, preventing any cross-contamination.
 
 ### Key Deliverables & Architecture
-- **Value-Driven Strategic Chip Optimization Engine (ML / EV Optimization)**:
-  - Eliminate all fixed, arbitrary thresholds. Every chip decision is modeled as an **expected value (EV) optimization problem** balancing immediate point yield against terminal opportunity cost across the remaining segment horizon.
-  - Explore an ML/surrogate-value based chip valuation policy or dynamic multi-stage trajectory evaluation:
-    - *Free Hit Valuation*: Compares the EV of current squad vs temporary squad under fixture constraints. If a squad was just restructured via Wildcard or at season launch (GW1), its immediate gain from a Free Hit is negligible relative to the future opportunity cost of navigating massive blank fixtures or mega-doubles, naturally penalizing premature deployment to near-zero without ad-hoc rules.
-    - *Blank & Double Gameweek Awareness (especially GW20–38)*: Segment 2 planning must explicitly forecast and factor in rescheduled fixture congestion, major blank weekends (FA Cup clashes), and double gameweeks. The optimizer scores the expected utility of Triple Captain, Bench Boost, and Free Hit across these volatile weeks.
-    - *Segment Window Expiration*: The opportunity cost of a chip naturally decays to zero as the final gameweeks of the segment approach (GW19 and GW38), allowing the mathematical optimizer to deploy the chip on the global maximum of the remaining fixtures rather than discarding it unplayed.
-- **Unified Chip Policy Model**: Share a single deterministic chip optimization engine between historical simulation step functions, benchmark backtests, and the GUI Chip Strategy calendar.
+- **Value-Driven Strategic Chip Opportunity-Cost Engine (`ChipOpportunityOptimizer`)**:
+  - Implemented mathematical opportunity-cost framework: $\text{Net Utility}(C, t) = \Delta\text{EV}(C, t) - \mathcal{O}(C, t)$.
+  - Supported four ablation variants: `c0_baseline`, `c1_linear_decay`, `c2_ev_planner`, and `c3_surrogate`.
+  - Added strict tactical guardrails: GW1 protection ban, 2-gameweek post-Wildcard cooldown, postponement block (BB/TC), and terminal window decay.
+- **Audited 5-Season Ablation Benchmark (190 Gameweeks, 2021–22 to 2025–26)**:
+  - **C1: Linear Window-Decay Heuristic (WINNER / V1.4.5 Frozen Core)**:
+    - 5-season mean points: **2113.6 pts** (±91.1).
+    - Net surplus over Track A: **+118.0 pts** (+79.0 pts over legacy baseline C0).
+    - Chip wastage rate slashed from 48.0% to **8.0%** (Wildcard hoarding completely eliminated).
+  - **C3: Tabular Continuation Surrogate**: 2083.4 pts (+87.8 pts surplus, 0.0% wastage rate).
+  - **C2: Dynamic Opportunity-Cost EV Planner**: 2068.2 pts (+72.6 pts surplus, 4.0% wastage rate).
+  - **C0: Legacy SeasonalChipPolicy Baseline**: 2034.6 pts (+39.0 pts surplus, 48.0% wastage rate).
+- **100% Live & Historical API Parity**:
+  - Live `/api/chips` and simulation `/api/historical/simulations/<id>/chips` share identical schema with rich decision metadata (`immediate_ev`, `future_opportunity`, `net_utility`, `confidence`).
+  - Unit and integration tests (25/25 passing) verify identical candidate rankings and guardrail adherence.
 - **Strict Multi-Team Workspace Scoping**: Explicit `team_id` / `session_id` database partitioning ensuring zero shared state between different live teams or between live and historical modes.
 
 ---
@@ -2221,6 +2231,26 @@ Use distinct states:
 - [x] Build GUI Time Machine workflow (`/api/historical/*` + Web Studio tab).
 - [x] Implement human-vs-engine benchmark protocol and divergence logging.
 - [x] Generate reproducible season-end analytics and Markdown/JSON reporting.
+
+## Completed — V1.4.5 Strategic Chip Opportunity-Cost Optimization
+
+- [x] Formalize opportunity-cost model: $\text{Net Utility}(C, t) = \Delta\text{EV}(C, t) - \mathcal{O}(C, t)$.
+- [x] Build `ChipOpportunityOptimizer` supporting `c0_baseline`, `c1_linear_decay`, `c2_ev_planner`, and `c3_surrogate`.
+- [x] Enforce tactical guardrails: GW1 ban, 2-GW post-Wildcard cooldown, postponement block, terminal window decay.
+- [x] Execute 5-season ablation benchmark across 190 GWs (`scripts/run_v145_ablation.py`).
+- [x] Eliminate 100% Wildcard hoarding pathology and reduce chip wastage from 48.0% to 8.0%.
+- [x] Verify C1 linear decay superiority (+118.0 pts mean surplus over Track A, +79.0 pts over legacy C0).
+- [x] Wire live `/api/chips` to `ChipOpportunityOptimizer` with full decision metadata.
+- [x] Achieve 100% contract and decision parity between `/api/chips` and `/api/historical/simulations/<id>/chips`.
+- [x] Pass 25/25 chip regression and contract test suite.
+- [x] Publish benchmark reports in `reports/v145/`.
+
+## Next — V1.4.6 Human-in-the-Loop Replay Benchmark Study
+
+- [ ] Execute controlled replay trials using the V1.4 Time Machine and V1.4.5 reference engine.
+- [ ] Evaluate multi-track performance (Track A Engine, Track B Human-Assisted, Track C Human Blind Control).
+- [ ] Analyze decision divergence and human override alpha.
+- [ ] Publish audited benchmark logs in `reports/v146/`.
 
 ## Later — V1.5
 

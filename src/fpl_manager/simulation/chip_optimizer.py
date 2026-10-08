@@ -53,6 +53,44 @@ CANONICAL_CHIP_NAMES = {
 
 
 @dataclass(frozen=True, slots=True)
+class ChipCalibrationConfig:
+    """Empirical calibration constants derived from 5-season historical ablation study.
+    
+    These constants balance immediate gameweek valuation against multi-gameweek continuation value.
+    """
+    # Bench Boost calibration
+    bb_dgw_immediate_boost: float = 3.0       # Expected extra points when deploying Bench Boost in a DGW
+    bb_future_dgw2_target: float = 16.0       # Option value ceiling when multiple DGW teams remain
+    bb_future_dgw1_target: float = 13.0       # Option value when single DGW remains
+    bb_future_standard_target: float = 9.5    # Option value benchmark in standard non-DGW gameweeks
+
+    # Triple Captain calibration
+    tc_future_dgw_target: float = 14.0        # Opportunity cost target when a strong DGW captain fixture exists
+    tc_future_standard_target: float = 8.0     # Expected opportunity cost in single fixture weeks
+
+    # Free Hit calibration
+    fh_blank_player_gain: float = 4.8         # Points recovered per missing/blanking player (replacement delta)
+    fh_dgw_slot_gain: float = 3.5             # Points gained per extra DGW asset upgraded via Free Hit
+    fh_base_lineup_delta: float = 2.0         # Baseline optimization uplift from temporary £100m allocation
+    fh_future_major_blank: float = 16.0       # Base opportunity cost for major Blank Gameweek (e.g. FA Cup quarter-finals)
+    fh_future_blank_multiplier: float = 4.0   # Incremental option value per blanking squad player
+    fh_future_mega_dgw: float = 18.0          # Opportunity cost when mega-DGW (>= 4 teams) is ahead
+    fh_future_standard: float = 7.0           # Opportunity cost in standard gameweeks
+
+    # Wildcard calibration
+    wc_hit_saving_per_player: float = 4.0     # Immediate transfer point penalty saved per collapsed player
+    wc_persistence_rate: float = 0.6          # Compounding points per gameweek remaining in segment
+    wc_persistence_max: float = 10.0          # Maximum persistent restructuring gain
+    wc_expiry_urgency_bonus: float = 12.0     # Urgency boost when <= 2 gameweeks remain in segment window
+    wc_future_base: float = 7.0               # Base future opportunity value of holding wildcard
+    wc_future_rem_slope: float = 0.8          # Rate at which wildcard option value scales with remaining GWs
+    wc_future_rem_max: float = 9.0            # Ceiling for wildcard duration value
+
+
+CALIBRATION_DEFAULT = ChipCalibrationConfig()
+
+
+@dataclass(frozen=True, slots=True)
 class ChipOpportunityValue:
     """Formal audit record of chip valuation, opportunity cost, and decision utility."""
 
@@ -175,10 +213,12 @@ class ChipOpportunityOptimizer:
         variant: str = "c2_ev_planner",
         discount_factor: float = 0.96,
         cooldown_gameweeks: int = 2,
+        calibration: ChipCalibrationConfig = CALIBRATION_DEFAULT,
     ) -> None:
         self.variant = variant
         self.discount_factor = discount_factor
         self.cooldown_gameweeks = cooldown_gameweeks
+        self.cal = calibration
 
     def resolve_segment_window(self, gameweek: int) -> tuple[int, int, str]:
         """Return (segment_start, segment_end, segment_name) for gameweek."""
@@ -450,61 +490,67 @@ class ChipOpportunityOptimizer:
         if chip == "triple_captain":
             if not squad_projs:
                 return 0.0
-            best_cand = max(
-                squad_projs,
-                key=lambda p: getattr(p, "expected_points", 0.0) * getattr(p, "start_probability", 1.0),
-                default=None,
-            )
+
+            def _cap_val(p: Any) -> float:
+                xp = getattr(p, "expected_points", 0.0)
+                sp = getattr(p, "start_probability", 0.0)
+                if sp <= 0.0 and getattr(p, "status", "a") == "a" and getattr(p, "availability_pct", 100.0) > 50.0:
+                    sp = 1.0
+                return float(xp * sp)
+
+            best_cand = max(squad_projs, key=_cap_val, default=None)
             if best_cand is None:
                 return 0.0
-            base_xp = getattr(best_cand, "expected_points", 0.0)
-            start_p = getattr(best_cand, "start_probability", 1.0)
-            # Extra 1x multiplier of top captain
-            return float(base_xp * start_p)
+            return _cap_val(best_cand)
 
         elif chip == "bench_boost":
             sorted_projs = sorted(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), reverse=True)
             bench_projs = sorted_projs[11:] if len(sorted_projs) >= 15 else sorted_projs[max(0, len(sorted_projs) - 4):]
-            bench_xp = sum(
-                getattr(p, "expected_points", 0.0) * getattr(p, "play_probability", 1.0)
-                for p in bench_projs
-            )
-            # Calibration: in standard gameweeks, a bench needs to be genuinely strong (12+ xP) or
+
+            def _bench_p_val(p: Any) -> float:
+                xp = getattr(p, "expected_points", 0.0)
+                pp = getattr(p, "play_probability", 0.0)
+                if pp <= 0.0 and getattr(p, "status", "a") == "a" and getattr(p, "availability_pct", 100.0) > 50.0:
+                    pp = 1.0
+                return float(xp * pp)
+
+            bench_xp = sum(_bench_p_val(p) for p in bench_projs)
+            # Calibration: in standard gameweeks, a bench needs to be genuinely strong or
             # upcoming gameweeks will offer higher returns in DGW clusters.
-            dgw_boost = 3.0 if (topo and topo.is_double) else 0.0
+            dgw_boost = self.cal.bb_dgw_immediate_boost if (topo and topo.is_double) else 0.0
             return float(bench_xp + dgw_boost)
 
         elif chip == "free_hit":
             # Realistic Free Hit value:
-            # 1. Blank recovery: each squad player blanking scores 0 instead of ~4.2 pts
+            # 1. Blank recovery: each squad player blanking scores 0 instead of average expected points
             squad_blanks = sum(1 for pid in squad_ids if player_team_map.get(pid) in blank_teams)
-            blank_gain = squad_blanks * 4.8
+            blank_gain = squad_blanks * self.cal.fh_blank_player_gain
 
             # 2. DGW exploitation: if DGW present, free hit can target DGW assets
             squad_doubles = sum(1 for pid in squad_ids if player_team_map.get(pid) in double_teams)
             max_dgw_slots = min(9, len(double_teams) * 3)
-            dgw_gain = max(0, max_dgw_slots - squad_doubles) * 3.5 if double_teams else 0.0
+            dgw_gain = max(0, max_dgw_slots - squad_doubles) * self.cal.fh_dgw_slot_gain if double_teams else 0.0
 
             # 3. Base lineup optimization delta under budget constraints
-            base_delta = 2.0
+            base_delta = self.cal.fh_base_lineup_delta
             return float(blank_gain + dgw_gain + base_delta)
 
         elif chip == "wildcard":
             # Restructuring value:
             collapsed = self._count_collapsed_squad_players(squad_ids, proj_map, snapshot)
             # Transfer hit savings for fixing broken squad
-            hit_savings = max(0, (collapsed - 1) * 4.0)
+            hit_savings = max(0, (collapsed - 1) * self.cal.wc_hit_saving_per_player)
 
             # Fixture run restructuring bonus:
             # If many gameweeks remain in segment, wildcard upgrades persist over multiple GWs
             seg_start, seg_end, _ = self.resolve_segment_window(gameweek)
             remaining_gws = seg_end - gameweek
-            persistence = min(10.0, remaining_gws * 0.6)
+            persistence = min(self.cal.wc_persistence_max, remaining_gws * self.cal.wc_persistence_rate)
 
             # Near-expiry urgency bonus (approaching GW 18-19 or 36-38)
             expiry_urgency = 0.0
             if remaining_gws <= 2:
-                expiry_urgency = 12.0
+                expiry_urgency = self.cal.wc_expiry_urgency_bonus
 
             return float(hit_savings + persistence + expiry_urgency)
 
@@ -549,32 +595,32 @@ class ChipOpportunityOptimizer:
 
             if chip == "triple_captain":
                 if topo.is_double and len(topo.double_team_ids) >= 1:
-                    ev_estimate = 14.0 * h_discount
+                    ev_estimate = self.cal.tc_future_dgw_target * h_discount
                 else:
-                    ev_estimate = 8.0 * h_discount
+                    ev_estimate = self.cal.tc_future_standard_target * h_discount
 
             elif chip == "bench_boost":
                 if topo.is_double and len(topo.double_team_ids) >= 2:
-                    ev_estimate = 16.0 * h_discount
+                    ev_estimate = self.cal.bb_future_dgw2_target * h_discount
                 elif topo.is_double:
-                    ev_estimate = 13.0 * h_discount
+                    ev_estimate = self.cal.bb_future_dgw1_target * h_discount
                 else:
                     # Non-DGW benchmark bench expectation
-                    ev_estimate = 9.5 * h_discount
+                    ev_estimate = self.cal.bb_future_standard_target * h_discount
 
             elif chip == "free_hit":
                 blank_count = sum(1 for tid in squad_teams if tid in topo.blank_team_ids)
                 if blank_count >= 3 or (topo.is_blank and len(topo.blank_team_ids) >= 4):
-                    ev_estimate = (16.0 + blank_count * 4.0) * h_discount
+                    ev_estimate = (self.cal.fh_future_major_blank + blank_count * self.cal.fh_future_blank_multiplier) * h_discount
                 elif topo.is_double and len(topo.double_team_ids) >= 4:
-                    ev_estimate = 18.0 * h_discount
+                    ev_estimate = self.cal.fh_future_mega_dgw * h_discount
                 else:
-                    ev_estimate = 7.0 * h_discount
+                    ev_estimate = self.cal.fh_future_standard * h_discount
 
             elif chip == "wildcard":
                 rem_after = seg_end - fut_gw
                 # Future opportunity decays naturally as remaining gameweeks diminish
-                ev_estimate = (7.0 + min(9.0, rem_after * 0.8)) * h_discount
+                ev_estimate = (self.cal.wc_future_base + min(self.cal.wc_future_rem_max, rem_after * self.cal.wc_future_rem_slope)) * h_discount
 
             if ev_estimate > max_fut_ev:
                 max_fut_ev = ev_estimate
