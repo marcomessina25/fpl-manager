@@ -51,7 +51,7 @@ class VariantPolicyShim:
         initial_squad_ids: tuple[int, ...] | None = None,
     ) -> str | None:
         if self.variant == "c0_baseline":
-            return SeasonalChipPolicy().evaluate_gameweek_chip(
+            return SeasonalChipPolicy(use_optimizer=False).evaluate_gameweek_chip(
                 gameweek, inventory, squad_ids, snapshot, projections, initial_squad_ids
             )
         return self.optimizer.evaluate_gameweek_chip(

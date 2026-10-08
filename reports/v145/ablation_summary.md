@@ -18,10 +18,10 @@
 
 | Metric | C0: Baseline | C1: Linear Decay | C2: EV Planner | C3: Surrogate |
 | :--- | :---: | :---: | :---: | :---: |
-| **Mean Net Points** | 2034.6 | 2113.6 | 2069.8 | 2068.4 |
-| **Mean Chip Surplus (vs Track A)** | +39.0 pts | +118.0 pts | +74.2 pts | +72.8 pts |
-| **Wastage Rate (% Unplayed)** | 48.0% | 8.0% | 0.0% | 0.0% |
-| **Total Unplayed Chips (out of 25)** | 12 | 2 | 0 | 0 |
+| **Mean Net Points** | 2034.6 | 2113.6 | 2068.2 | 2083.4 |
+| **Mean Chip Surplus (vs Track A)** | +39.0 pts | +118.0 pts | +72.6 pts | +87.8 pts |
+| **Wastage Rate (% Unplayed)** | 48.0% | 8.0% | 4.0% | 0.0% |
+| **Total Unplayed Chips (out of 25)** | 12 | 2 | 1 | 0 |
 | **Premature Burn Count** | 0 | 1 | 1 | 1 |
 
 ---

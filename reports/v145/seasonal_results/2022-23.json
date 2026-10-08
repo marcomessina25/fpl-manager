@@ -39,7 +39,7 @@
       ],
       "wasted_count": 2,
       "premature_burn_count": 0,
-      "duration_ms": 24503.9
+      "duration_ms": 24833.3
     },
     "c1_linear_decay": {
       "variant": "c1_linear_decay",
@@ -100,7 +100,7 @@
       "unplayed_chips": [],
       "wasted_count": 0,
       "premature_burn_count": 0,
-      "duration_ms": 28017.6
+      "duration_ms": 28033.4
     },
     "c2_ev_planner": {
       "variant": "c2_ev_planner",
@@ -155,7 +155,7 @@
       "unplayed_chips": [],
       "wasted_count": 0,
       "premature_burn_count": 0,
-      "duration_ms": 30753.1
+      "duration_ms": 30781.9
     },
     "c3_surrogate": {
       "variant": "c3_surrogate",
@@ -210,7 +210,7 @@
       "unplayed_chips": [],
       "wasted_count": 0,
       "premature_burn_count": 0,
-      "duration_ms": 31908.6
+      "duration_ms": 30637.7
     }
   }
 }

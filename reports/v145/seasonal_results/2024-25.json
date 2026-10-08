@@ -45,7 +45,7 @@
       ],
       "wasted_count": 3,
       "premature_burn_count": 0,
-      "duration_ms": 23093.4
+      "duration_ms": 22319.4
     },
     "c1_linear_decay": {
       "variant": "c1_linear_decay",
@@ -101,7 +101,7 @@
       ],
       "wasted_count": 1,
       "premature_burn_count": 0,
-      "duration_ms": 31375.4
+      "duration_ms": 29362.0
     },
     "c2_ev_planner": {
       "variant": "c2_ev_planner",
@@ -153,10 +153,10 @@
           "gross_points": 71
         },
         {
-          "gameweek": 34,
+          "gameweek": 33,
           "chip": "bench_boost",
-          "net_points": 58,
-          "gross_points": 58
+          "net_points": 55,
+          "gross_points": 55
         },
         {
           "gameweek": 38,
@@ -168,14 +168,14 @@
       "unplayed_chips": [],
       "wasted_count": 0,
       "premature_burn_count": 1,
-      "duration_ms": 34682.8
+      "duration_ms": 34603.7
     },
     "c3_surrogate": {
       "variant": "c3_surrogate",
-      "total_net_points": 2095,
-      "total_gross_points": 2095,
+      "total_net_points": 2093,
+      "total_gross_points": 2093,
       "total_hits": 0,
-      "chip_surplus": 38,
+      "chip_surplus": 36,
       "chips_used": {
         "triple_captain": 2,
         "bench_boost": 2,
@@ -190,10 +190,10 @@
           "gross_points": 55
         },
         {
-          "gameweek": 10,
+          "gameweek": 13,
           "chip": "bench_boost",
-          "net_points": 65,
-          "gross_points": 65
+          "net_points": 89,
+          "gross_points": 89
         },
         {
           "gameweek": 15,
@@ -235,7 +235,7 @@
       "unplayed_chips": [],
       "wasted_count": 0,
       "premature_burn_count": 0,
-      "duration_ms": 32845.1
+      "duration_ms": 32889.3
     }
   }
 }

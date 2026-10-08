@@ -469,13 +469,16 @@ class ChipOpportunityOptimizer:
                 getattr(p, "expected_points", 0.0) * getattr(p, "play_probability", 1.0)
                 for p in bench_projs
             )
-            return float(bench_xp)
+            # Calibration: in standard gameweeks, a bench needs to be genuinely strong (12+ xP) or
+            # upcoming gameweeks will offer higher returns in DGW clusters.
+            dgw_boost = 3.0 if (topo and topo.is_double) else 0.0
+            return float(bench_xp + dgw_boost)
 
         elif chip == "free_hit":
             # Realistic Free Hit value:
             # 1. Blank recovery: each squad player blanking scores 0 instead of ~4.2 pts
             squad_blanks = sum(1 for pid in squad_ids if player_team_map.get(pid) in blank_teams)
-            blank_gain = squad_blanks * 4.5
+            blank_gain = squad_blanks * 4.8
 
             # 2. DGW exploitation: if DGW present, free hit can target DGW assets
             squad_doubles = sum(1 for pid in squad_ids if player_team_map.get(pid) in double_teams)
@@ -483,7 +486,7 @@ class ChipOpportunityOptimizer:
             dgw_gain = max(0, max_dgw_slots - squad_doubles) * 3.5 if double_teams else 0.0
 
             # 3. Base lineup optimization delta under budget constraints
-            base_delta = 2.5
+            base_delta = 2.0
             return float(blank_gain + dgw_gain + base_delta)
 
         elif chip == "wildcard":
@@ -496,12 +499,12 @@ class ChipOpportunityOptimizer:
             # If many gameweeks remain in segment, wildcard upgrades persist over multiple GWs
             seg_start, seg_end, _ = self.resolve_segment_window(gameweek)
             remaining_gws = seg_end - gameweek
-            persistence = min(12.0, remaining_gws * 0.8)
+            persistence = min(10.0, remaining_gws * 0.6)
 
             # Near-expiry urgency bonus (approaching GW 18-19 or 36-38)
             expiry_urgency = 0.0
             if remaining_gws <= 2:
-                expiry_urgency = 10.0
+                expiry_urgency = 12.0
 
             return float(hit_savings + persistence + expiry_urgency)
 
@@ -546,17 +549,18 @@ class ChipOpportunityOptimizer:
 
             if chip == "triple_captain":
                 if topo.is_double and len(topo.double_team_ids) >= 1:
-                    ev_estimate = 13.5 * h_discount
+                    ev_estimate = 14.0 * h_discount
                 else:
                     ev_estimate = 8.0 * h_discount
 
             elif chip == "bench_boost":
                 if topo.is_double and len(topo.double_team_ids) >= 2:
-                    ev_estimate = 15.0 * h_discount
+                    ev_estimate = 16.0 * h_discount
                 elif topo.is_double:
-                    ev_estimate = 12.0 * h_discount
+                    ev_estimate = 13.0 * h_discount
                 else:
-                    ev_estimate = 8.0 * h_discount
+                    # Non-DGW benchmark bench expectation
+                    ev_estimate = 9.5 * h_discount
 
             elif chip == "free_hit":
                 blank_count = sum(1 for tid in squad_teams if tid in topo.blank_team_ids)
@@ -565,12 +569,12 @@ class ChipOpportunityOptimizer:
                 elif topo.is_double and len(topo.double_team_ids) >= 4:
                     ev_estimate = 18.0 * h_discount
                 else:
-                    ev_estimate = 6.0 * h_discount
+                    ev_estimate = 7.0 * h_discount
 
             elif chip == "wildcard":
                 rem_after = seg_end - fut_gw
                 # Future opportunity decays naturally as remaining gameweeks diminish
-                ev_estimate = (8.0 + min(10.0, rem_after * 0.9)) * h_discount
+                ev_estimate = (7.0 + min(9.0, rem_after * 0.8)) * h_discount
 
             if ev_estimate > max_fut_ev:
                 max_fut_ev = ev_estimate
@@ -627,7 +631,7 @@ class ChipOpportunityOptimizer:
             triple_captain_w2="triple_captain" in available and gameweek >= 20,
             bench_boost_w2="bench_boost" in available and gameweek >= 20,
         )
-        return SeasonalChipPolicy().evaluate_gameweek_chip(
+        return SeasonalChipPolicy(use_optimizer=False).evaluate_gameweek_chip(
             gameweek, inv, list(squad_ids), snapshot, list(projections), initial_squad_ids
         )
 
