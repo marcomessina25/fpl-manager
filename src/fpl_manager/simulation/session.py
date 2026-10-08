@@ -332,6 +332,13 @@ class HistoricalSimulationSession:
         players_map = {p.player_id: p for p in snapshot.players}
         teams_map = {t["team_id"]: t for t in snapshot.teams}
 
+        # Compute point-in-time projections for expected points before gameweek runs
+        try:
+            projections = reconstruct_features_and_project(snapshot)
+            proj_map = {p.player_id: p for p in projections}
+        except Exception:
+            proj_map = {}
+
         result: list[dict[str, Any]] = []
         for pid in self.squad_ids:
             p = players_map.get(pid)
@@ -348,6 +355,10 @@ class HistoricalSimulationSession:
                 Position.FORWARD: "FWD",
             }.get(p.position, "MID")
 
+            p_proj = proj_map.get(pid)
+            exp_pts = round(p_proj.expected_points, 1) if p_proj else 0.0
+            next_fdr = p_proj.fixtures[0].fdr if (p_proj and p_proj.fixtures) else 3
+
             result.append({
                 "player_id": pid,
                 "name": p.web_name,
@@ -362,6 +373,8 @@ class HistoricalSimulationSession:
                 "current_price_fmt": f"£{p.price_tenths/10:.1f}m",
                 "selling_price_fmt": f"£{curr_sell_price/10:.1f}m",
                 "total_points": p.total_points,
+                "expected_points": exp_pts,
+                "next_fixture_fdr": next_fdr,
                 "form": p.form,
                 "status": p.status,
                 "is_starter": pid in self.starting_ids,

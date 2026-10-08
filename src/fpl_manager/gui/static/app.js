@@ -3333,13 +3333,13 @@ async function syncGameweekAndScoresAtStartup() {
 const strategicState = {
   mode: "initial",
   horizon: 5,
-  strategy: "balanced",
+  strategy: "maximum_ev",
   budget: 100.0,
   lockedPlayerIds: new Set(),
   excludedPlayerIds: new Set(),
   preferredPlayerIds: new Set(),
   candidates: {},
-  selectedCandidateKey: "balanced",
+  selectedCandidateKey: "maximum_ev",
   previousCandidate: null,
   allPlayers: [],
   initialized: false,
@@ -3460,6 +3460,8 @@ function renderActiveConstraintPills() {
       if (type === "exclude") strategicState.excludedPlayerIds.delete(pid);
       if (type === "prefer") strategicState.preferredPlayerIds.delete(pid);
       renderActiveConstraintPills();
+      const currentCand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (currentCand) renderStrategicPitch(currentCand);
     });
   });
 }
@@ -3543,14 +3545,16 @@ function renderStrategicPitch(candidate) {
 
 function createStrategicPlayerCard(p, candidate, isBench = false) {
   const card = document.createElement("div");
-  card.className = `strategic-player-card ${p.is_locked ? "is-locked" : ""}`;
+  const isLocked = strategicState.lockedPlayerIds.has(p.id) || p.is_locked;
+  const isPreferred = strategicState.preferredPlayerIds.has(p.id) || p.is_preferred;
+  card.className = `strategic-player-card ${isLocked ? "is-locked" : ""}`;
   
   let roleBadge = "";
   if (p.role === "CAPTAIN") roleBadge = `<span class="p-card-role" style="background: #f59e0b; color: #000;">C</span>`;
   else if (p.role === "VICE_CAPTAIN") roleBadge = `<span class="p-card-role" style="background: #94a3b8; color: #000;">VC</span>`;
   else if (p.role === "GK_SUB") roleBadge = `<span class="p-card-role" style="background: #3b82f6; color: #fff;">SUB</span>`;
 
-  let lockIcon = p.is_locked ? "🔒 " : (p.is_preferred ? "⭐ " : "");
+  let lockIcon = isLocked ? "🔒 " : (isPreferred ? "⭐ " : "");
 
   card.innerHTML = `
     ${roleBadge}
@@ -3721,6 +3725,8 @@ function initStrategicStudio() {
       strategicState.lockedPlayerIds.add(p.id);
       if (searchInp) searchInp.value = "";
       renderActiveConstraintPills();
+      const currentCand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (currentCand) renderStrategicPitch(currentCand);
       showToast(`Locked ${p.name} as Must-Have.`);
     });
   }
@@ -3736,6 +3742,8 @@ function initStrategicStudio() {
       strategicState.excludedPlayerIds.add(p.id);
       if (searchInp) searchInp.value = "";
       renderActiveConstraintPills();
+      const currentCand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (currentCand) renderStrategicPitch(currentCand);
       showToast(`Excluded ${p.name} from squad.`);
     });
   }
@@ -3750,6 +3758,8 @@ function initStrategicStudio() {
       strategicState.preferredPlayerIds.add(p.id);
       if (searchInp) searchInp.value = "";
       renderActiveConstraintPills();
+      const currentCand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (currentCand) renderStrategicPitch(currentCand);
       showToast(`Added soft preference for ${p.name}.`);
     });
   }
@@ -3760,6 +3770,8 @@ function initStrategicStudio() {
       strategicState.excludedPlayerIds.clear();
       strategicState.preferredPlayerIds.clear();
       renderActiveConstraintPills();
+      const currentCand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
+      if (currentCand) renderStrategicPitch(currentCand);
       showToast("Cleared all player constraints.");
     });
   }
@@ -3797,7 +3809,7 @@ function initStrategicStudio() {
 
         if (res && res.squad) {
           strategicState.candidates = res.strategic_candidates || { [res.strategy]: res };
-          strategicState.selectedCandidateKey = res.strategy || "balanced";
+          strategicState.selectedCandidateKey = res.strategy || "maximum_ev";
           strategicState.previousCandidate = res;
 
           renderCandidateSwitcherTabs(strategicState.candidates);
@@ -3864,8 +3876,8 @@ function initStrategicStudio() {
         });
 
         if (res && res.squad) {
-          strategicState.candidates[res.strategy] = res;
-          strategicState.selectedCandidateKey = res.strategy;
+          strategicState.candidates = res.strategic_candidates || { [res.strategy]: res };
+          strategicState.selectedCandidateKey = res.strategy || "maximum_ev";
           strategicState.previousCandidate = res;
 
           renderCandidateSwitcherTabs(strategicState.candidates);
@@ -3986,6 +3998,8 @@ const histState = {
   sessionData: null,
   overviewData: null,
   swapOutPlayer: null,
+  subbingPlayer: null,
+  playerPool: [],
   overviewPastGw: null,
   overviewFutureGw: null,
   availableSeasons: [],
@@ -4253,6 +4267,38 @@ function initHistoricalTimeMachine() {
         showToast(`Lineup update failed: ${err.message}`, true);
       }
     });
+  }
+
+  // Pitch Manual Lineup Save & Cancel Sub
+  const btnSaveHistLineup = document.getElementById("btn-hist-save-lineup");
+  if (btnSaveHistLineup) {
+    btnSaveHistLineup.addEventListener("click", async () => {
+      await saveHistoricalLineupFromSquad();
+      showToast("Historical lineup and captaincy saved!");
+    });
+  }
+
+  const btnCancelHistSub = document.getElementById("btn-cancel-hist-sub");
+  if (btnCancelHistSub) {
+    btnCancelHistSub.addEventListener("click", () => {
+      cancelHistoricalSubstitution();
+    });
+  }
+
+  // Historical Transfers & Staging Handlers
+  const btnHistStageTrade = document.getElementById("btn-hist-stage-trade");
+  if (btnHistStageTrade) {
+    btnHistStageTrade.addEventListener("click", handleHistoricalStageTrade);
+  }
+
+  const histTxOut = document.getElementById("hist-tx-exec-out");
+  if (histTxOut) {
+    histTxOut.addEventListener("change", updateHistoricalTradeSummary);
+  }
+
+  const histTxIn = document.getElementById("hist-tx-exec-in");
+  if (histTxIn) {
+    histTxIn.addEventListener("input", updateHistoricalTradeSummary);
   }
 
   // Results Filter GW
@@ -4563,9 +4609,11 @@ async function loadHistoricalSession(sessionId) {
     const chipSelect = document.getElementById("hist-chip-select");
     if (chipSelect) chipSelect.value = data.active_chip || "";
 
-    // Render Pitch
+    // Render Pitch & Transfers
     renderHistoricalPitch(data.squad || []);
     renderHistoricalStagedTransfers(data.transfers_staged || []);
+    populateHistoricalTransferSquad(data.squad || []);
+    loadHistoricalTransferPool();
 
     // Synchronize chip-start-gw input if present
     const chipGwInput = document.getElementById("chip-start-gw");
@@ -4618,19 +4666,50 @@ function renderHistoricalPitch(squad) {
     if (p.is_captain) div.style.borderColor = "var(--accent-gold)";
     else if (p.is_vice_captain) div.style.borderColor = "#94a3b8";
 
+    if (histState.subbingPlayer) {
+      if (histState.subbingPlayer.player_id === p.player_id) {
+        div.classList.add("sub-source");
+      } else if (canHistoricalSwapPlayers(histState.subbingPlayer, p, starters, bench)) {
+        div.classList.add("sub-target");
+      }
+    }
+
+    // Role badge
+    let badgeHtml = "";
+    if (p.is_captain) {
+      badgeHtml = '<div class="player-badge-role badge-cap" title="Captain">C</div>';
+    } else if (p.is_vice_captain) {
+      badgeHtml = '<div class="player-badge-role badge-vc" title="Vice-Captain">V</div>';
+    }
+
+    // Points display: Projected xP for upcoming/unplayed GW, or ground truth pts if points exist and matchday resolved
+    let ptsDisplay = "";
+    if (p.expected_points !== undefined && p.expected_points !== null) {
+      ptsDisplay = `<span style="color: var(--accent-green); font-weight: bold;">${Number(p.expected_points).toFixed(1)} xP</span>`;
+    } else {
+      ptsDisplay = `<span style="color: var(--accent-green); font-weight: bold;">${p.total_points || 0}p</span>`;
+    }
+
+    const fdrVal = p.next_fixture_fdr || 3;
+    const fdrHtml = p.next_fixture_fdr ? `<span class="fdr-pill fdr-${fdrVal}" style="font-size: 0.62rem; padding: 1px 4px;">FDR ${fdrVal}</span>` : "";
+
     div.innerHTML = `
-      <div style="font-size: 0.65rem; color: #94a3b8; font-weight: bold;">${p.pos_abbr} · ${escapeHtml(p.team_short)}</div>
+      ${badgeHtml}
+      <div style="font-size: 0.65rem; color: #94a3b8; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+        <span>${p.pos_abbr} · ${escapeHtml(p.team_short)}</span>
+        ${fdrHtml}
+      </div>
       <div style="font-weight: 700; color: #fff; font-size: 0.82rem; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px;" title="${escapeHtml(p.name)}">
         ${escapeHtml(p.name)}
       </div>
       <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: #cbd5e1; width: 100%;">
-        <span>${p.selling_price_fmt}</span>
-        <span style="color: var(--accent-green); font-weight: bold;">${p.total_points}p</span>
+        <span>${p.selling_price_fmt || `£${((p.price_tenths || 0)/10).toFixed(1)}m`}</span>
+        ${ptsDisplay}
       </div>
       <div class="card-quick-actions" style="margin-top: 4px;">
         <button class="quick-btn ${p.is_captain ? 'active-role' : ''}" data-act="cap" title="Set Captain">C</button>
         <button class="quick-btn ${p.is_vice_captain ? 'active-role' : ''}" data-act="vc" title="Set Vice Captain">V</button>
-        <button class="quick-btn" data-act="swap" style="color: #38bdf8;" title="Transfer Out / Swap">⇄</button>
+        <button class="quick-btn" data-act="swap" style="color: #38bdf8;" title="Substitute Player">⇄</button>
       </div>
     `;
 
@@ -4645,7 +4724,23 @@ function renderHistoricalPitch(squad) {
     });
     div.querySelector('[data-act="swap"]').addEventListener("click", (e) => {
       e.stopPropagation();
-      openHistoricalSwapModal(p);
+      if (histState.subbingPlayer && histState.subbingPlayer.player_id === p.player_id) {
+        cancelHistoricalSubstitution();
+      } else if (histState.subbingPlayer) {
+        executeHistoricalSubstitution(histState.subbingPlayer, p);
+      } else {
+        startHistoricalSubstitution(p);
+      }
+    });
+
+    div.addEventListener("click", () => {
+      if (histState.subbingPlayer) {
+        if (histState.subbingPlayer.player_id === p.player_id) {
+          cancelHistoricalSubstitution();
+        } else {
+          executeHistoricalSubstitution(histState.subbingPlayer, p);
+        }
+      }
     });
 
     return div;
@@ -4661,9 +4756,152 @@ function renderHistoricalPitch(squad) {
 
   bench.forEach((p, idx) => {
     const card = renderCard(p, true);
-    card.style.opacity = "0.85";
+    card.style.opacity = "0.88";
     benchRow.appendChild(card);
   });
+}
+
+function canHistoricalSwapPlayers(p1, p2, starters, bench) {
+  if (!p1 || !p2 || p1.player_id === p2.player_id) return false;
+  const isP1Starter = starters.some(p => p.player_id === p1.player_id);
+  const isP2Starter = starters.some(p => p.player_id === p2.player_id);
+
+  if (isP1Starter === isP2Starter) {
+    if (p1.pos_abbr === "GKP" || p2.pos_abbr === "GKP") {
+      return p1.pos_abbr === "GKP" && p2.pos_abbr === "GKP";
+    }
+    return true;
+  }
+
+  const starter = isP1Starter ? p1 : p2;
+  const benchP = isP1Starter ? p2 : p1;
+
+  if (starter.pos_abbr === "GKP" || benchP.pos_abbr === "GKP") {
+    return starter.pos_abbr === "GKP" && benchP.pos_abbr === "GKP";
+  }
+
+  const testStarters = starters.map(p => (p.player_id === starter.player_id ? benchP : p));
+  return isLegalFormation(testStarters);
+}
+
+function startHistoricalSubstitution(player) {
+  histState.subbingPlayer = player;
+  const banner = document.getElementById("hist-sub-mode-banner");
+  const nameEl = document.getElementById("hist-sub-source-name");
+  if (banner) banner.classList.remove("hidden");
+  if (nameEl) nameEl.textContent = `${player.name} (${player.pos_abbr})`;
+  if (histState.sessionData && histState.sessionData.squad) {
+    renderHistoricalPitch(histState.sessionData.squad);
+  }
+}
+
+function cancelHistoricalSubstitution() {
+  histState.subbingPlayer = null;
+  const banner = document.getElementById("hist-sub-mode-banner");
+  if (banner) banner.classList.add("hidden");
+  if (histState.sessionData && histState.sessionData.squad) {
+    renderHistoricalPitch(histState.sessionData.squad);
+  }
+}
+
+async function executeHistoricalSubstitution(sourcePlayer, targetPlayer) {
+  if (!histState.sessionData || !histState.sessionData.squad) return;
+  const squad = histState.sessionData.squad;
+  const starters = squad.filter(p => p.is_starter);
+  const bench = squad.filter(p => p.is_bench).sort((a, b) => (a.bench_order || 99) - (b.bench_order || 99));
+
+  const sourceInStarters = starters.findIndex(p => p.player_id === sourcePlayer.player_id);
+  const targetInStarters = starters.findIndex(p => p.player_id === targetPlayer.player_id);
+  const sourceInBench = bench.findIndex(p => p.player_id === sourcePlayer.player_id);
+  const targetInBench = bench.findIndex(p => p.player_id === targetPlayer.player_id);
+
+  if (sourceInStarters !== -1 && targetInStarters !== -1) {
+    cancelHistoricalSubstitution();
+    return;
+  }
+
+  if (sourceInBench !== -1 && targetInBench !== -1) {
+    if (sourcePlayer.pos_abbr === "GKP" || targetPlayer.pos_abbr === "GKP") {
+      showToast("Cannot swap goalkeeper with outfield player on bench.", true);
+      cancelHistoricalSubstitution();
+      return;
+    }
+    const tempOrder = bench[sourceInBench].bench_order;
+    bench[sourceInBench].bench_order = bench[targetInBench].bench_order;
+    bench[targetInBench].bench_order = tempOrder;
+    cancelHistoricalSubstitution();
+    await saveHistoricalLineupFromSquad();
+    showToast(`Bench order updated: ${sourcePlayer.name} swapped with ${targetPlayer.name}.`);
+    return;
+  }
+
+  const starterIdx = sourceInStarters !== -1 ? sourceInStarters : targetInStarters;
+  const benchIdx = sourceInBench !== -1 ? sourceInBench : targetInBench;
+  const starterP = starters[starterIdx];
+  const benchP = bench[benchIdx];
+
+  if (starterP.pos_abbr === "GKP" || benchP.pos_abbr === "GKP") {
+    if (starterP.pos_abbr !== "GKP" || benchP.pos_abbr !== "GKP") {
+      showToast("Goalkeepers can only be swapped with the backup goalkeeper.", true);
+      cancelHistoricalSubstitution();
+      return;
+    }
+  }
+
+  const testStarters = [...starters];
+  testStarters[starterIdx] = benchP;
+
+  if (!isLegalFormation(testStarters)) {
+    showToast("Invalid substitution: Formation must have 3-5 DEF, 2-5 MID, 1-3 FWD, and 1 GKP.", true);
+    cancelHistoricalSubstitution();
+    return;
+  }
+
+  // Swap starter and bench roles
+  starterP.is_starter = false;
+  starterP.is_bench = true;
+  starterP.bench_order = benchP.bench_order || 1;
+
+  benchP.is_starter = true;
+  benchP.is_bench = false;
+  benchP.bench_order = null;
+
+  if (starterP.is_captain) {
+    starterP.is_captain = false;
+    benchP.is_captain = true;
+    showToast(`Captain armband transferred to ${benchP.name}.`);
+  } else if (starterP.is_vice_captain) {
+    starterP.is_vice_captain = false;
+    benchP.is_vice_captain = true;
+  }
+
+  cancelHistoricalSubstitution();
+  await saveHistoricalLineupFromSquad();
+  showToast(`Substituted ${starterP.name} ➔ ${benchP.name}`);
+}
+
+async function saveHistoricalLineupFromSquad() {
+  if (!histState.sessionId || !histState.sessionData) return;
+  const squad = histState.sessionData.squad || [];
+  const starters = squad.filter(p => p.is_starter).map(p => p.player_id);
+  const bench = squad.filter(p => p.is_bench).sort((a, b) => (a.bench_order || 99) - (b.bench_order || 99)).map(p => p.player_id);
+  const cap = squad.find(p => p.is_captain)?.player_id || starters[0];
+  const vc = squad.find(p => p.is_vice_captain)?.player_id || (starters.find(id => id !== cap) || starters[0]);
+
+  try {
+    await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
+      method: "POST",
+      body: JSON.stringify({
+        starting_ids: starters,
+        bench_ids: bench,
+        captain_id: cap,
+        vice_captain_id: vc,
+      }),
+    });
+    await loadHistoricalSession(histState.sessionId);
+  } catch (err) {
+    showToast(`Failed to persist lineup: ${err.message}`, true);
+  }
 }
 
 function renderHistoricalStagedTransfers(staged) {
@@ -4674,7 +4912,7 @@ function renderHistoricalStagedTransfers(staged) {
   if (countEl) countEl.textContent = staged.length;
 
   if (staged.length === 0) {
-    listEl.innerHTML = `<div class="text-muted text-sm">No transfers staged. Click ⇄ on any player above to swap.</div>`;
+    listEl.innerHTML = `<div class="text-muted text-sm">No transfers staged. Select a player to sell and buy above.</div>`;
     return;
   }
 
@@ -4697,7 +4935,7 @@ async function updateHistoricalLineupRoles(newCapId, newVcId) {
   if (!histState.sessionId || !histState.sessionData) return;
   const squad = histState.sessionData.squad || [];
   const starters = squad.filter(p => p.is_starter).map(p => p.player_id);
-  const bench = squad.filter(p => p.is_bench).sort((a, b) => a.bench_order - b.bench_order).map(p => p.player_id);
+  const bench = squad.filter(p => p.is_bench).sort((a, b) => (a.bench_order || 99) - (b.bench_order || 99)).map(p => p.player_id);
 
   let cap = newCapId || squad.find(p => p.is_captain)?.player_id || starters[0];
   let vc = newVcId || squad.find(p => p.is_vice_captain)?.player_id || starters[1];
@@ -4724,87 +4962,115 @@ async function updateHistoricalLineupRoles(newCapId, newVcId) {
 }
 
 // ----------------------------------------------------------------------------
-// Swap / Transfer Modal
+// Historical Transfers Tab (Matching Live Manager 1:1)
 // ----------------------------------------------------------------------------
 
-async function openHistoricalSwapModal(outPlayer) {
-  histState.swapOutPlayer = outPlayer;
-  const modal = document.getElementById("hist-swap-modal");
-  const title = document.getElementById("hist-swap-modal-title");
-  const searchInput = document.getElementById("hist-swap-search");
-  const posFilter = document.getElementById("hist-swap-pos-filter");
-  const list = document.getElementById("hist-swap-candidates-list");
+function populateHistoricalTransferSquad(squad) {
+  const outSelect = document.getElementById("hist-tx-exec-out");
+  if (!outSelect) return;
+  const curVal = outSelect.value;
+  outSelect.innerHTML = '<option value="">-- Select player to sell --</option>';
 
-  if (!modal || !list) return;
+  (squad || []).forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.player_id;
+    const priceText = p.selling_price_fmt || `£${((p.price_tenths || 0) / 10).toFixed(1)}m`;
+    opt.textContent = `${p.name} (${p.pos_abbr} · ${p.team_short} · ${priceText})`;
+    if (String(curVal) === String(p.player_id)) opt.selected = true;
+    outSelect.appendChild(opt);
+  });
+}
 
-  if (title) title.textContent = `Swap ${outPlayer.name} (${outPlayer.pos_abbr} - ${outPlayer.selling_price_fmt})`;
-  if (posFilter) posFilter.value = outPlayer.pos_abbr;
-  if (searchInput) searchInput.value = "";
-
-  modal.classList.remove("hidden");
-  modal.style.display = "flex";
-  list.innerHTML = `<div class="text-center text-muted" style="padding: 2rem;">Loading candidates from Gameweek ${histState.gameweek} snapshot...</div>`;
-
+async function loadHistoricalTransferPool() {
+  if (!histState.sessionId) return;
   try {
-    const data = await api(`/api/players?search=&all=true`);
-    const allPlayers = data.players || [];
-
-    const renderCandidates = () => {
-      const q = (searchInput?.value || "").toLowerCase().trim();
-      const pos = posFilter?.value || "ALL";
-
-      const filtered = allPlayers.filter(p => {
-        if (pos !== "ALL" && p.position !== pos && p.pos_abbr !== pos) return false;
-        if (q && !p.name.toLowerCase().includes(q) && !(p.team || "").toLowerCase().includes(q)) return false;
-        // Don't show players already in current squad
-        if (histState.sessionData && histState.sessionData.squad && histState.sessionData.squad.some(s => s.player_id === p.id)) return false;
-        return true;
-      }).slice(0, 50);
-
-      list.innerHTML = `
-        <table class="data-table" style="width: 100%; font-size: 0.85rem;">
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th>Club</th>
-              <th>Pos</th>
-              <th>Price</th>
-              <th>Pts</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filtered.map(cand => `
-              <tr>
-                <td style="font-weight: 600;">${escapeHtml(cand.name)}</td>
-                <td style="color: #94a3b8;">${escapeHtml(cand.team)}</td>
-                <td><span class="badge">${escapeHtml(cand.position || cand.pos_abbr)}</span></td>
-                <td>£${(cand.price_tenths / 10).toFixed(1)}m</td>
-                <td style="color: var(--accent-green); font-weight: bold;">${cand.total_points || 0}</td>
-                <td>
-                  <button class="btn btn-primary btn-xs btn-stage-swap" data-in-id="${cand.id}">Transfer In</button>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      `;
-
-      list.querySelectorAll(".btn-stage-swap").forEach(b => {
-        b.addEventListener("click", async () => {
-          const inId = parseInt(b.getAttribute("data-in-id"), 10);
-          await stageHistoricalTransfer(outPlayer.player_id, inId);
-          modal.style.display = "none";
-        });
-      });
-    };
-
-    renderCandidates();
-    if (searchInput) searchInput.oninput = renderCandidates;
-    if (posFilter) posFilter.onchange = renderCandidates;
+    const data = await api(`/api/historical/simulations/${histState.sessionId}/players`);
+    histState.playerPool = data.players || [];
+    populateHistoricalTransferDatalist();
   } catch (err) {
-    list.innerHTML = `<div class="text-danger" style="padding: 1rem;">Failed to load player list: ${err.message}</div>`;
+    console.error("Failed to load historical transfer pool:", err);
   }
+}
+
+function populateHistoricalTransferDatalist() {
+  const datalist = document.getElementById("hist-available-players-datalist");
+  if (!datalist || !histState.playerPool) return;
+  const squadIds = new Set(histState.sessionData?.squad ? histState.sessionData.squad.map(p => p.player_id) : []);
+
+  datalist.innerHTML = "";
+  histState.playerPool.forEach(p => {
+    if (!squadIds.has(p.id)) {
+      const opt = document.createElement("option");
+      opt.value = `${p.name} (${p.team} · ${p.pos_abbr || p.position} · ${p.price_fmt})`;
+      opt.setAttribute("data-id", p.id);
+      datalist.appendChild(opt);
+    }
+  });
+}
+
+function resolveHistoricalIncomingPlayer(inputText) {
+  if (!inputText || !histState.playerPool) return null;
+  const txt = inputText.trim().toLowerCase();
+  const directMatch = histState.playerPool.find(p => {
+    const formatted = `${p.name} (${p.team} · ${p.pos_abbr || p.position} · ${p.price_fmt})`.toLowerCase();
+    return formatted === txt || p.name.toLowerCase() === txt;
+  });
+  if (directMatch) return directMatch;
+
+  return (
+    histState.playerPool.find(p => p.name.toLowerCase().startsWith(txt)) ||
+    histState.playerPool.find(p => p.name.toLowerCase().includes(txt)) ||
+    null
+  );
+}
+
+function updateHistoricalTradeSummary() {
+  const summaryEl = document.getElementById("hist-tx-exec-summary");
+  if (!summaryEl) return;
+  const outSelect = document.getElementById("hist-tx-exec-out");
+  const inInput = document.getElementById("hist-tx-exec-in");
+  const outId = parseInt(outSelect?.value, 10);
+  const inPlayer = resolveHistoricalIncomingPlayer(inInput?.value);
+
+  if (!outId && !inPlayer) {
+    summaryEl.textContent = "";
+    return;
+  }
+
+  const outPlayer = histState.sessionData?.squad ? histState.sessionData.squad.find(p => p.player_id === outId) : null;
+
+  if (outPlayer && inPlayer) {
+    const outSell = outPlayer.price_tenths || 0;
+    const inCost = inPlayer.price_tenths || 0;
+    const diff = (outSell - inCost) / 10;
+    const sign = diff >= 0 ? "+" : "";
+    summaryEl.innerHTML = `Selling <strong>${escapeHtml(outPlayer.name)}</strong> (${outPlayer.selling_price_fmt}) ➔ Buying <strong>${escapeHtml(inPlayer.name)}</strong> (${inPlayer.price_fmt}). Net Bank Impact: <strong>${sign}£${diff.toFixed(1)}m</strong>`;
+  } else if (outPlayer) {
+    summaryEl.innerHTML = `Selling <strong>${escapeHtml(outPlayer.name)}</strong> (${outPlayer.selling_price_fmt})`;
+  } else if (inPlayer) {
+    summaryEl.innerHTML = `Buying <strong>${escapeHtml(inPlayer.name)}</strong> (${inPlayer.team} · ${inPlayer.pos_abbr || inPlayer.position} · ${inPlayer.price_fmt})`;
+  }
+}
+
+async function handleHistoricalStageTrade() {
+  const outSelect = document.getElementById("hist-tx-exec-out");
+  const inInput = document.getElementById("hist-tx-exec-in");
+  const outId = parseInt(outSelect?.value, 10);
+  if (!outId) {
+    showToast("Please select a player to sell (OUT)", true);
+    return;
+  }
+  const inPlayer = resolveHistoricalIncomingPlayer(inInput?.value);
+  if (!inPlayer) {
+    showToast("Please select a valid replacement player (IN)", true);
+    return;
+  }
+
+  await stageHistoricalTransfer(outId, inPlayer.id);
+  if (inInput) inInput.value = "";
+  if (outSelect) outSelect.value = "";
+  const summaryEl = document.getElementById("hist-tx-exec-summary");
+  if (summaryEl) summaryEl.textContent = "";
 }
 
 async function stageHistoricalTransfer(outId, inId) {

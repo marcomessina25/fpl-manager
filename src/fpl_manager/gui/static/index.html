@@ -405,7 +405,16 @@
                 <option value="triple_captain">Triple Captain</option>
               </select>
               <button id="btn-hist-auto-lineup" class="btn btn-secondary btn-sm" title="Optimize starting 11 for this deadline">⚡ Auto-XI</button>
+              <button id="btn-hist-save-lineup" class="btn btn-primary btn-sm" title="Save current lineup and captaincy">💾 Save Lineup</button>
             </div>
+          </div>
+
+          <!-- Historical Substitution Mode Active Bar -->
+          <div id="hist-sub-mode-banner" class="sub-mode-bar hidden">
+            <div class="sub-bar-text">
+              <span>🔄 Swapping <strong id="hist-sub-source-name">-</strong>. Click any eligible player on the pitch or bench to complete substitution.</span>
+            </div>
+            <button id="btn-cancel-hist-sub" class="btn btn-secondary btn-sm">Cancel</button>
           </div>
 
           <!-- Historical Pitch Field -->
@@ -474,18 +483,6 @@
                 <option value="v1.3">Decision Engine V1.3 (GBDT ML)</option>
                 <option value="v1.2.5">Decision Engine V1.2.5 (Lineup & Horizon)</option>
                 <option value="v1.0">Decision Engine V1.0 (Canonical Heuristic)</option>
-              </select>
-            </div>
-            <div class="tool-group">
-              <label for="strategic-strategy-select">Primary Objective Profile:</label>
-              <select id="strategic-strategy-select" class="form-control">
-                <option value="maximum_ev" selected>Maximum Expected Value (EV) — V1.3.5 Default</option>
-                <option value="balanced">Balanced (Points + Flexibility + Fixtures)</option>
-                <option value="floor">High Floor (Safe Starters, Clean Sheets)</option>
-                <option value="ceiling">High Ceiling (Explosive Differentials)</option>
-                <option value="flexibility">Future Transfer Flexibility (Price Tiers)</option>
-                <option value="defend_lead">Defend Lead (Shield Template EO)</option>
-                <option value="chase">Chase Rank (Differential Haul Leverage)</option>
               </select>
             </div>
             <div class="tool-group">
@@ -566,7 +563,7 @@
                 <thead>
                   <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
                     <th style="padding: 0.6rem;">Strategic Metric</th>
-                    <th style="padding: 0.6rem;">Maximum EV</th>
+                    <th style="padding: 0.6rem;">Maximum EV (Default)</th>
                     <th style="padding: 0.6rem;">Balanced</th>
                     <th style="padding: 0.6rem;">High Floor</th>
                     <th style="padding: 0.6rem;">High Ceiling</th>
@@ -811,21 +808,34 @@
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1.2fr); gap: 1rem;">
+          <div style="display: grid; grid-template-columns: minmax(300px, 1.2fr) minmax(300px, 1fr); gap: 1rem;">
+            <!-- Stage Transfer Form (Matching Live Decision Logger 1:1) -->
+            <div class="card" style="padding: 1rem; background: rgba(0,0,0,0.2);">
+              <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Transfer Market & Staging</h3>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="hist-tx-exec-out">Player OUT (From Squad):</label>
+                  <select id="hist-tx-exec-out" class="form-control form-select">
+                    <option value="">-- Select player to sell --</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="hist-tx-exec-in">Player IN (Search Historical Snapshot):</label>
+                  <input type="text" id="hist-tx-exec-in" list="hist-available-players-datalist" class="form-control" placeholder="Type player name (e.g. Haaland, Saka)..." autocomplete="off" />
+                  <datalist id="hist-available-players-datalist"></datalist>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <div id="hist-tx-exec-summary" class="text-muted" style="font-size: 0.82rem;"></div>
+                <button id="btn-hist-stage-trade" type="button" class="btn btn-primary btn-sm">Stage Transfer</button>
+              </div>
+            </div>
+
             <!-- Staged Transfers List -->
             <div class="card" style="padding: 1rem; background: rgba(0,0,0,0.2);">
               <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Staged Transfers (<span id="hist-staged-count">0</span>)</h3>
               <div id="hist-staged-tx-list" class="hist-staged-tx-list" style="min-height: 80px; font-size: 0.85rem;">
-                <div class="text-muted text-sm">No transfers staged. Click ⇄ on any player in Pitch & Lineup to swap.</div>
-              </div>
-            </div>
-
-            <!-- Transfer Search / Swap Helper -->
-            <div class="card" style="padding: 1rem; background: rgba(0,0,0,0.2);">
-              <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Quick Player Search & Swap</h3>
-              <p class="text-muted text-sm">To stage a transfer, click the swap button <strong>⇄</strong> on any player card in the <strong>Pitch & Lineup</strong> tab to select from the historical player pool.</p>
-              <div style="margin-top: 1rem;">
-                <button type="button" class="btn btn-primary btn-sm" onclick="document.querySelector('.tab-btn[data-tab=\'pitch\']').click()">Go to Pitch & Lineup</button>
+                <div class="text-muted text-sm">No transfers staged. Select a player to sell and buy above.</div>
               </div>
             </div>
           </div>

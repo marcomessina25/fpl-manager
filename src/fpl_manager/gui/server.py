@@ -590,7 +590,33 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 session_id = parts[0]
                 action = parts[1] if len(parts) > 1 else None
                 sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                if action == "recommendations":
+                if action == "players":
+                    snap = sim.get_current_snapshot()
+                    season_dir = sim.historical_dir / sim.season
+                    players_map, _ = load_historical_players_meta(snap, season_dir, horizon=1)
+                    player_list = [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "position": p.position.name,
+                            "pos_abbr": {
+                                Position.GOALKEEPER: "GKP",
+                                Position.DEFENDER: "DEF",
+                                Position.MIDFIELDER: "MID",
+                                Position.FORWARD: "FWD",
+                            }.get(p.position, "MID"),
+                            "team": p.team_short,
+                            "team_id": p.team_id,
+                            "price_fmt": f"£{p.price_tenths / 10:.1f}m",
+                            "price_tenths": p.price_tenths,
+                            "expected_points": getattr(p, "gw_xp", getattr(p, "expected_points", 0.0)),
+                            "total_points": p.total_points,
+                            "status": getattr(p, "status", "a"),
+                        }
+                        for p in sorted(players_map.values(), key=lambda x: (x.position.value, -x.total_points))
+                    ]
+                    self._send_json({"players": player_list})
+                elif action == "recommendations":
                     recs = sim.get_recommendations()
                     self._send_json(recs)
                 elif action == "chips":
@@ -1027,6 +1053,15 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     horizon=h_len,
                 )
 
+                failed_profiles_map: dict[str, str] = {}
+                all_cands = generate_strategic_candidates(
+                    candidate_pool=candidate_pool,
+                    constraints=constraints,
+                    mode=mode,
+                    horizon=h_len,
+                    failed_profiles=failed_profiles_map,
+                )
+
                 if prev_cand_data and "player_ids" in prev_cand_data:
                     prev_cand = StrategicCandidate(
                         candidate_id=prev_cand_data.get("candidate_id", "prev"),
@@ -1067,6 +1102,11 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
 
                 res = new_cand.to_dict()
                 res["constraint_impact"] = impact
+                res["strategic_candidates"] = {
+                    s: cand.to_dict() for s, cand in all_cands.items()
+                }
+                res["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+                res["failed_profiles"] = failed_profiles_map
                 self._send_json(res)
             elif path == "/api/strategic-squad/apply":
                 season = body.get("season")
