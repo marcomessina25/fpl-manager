@@ -8,6 +8,8 @@ and Double Gameweeks (DGW), evaluates squad readiness across half-season chip wi
 from contextlib import closing
 from dataclasses import dataclass
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -862,6 +864,15 @@ class SeasonalChipPolicy:
     max_fh_active_players_threshold: int = 8
     use_optimizer: bool = True
     optimizer_variant: str = "c1_linear_decay"
+
+    def __post_init__(self) -> None:
+        env_flag = os.getenv("FPL_CHIP_OPTIMIZER")
+        if env_flag is not None:
+            self.use_optimizer = env_flag.strip().lower() not in ("0", "false", "no", "legacy")
+        if not self.use_optimizer:
+            logging.getLogger(__name__).info(
+                "SeasonalChipPolicy running in legacy C0 heuristic threshold mode."
+            )
 
     def evaluate_gameweek_chip(
         self,
