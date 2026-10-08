@@ -25,6 +25,10 @@ from ..decision_log import (
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
+from ..historical.snapshots import (
+    build_historical_snapshot,
+    load_historical_players_meta,
+)
 from ..historical.standings import (
     compute_historical_standings,
     get_historical_matchday_overview,
@@ -262,12 +266,38 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/strategic-squad/config":
-                tid = get_arg("team") or get_active_team_id(self.config_dir)
-                store = SnapshotStore(self.database_path)
-                current_gw = get_current_gameweek(store)
-                team_info = get_team(tid, self.config_dir)
+                season = get_arg("season")
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else 1
+                session_id = get_arg("session_id")
 
-                players_map, _ = load_all_players_meta(store)
+                if season:
+                    hist_dir = PROJECT_ROOT / "data" / "historical"
+                    season_dir = hist_dir / season
+                    if not season_dir.exists():
+                        raise FileNotFoundError(f"Historical season directory not found: {season_dir}")
+                    snap = build_historical_snapshot(season_dir, gw)
+                    players_map, _ = load_historical_players_meta(snap, season_dir, horizon=5)
+                    team_info = None
+                    if session_id:
+                        sim_dir = self.config_dir / "simulations"
+                        if (sim_dir / f"{session_id}.json").exists():
+                            sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                            team_info = {
+                                "id": sim.session_id,
+                                "name": sim.experiment_metadata.get("manager_name", f"Simulation ({sim.season})"),
+                                "season": sim.season,
+                                "current_gw": sim.current_gw,
+                                "bank_tenths": sim.bank_tenths,
+                            }
+                    current_gw = gw
+                else:
+                    tid = get_arg("team") or get_active_team_id(self.config_dir)
+                    store = SnapshotStore(self.database_path)
+                    current_gw = get_current_gameweek(store)
+                    team_info = get_team(tid, self.config_dir)
+                    players_map, _ = load_all_players_meta(store)
+
                 player_list = [
                     {
                         "id": p.id,
@@ -295,9 +325,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     "default_horizons": [1, 2, 3, 4, 5, 6, 7, 8],
                     "current_gameweek": current_gw,
                     "active_team": team_info,
+                    "season": season,
                     "players": player_list,
                 })
             elif path == "/api/strategic-squad":
+                season = get_arg("season")
+                gw_arg = get_arg("gameweek")
+                gw = int(gw_arg) if gw_arg else 1
+                session_id = get_arg("session_id")
                 tid = get_arg("team")
                 mode = get_arg("mode", "initial")
                 horizon = int(get_arg("horizon", 5))
@@ -310,21 +345,91 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 excl = [int(i.strip()) for i in excl_raw.split(",") if i.strip()] if excl_raw else []
                 pref_raw = get_arg("prefer") or get_arg("prefers")
                 pref = [int(i.strip()) for i in pref_raw.split(",") if i.strip()] if pref_raw else []
-                squad_path = get_team_squad_path(tid, self.config_dir)
 
-                rep = suggest_strategic_squad(
-                    mode=mode,
-                    budget_millions=budget,
-                    squad_path=squad_path,
-                    database_path=self.database_path,
-                    num_gameweeks=horizon,
-                    strategy=strategy,
-                    locked_player_ids=locks,
-                    excluded_player_ids=excl,
-                    preferred_player_ids=pref,
-                    generate_all_candidates=True,
-                )
-                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+                if season:
+                    hist_dir = PROJECT_ROOT / "data" / "historical"
+                    season_dir = hist_dir / season
+                    if not season_dir.exists():
+                        raise FileNotFoundError(f"Historical season directory not found: {season_dir}")
+                    snap = build_historical_snapshot(season_dir, gw)
+                    h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
+                    players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
+
+                    if budget is not None:
+                        budget_tenths = int(round(budget * 10))
+                    elif mode == "initial":
+                        budget_tenths = 1000
+                    elif session_id:
+                        sim_dir = self.config_dir / "simulations"
+                        sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                        squad_selling_value = sum(
+                            selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                            for p_id in sim.squad_ids
+                            if p_id in players_map
+                        )
+                        budget_tenths = sim.bank_tenths + squad_selling_value
+                    else:
+                        budget_tenths = 1000
+
+                    target_gws = list(range(gw, min(39, gw + h_len)))
+                    effective_constraints = StrategicConstraints(
+                        budget_tenths=budget_tenths,
+                        locked_player_ids=set(locks),
+                        excluded_player_ids=set(excl),
+                        preferred_player_ids=set(pref),
+                        target_gameweeks=tuple(target_gws),
+                    )
+                    candidate_pool = [
+                        p for p in players_map.values()
+                        if p.status in ("a", "d") and not getattr(p, "is_long_term_unavailable", False)
+                    ]
+                    primary_candidate = solve_strategic_squad(
+                        candidate_pool=candidate_pool,
+                        constraints=effective_constraints,
+                        strategy=strategy,
+                        mode=mode,
+                        horizon=h_len,
+                    )
+                    rep = primary_candidate.to_dict()
+                    rep["selected_candidate"] = primary_candidate.to_dict()
+                    rep["mode"] = mode
+                    rep["strategy"] = strategy
+                    rep["horizon"] = h_len
+                    rep["budget_millions"] = budget_tenths / 10.0
+                    rep["bank_remaining_tenths"] = primary_candidate.bank_remaining_tenths
+
+                    failed_profiles_map: dict[str, str] = {}
+                    all_cands = generate_strategic_candidates(
+                        candidate_pool=candidate_pool,
+                        constraints=effective_constraints,
+                        mode=mode,
+                        horizon=h_len,
+                        failed_profiles=failed_profiles_map,
+                    )
+                    rep["requested_profiles"] = getattr(all_cands, "requested_profiles", list(all_cands.keys()))
+                    rep["successful_profiles"] = getattr(all_cands, "successful_profiles", list(all_cands.keys()))
+                    rep["failed_profiles"] = failed_profiles_map
+                    rep["strategic_candidates"] = {
+                        s: cand.to_dict() for s, cand in all_cands.items()
+                    }
+                    rep["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+                    rep["season"] = season
+                    rep["session_id"] = session_id
+                else:
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    rep = suggest_strategic_squad(
+                        mode=mode,
+                        budget_millions=budget,
+                        squad_path=squad_path,
+                        database_path=self.database_path,
+                        num_gameweeks=horizon,
+                        strategy=strategy,
+                        locked_player_ids=locks,
+                        excluded_player_ids=excl,
+                        preferred_player_ids=pref,
+                        generate_all_candidates=True,
+                    )
+                    rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/plan":
                 tid = get_arg("team")
@@ -731,6 +836,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json(res)
             elif path == "/api/strategic-squad/optimize":
+                season = body.get("season")
+                gw_val = body.get("gameweek")
+                gw = int(gw_val) if gw_val is not None else 1
+                session_id = body.get("session_id")
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 mode = body.get("mode", "initial")
                 horizon = int(body.get("horizon", 5))
@@ -739,22 +848,92 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 locked_ids = [int(i) for i in body.get("locked_player_ids", [])]
                 excluded_ids = [int(i) for i in body.get("excluded_player_ids", [])]
                 preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
-                squad_path = get_team_squad_path(tid, self.config_dir)
 
                 try:
-                    rep = suggest_strategic_squad(
-                        mode=mode,
-                        budget_millions=budget,
-                        squad_path=squad_path,
-                        database_path=self.database_path,
-                        num_gameweeks=horizon,
-                        strategy=strategy,
-                        locked_player_ids=locked_ids,
-                        excluded_player_ids=excluded_ids,
-                        preferred_player_ids=preferred_ids,
-                        generate_all_candidates=True,
-                    )
-                    rep["team_id"] = tid
+                    if season:
+                        hist_dir = PROJECT_ROOT / "data" / "historical"
+                        season_dir = hist_dir / season
+                        if not season_dir.exists():
+                            raise FileNotFoundError(f"Historical season directory not found: {season_dir}")
+                        snap = build_historical_snapshot(season_dir, gw)
+                        h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
+                        players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
+
+                        if budget is not None:
+                            budget_tenths = int(round(budget * 10))
+                        elif mode == "initial":
+                            budget_tenths = 1000
+                        elif session_id:
+                            sim_dir = self.config_dir / "simulations"
+                            sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                            squad_selling_value = sum(
+                                selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                                for p_id in sim.squad_ids
+                                if p_id in players_map
+                            )
+                            budget_tenths = sim.bank_tenths + squad_selling_value
+                        else:
+                            budget_tenths = 1000
+
+                        target_gws = list(range(gw, min(39, gw + h_len)))
+                        effective_constraints = StrategicConstraints(
+                            budget_tenths=budget_tenths,
+                            locked_player_ids=set(locked_ids),
+                            excluded_player_ids=set(excluded_ids),
+                            preferred_player_ids=set(preferred_ids),
+                            target_gameweeks=tuple(target_gws),
+                        )
+                        candidate_pool = [
+                            p for p in players_map.values()
+                            if p.status in ("a", "d") and not getattr(p, "is_long_term_unavailable", False)
+                        ]
+                        primary_candidate = solve_strategic_squad(
+                            candidate_pool=candidate_pool,
+                            constraints=effective_constraints,
+                            strategy=strategy,
+                            mode=mode,
+                            horizon=h_len,
+                        )
+                        rep = primary_candidate.to_dict()
+                        rep["selected_candidate"] = primary_candidate.to_dict()
+                        rep["mode"] = mode
+                        rep["strategy"] = strategy
+                        rep["horizon"] = h_len
+                        rep["budget_millions"] = budget_tenths / 10.0
+                        rep["bank_remaining_tenths"] = primary_candidate.bank_remaining_tenths
+
+                        failed_profiles_map: dict[str, str] = {}
+                        all_cands = generate_strategic_candidates(
+                            candidate_pool=candidate_pool,
+                            constraints=effective_constraints,
+                            mode=mode,
+                            horizon=h_len,
+                            failed_profiles=failed_profiles_map,
+                        )
+                        rep["requested_profiles"] = getattr(all_cands, "requested_profiles", list(all_cands.keys()))
+                        rep["successful_profiles"] = getattr(all_cands, "successful_profiles", list(all_cands.keys()))
+                        rep["failed_profiles"] = failed_profiles_map
+                        rep["strategic_candidates"] = {
+                            s: cand.to_dict() for s, cand in all_cands.items()
+                        }
+                        rep["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+                        rep["season"] = season
+                        rep["session_id"] = session_id
+                    else:
+                        squad_path = get_team_squad_path(tid, self.config_dir)
+                        rep = suggest_strategic_squad(
+                            mode=mode,
+                            budget_millions=budget,
+                            squad_path=squad_path,
+                            database_path=self.database_path,
+                            num_gameweeks=horizon,
+                            strategy=strategy,
+                            locked_player_ids=locked_ids,
+                            excluded_player_ids=excluded_ids,
+                            preferred_player_ids=preferred_ids,
+                            generate_all_candidates=True,
+                        )
+                        rep["team_id"] = tid
                     self._send_json(rep)
                 except ValueError as err:
                     self._send_json({"error": str(err), "error_type": "INFEASIBLE_CONSTRAINTS", "status": "error"}, status=400)
@@ -765,6 +944,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 except Exception as err:
                     self._send_json({"error": str(err), "error_type": "SOLVER_FAILURE", "status": "error"}, status=500)
             elif path == "/api/strategic-squad/reoptimize":
+                season = body.get("season")
+                gw_val = body.get("gameweek")
+                gw = int(gw_val) if gw_val is not None else 1
+                session_id = body.get("session_id")
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 prev_cand_data = body.get("previous_candidate", {})
                 mode = body.get("mode") or prev_cand_data.get("mode", "initial")
@@ -774,31 +957,56 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 locked_ids = [int(i) for i in body.get("locked_player_ids", [])]
                 excluded_ids = [int(i) for i in body.get("excluded_player_ids", [])]
                 preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
-                squad_path = get_team_squad_path(tid, self.config_dir)
 
-                store = SnapshotStore(self.database_path)
-                start_gw = get_current_gameweek(store)
                 h_len = max(1, min(8, horizon))
-                target_gws = list(range(start_gw, start_gw + h_len))
-                from ..expected_points import project_multi_gameweek_profiles
-                profiles_map = project_multi_gameweek_profiles(target_gws, database_path=self.database_path)
-                players_map, _ = load_all_players_meta(store, profiles_map)
+                if season:
+                    hist_dir = PROJECT_ROOT / "data" / "historical"
+                    season_dir = hist_dir / season
+                    if not season_dir.exists():
+                        raise FileNotFoundError(f"Historical season directory not found: {season_dir}")
+                    snap = build_historical_snapshot(season_dir, gw)
+                    players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
+                    target_gws = list(range(gw, min(39, gw + h_len)))
 
-                if budget is not None:
-                    budget_tenths = int(round(budget * 10))
-                elif mode == "initial":
-                    budget_tenths = 1000
-                else:
-                    try:
-                        state = load_current_squad(squad_path)
+                    if budget is not None:
+                        budget_tenths = int(round(budget * 10))
+                    elif mode == "initial":
+                        budget_tenths = 1000
+                    elif session_id:
+                        sim_dir = self.config_dir / "simulations"
+                        sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
                         squad_selling_value = sum(
-                            selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
-                            for p_id in state.player_ids
+                            selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                            for p_id in sim.squad_ids
                             if p_id in players_map
                         )
-                        budget_tenths = state.bank_tenths + squad_selling_value
-                    except Exception:
+                        budget_tenths = sim.bank_tenths + squad_selling_value
+                    else:
                         budget_tenths = 1000
+                else:
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    store = SnapshotStore(self.database_path)
+                    start_gw = get_current_gameweek(store)
+                    target_gws = list(range(start_gw, start_gw + h_len))
+                    from ..expected_points import project_multi_gameweek_profiles
+                    profiles_map = project_multi_gameweek_profiles(target_gws, database_path=self.database_path)
+                    players_map, _ = load_all_players_meta(store, profiles_map)
+
+                    if budget is not None:
+                        budget_tenths = int(round(budget * 10))
+                    elif mode == "initial":
+                        budget_tenths = 1000
+                    else:
+                        try:
+                            state = load_current_squad(squad_path)
+                            squad_selling_value = sum(
+                                selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+                                for p_id in state.player_ids
+                                if p_id in players_map
+                            )
+                            budget_tenths = state.bank_tenths + squad_selling_value
+                        except Exception:
+                            budget_tenths = 1000
 
                 constraints = StrategicConstraints(
                     budget_tenths=budget_tenths,
@@ -807,12 +1015,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     preferred_player_ids=set(preferred_ids),
                     target_gameweeks=tuple(target_gws),
                 )
-                candidate_pool = list(players_map.values())
+                candidate_pool = [
+                    p for p in players_map.values()
+                    if p.status in ("a", "d") and not getattr(p, "is_long_term_unavailable", False)
+                ]
                 new_cand = solve_strategic_squad(
                     candidate_pool=candidate_pool,
                     constraints=constraints,
                     strategy=strategy,
                     mode=mode,
+                    horizon=h_len,
                 )
 
                 if prev_cand_data and "player_ids" in prev_cand_data:
@@ -857,6 +1069,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 res["constraint_impact"] = impact
                 self._send_json(res)
             elif path == "/api/strategic-squad/apply":
+                season = body.get("season")
+                session_id = body.get("session_id")
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 mode = body.get("mode", "initial")
                 cand_data = body.get("candidate", {})
@@ -868,23 +1082,59 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 bank_tenths = int(cand_data.get("bank_remaining_tenths", body.get("bank_tenths", 0)))
                 gw_val = body.get("gameweek")
                 gw = int(gw_val) if gw_val is not None else 1
-                squad_path = get_team_squad_path(tid, self.config_dir)
 
-                res = apply_wildcard_or_freehit(
-                    squad_path=squad_path,
-                    gameweek=gw,
-                    mode=mode,
-                    squad_ids=squad_ids,
-                    starter_ids=starter_ids,
-                    bench_ids=bench_ids,
-                    captain_id=cap_id,
-                    vice_captain_id=vc_id,
-                    bank_tenths=bank_tenths,
-                    team_id=tid,
-                    season=body.get("season", "2026/27"),
-                    database_path=self.database_path,
-                )
-                self._send_json(res)
+                is_historical = bool(session_id or (season and "-" in season and len(season) == 7))
+                if is_historical:
+                    sim_dir = self.config_dir / "simulations"
+                    target_session_id = session_id
+                    if not target_session_id:
+                        # Find active or first simulation matching season
+                        active_sims = HistoricalSimulationSession.list_sessions(sim_dir)
+                        matched = [s for s in active_sims if s.get("season") == season]
+                        if matched:
+                            target_session_id = matched[0]["session_id"]
+                    if target_session_id and (sim_dir / f"{target_session_id}.json").exists():
+                        sim = HistoricalSimulationSession.load(target_session_id, config_dir=sim_dir)
+                        hist_dir = PROJECT_ROOT / "data" / "historical"
+                        season_dir = hist_dir / (season or sim.season)
+                        snap = build_historical_snapshot(season_dir, sim.current_gw)
+                        price_map = {p.player_id: p.price_tenths for p in snap.players}
+
+                        sim.squad_ids = list(squad_ids)
+                        sim.starting_ids = list(starter_ids)
+                        sim.bench_ids = list(bench_ids)
+                        sim.captain_id = cap_id
+                        sim.vice_captain_id = vc_id
+                        sim.purchase_prices_tenths = {
+                            str(pid): price_map.get(pid, 50) for pid in squad_ids
+                        }
+                        sim.bank_tenths = bank_tenths
+                        sim.save()
+                        self._send_json({
+                            "success": True,
+                            "session_id": sim.session_id,
+                            "squad": sim.get_squad_player_details(),
+                            "bank_tenths": sim.bank_tenths,
+                        })
+                    else:
+                        raise ValueError(f"No active simulation session found for season '{season}' to apply squad.")
+                else:
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    res = apply_wildcard_or_freehit(
+                        squad_path=squad_path,
+                        gameweek=gw,
+                        mode=mode,
+                        squad_ids=squad_ids,
+                        starter_ids=starter_ids,
+                        bench_ids=bench_ids,
+                        captain_id=cap_id,
+                        vice_captain_id=vc_id,
+                        bank_tenths=bank_tenths,
+                        team_id=tid,
+                        season=body.get("season", "2026/27"),
+                        database_path=self.database_path,
+                    )
+                    self._send_json(res)
             elif path == "/api/update-data":
                 from ..cli import update
                 res = update()

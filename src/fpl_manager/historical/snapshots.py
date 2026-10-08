@@ -489,3 +489,72 @@ def load_gameweek_outcomes(
             opponent_team_id=p.get("opponent_team_id", 0),
         )
     return outcomes
+
+
+def load_historical_players_meta(
+    snapshot: HistoricalGameweekSnapshot,
+    season_dir: Path,
+    horizon: int = 5,
+    needed_pids: set[int] | None = None,
+) -> tuple[dict[int, Any], dict[int, str]]:
+    """Build PlayerInfo candidates and team map for a historical snapshot and forward horizon.
+    
+    Loads forward multi-gameweek fixture-aware xP projections up to `horizon` gameweeks.
+    Strictly preserves point-in-time isolation without accessing future ground-truth outcomes.
+    """
+    from ..backtest.decision_engine import _get_forward_projections
+    from .reconstruction import reconstruct_features_and_project
+    from ..suggest_transfers import PlayerInfo
+
+    team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
+    projections = reconstruct_features_and_project(snapshot)
+    fwd_projections = _get_forward_projections(
+        snapshot=snapshot,
+        projections=projections,
+        horizon=horizon,
+        season_dir=season_dir,
+        needed_pids=needed_pids,
+    )
+    proj_map = {p.player_id: p for p in projections}
+
+    players_map: dict[int, PlayerInfo] = {}
+    for p in snapshot.players:
+        if needed_pids is not None and p.player_id not in needed_pids:
+            continue
+        p_proj = proj_map.get(p.player_id)
+        gw1_xp = p_proj.expected_points if p_proj else 0.0
+        gw1_xm = p_proj.expected_minutes if p_proj else 0.0
+        gw1_floor = p_proj.xp_floor if p_proj and p_proj.xp_floor > 0 else gw1_xp
+        gw1_ceil = p_proj.xp_ceiling if p_proj and p_proj.xp_ceiling > 0 else gw1_xp
+
+        p_fwd = [fwd_projections[gw].get(p.player_id, 0.0) for gw in sorted(fwd_projections.keys())]
+        horizon_xp = sum(p_fwd) if p_fwd else gw1_xp * horizon
+        avg_xp = round(horizon_xp / max(1, len(p_fwd)), 2)
+
+        import statistics
+        p_std = round(statistics.pstdev(p_fwd), 2) if len(p_fwd) > 1 else 0.0
+
+        p_info = PlayerInfo(
+            id=p.player_id,
+            name=p.web_name,
+            position=p.position,
+            team_id=p.team_id,
+            team_short=team_map.get(p.team_id, f"T{p.team_id}"),
+            price_tenths=p.price_tenths,
+            status=p.status,
+            total_points=p.total_points,
+            expected_points=avg_xp,
+            expected_minutes=gw1_xm,
+            xp_floor=gw1_floor,
+            xp_ceiling=gw1_ceil,
+            standard_deviation=p_std,
+            gw_xp=gw1_xp,
+            horizon_xp=horizon_xp,
+            horizon_floor=gw1_floor * max(1, len(p_fwd)),
+            horizon_ceiling=gw1_ceil * max(1, len(p_fwd)),
+            is_long_term_unavailable=p.is_long_term_unavailable,
+        )
+        players_map[p.player_id] = p_info
+
+    return players_map, team_map
+

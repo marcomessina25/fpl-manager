@@ -123,6 +123,10 @@ function initModality() {
 
       await loadOverview();
       await refreshActiveTeamData();
+      const activeTabLive = document.querySelector('.tabs-nav .tab-btn.active');
+      if (activeTabLive && activeTabLive.dataset.tab === "strategic") {
+        await loadStrategicStudio();
+      }
     } else {
       if (btnHist) btnHist.classList.add("active");
       if (btnLive) btnLive.classList.remove("active");
@@ -152,6 +156,10 @@ function initModality() {
 
       await loadHistoricalSimulationsList();
       await loadOverview();
+      const activeTabHist = document.querySelector('.tabs-nav .tab-btn.active');
+      if (activeTabHist && activeTabHist.dataset.tab === "strategic") {
+        await loadStrategicStudio();
+      }
     }
   };
 
@@ -3339,7 +3347,26 @@ const strategicState = {
 
 async function loadStrategicStudio() {
   try {
-    const config = await api("/api/strategic-squad/config");
+    let endpoint = "/api/strategic-squad/config";
+    const contextBadge = document.getElementById("strategic-context-badge");
+
+    if (state.appMode === "historical") {
+      const season = histState.season || "2023-24";
+      const gw = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
+      const sid = histState.sessionId || "";
+      endpoint = `/api/strategic-squad/config?season=${encodeURIComponent(season)}&gameweek=${gw}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}`;
+      if (contextBadge) {
+        contextBadge.textContent = `Historical (${season} GW${gw})`;
+        contextBadge.className = "badge badge-warning";
+      }
+    } else {
+      if (contextBadge) {
+        contextBadge.textContent = "Live Team (2026/27)";
+        contextBadge.className = "badge badge-info";
+      }
+    }
+
+    const config = await api(endpoint);
     if (config && config.players) {
       strategicState.allPlayers = config.players;
       populateStrategicPlayersDatalist(config.players);
@@ -3755,6 +3782,14 @@ function initStrategicStudio() {
           team_id: state.activeTeamId,
         };
 
+        if (state.appMode === "historical") {
+          payload.season = histState.season || "2023-24";
+          payload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
+          if (histState.sessionId) {
+            payload.session_id = histState.sessionId;
+          }
+        }
+
         const res = await api("/api/strategic-squad/optimize", {
           method: "POST",
           body: JSON.stringify(payload),
@@ -3815,6 +3850,14 @@ function initStrategicStudio() {
           team_id: state.activeTeamId,
         };
 
+        if (state.appMode === "historical") {
+          payload.season = histState.season || "2023-24";
+          payload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
+          if (histState.sessionId) {
+            payload.session_id = histState.sessionId;
+          }
+        }
+
         const res = await api("/api/strategic-squad/reoptimize", {
           method: "POST",
           body: JSON.stringify(payload),
@@ -3858,20 +3901,36 @@ function initStrategicStudio() {
         applyBtn.disabled = true;
         applyBtn.textContent = "Applying...";
 
+        const applyPayload = {
+          candidate: cand,
+          team_id: state.activeTeamId,
+          mode: cand.mode,
+          gameweek: state.activeGameweek || 1,
+        };
+
+        if (state.appMode === "historical") {
+          applyPayload.season = histState.season || "2023-24";
+          applyPayload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
+          if (histState.sessionId) {
+            applyPayload.session_id = histState.sessionId;
+          }
+        }
+
         const res = await api("/api/strategic-squad/apply", {
           method: "POST",
-          body: JSON.stringify({
-            candidate: cand,
-            team_id: state.activeTeamId,
-            mode: cand.mode,
-            gameweek: state.activeGameweek || 1,
-          }),
+          body: JSON.stringify(applyPayload),
         });
 
         if (res && res.success) {
           showToast(`Successfully applied strategic squad!`);
-          await loadCurrentSquad();
-          await loadLineup();
+          if (state.appMode === "historical") {
+            if (histState.sessionId) {
+              await loadHistoricalSession(histState.sessionId);
+            }
+          } else {
+            await loadCurrentSquad();
+            await loadLineup();
+          }
         }
       } catch (err) {
         showToast(`Failed to apply squad: ${err.message}`, true);
@@ -3963,6 +4022,10 @@ function initHistoricalTimeMachine() {
       histState.season = e.target.value;
       await loadHistoricalOverview();
       await loadHistoricalSimulationsList();
+      const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
+      if (activeTab && activeTab.dataset.tab === "strategic") {
+        await loadStrategicStudio();
+      }
     });
   }
 
@@ -3974,6 +4037,10 @@ function initHistoricalTimeMachine() {
       if (val >= 1 && val <= 38) {
         histState.gameweek = val;
         await loadHistoricalOverview();
+        const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
+        if (activeTab && activeTab.dataset.tab === "strategic") {
+          await loadStrategicStudio();
+        }
       }
     });
   }
@@ -3985,6 +4052,10 @@ function initHistoricalTimeMachine() {
       const id = e.target.value;
       if (id) {
         await loadHistoricalSession(id);
+        const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
+        if (activeTab && activeTab.dataset.tab === "strategic") {
+          await loadStrategicStudio();
+        }
       }
     });
   }

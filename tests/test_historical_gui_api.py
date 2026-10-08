@@ -111,3 +111,99 @@ def test_api_historical_simulations_lifecycle(test_server) -> None:
         rep = json.loads(r.read())
         assert rep["session_id"] == "test_api_sim_01"
         assert rep["gameweeks_completed"] == 1
+
+
+def test_api_historical_strategic_squad_lifecycle(test_server) -> None:
+    base_url, _ = test_server
+
+    # 1. Test /api/strategic-squad/config for historical season 2023-24
+    with urllib.request.urlopen(f"{base_url}/api/strategic-squad/config?season=2023-24&gameweek=1") as r:
+        assert r.status == 200
+        cfg = json.loads(r.read())
+        assert cfg["season"] == "2023-24"
+        assert cfg["current_gameweek"] == 1
+        assert len(cfg["players"]) > 500
+        # Verify historical players from 2023-24 exist
+        player_names = {p["name"] for p in cfg["players"]}
+        assert "Erling Haaland" in player_names
+        assert "Harry Kane" in player_names  # Kane was registered before departure in 2023-24 GW1
+
+    # 2. Test /api/strategic-squad/optimize for historical season
+    opt_req = urllib.request.Request(
+        f"{base_url}/api/strategic-squad/optimize",
+        data=json.dumps({
+            "season": "2023-24",
+            "gameweek": 1,
+            "mode": "initial",
+            "horizon": 5,
+            "strategy": "balanced",
+            "budget": 100.0,
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(opt_req) as r:
+        assert r.status == 200
+        opt_res = json.loads(r.read())
+        assert opt_res["season"] == "2023-24"
+        assert opt_res["mode"] == "initial"
+        assert len(opt_res["squad"]) == 15
+        assert len(opt_res["starters"]) == 11
+        assert len(opt_res["bench"]) == 4
+        assert opt_res["total_cost_tenths"] <= 1000
+        assert "strategic_candidates" in opt_res
+
+    # 3. Test /api/strategic-squad/reoptimize for historical season
+    reopt_req = urllib.request.Request(
+        f"{base_url}/api/strategic-squad/reoptimize",
+        data=json.dumps({
+            "season": "2023-24",
+            "gameweek": 1,
+            "mode": "initial",
+            "horizon": 5,
+            "strategy": "balanced",
+            "budget": 100.0,
+            "previous_candidate": opt_res["selected_candidate"],
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(reopt_req) as r:
+        assert r.status == 200
+        reopt_res = json.loads(r.read())
+        assert len(reopt_res["squad"]) == 15
+        assert "constraint_impact" in reopt_res
+
+    # 4. Test /api/strategic-squad/apply into active historical simulation
+    create_req = urllib.request.Request(
+        f"{base_url}/api/historical/simulations/create",
+        data=json.dumps({
+            "session_id": "test_strat_sim_01",
+            "season": "2023-24",
+            "start_gw": 1,
+            "starting_strategy": "v1.2.5",
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(create_req) as r:
+        assert r.status == 200
+
+    apply_req = urllib.request.Request(
+        f"{base_url}/api/strategic-squad/apply",
+        data=json.dumps({
+            "season": "2023-24",
+            "session_id": "test_strat_sim_01",
+            "mode": "initial",
+            "gameweek": 1,
+            "candidate": opt_res["selected_candidate"],
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(apply_req) as r:
+        assert r.status == 200
+        apply_res = json.loads(r.read())
+        assert apply_res["success"] is True
+        assert apply_res["session_id"] == "test_strat_sim_01"
+        assert len(apply_res["squad"]) == 15
+
