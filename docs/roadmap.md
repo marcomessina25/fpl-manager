@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14`, establishing the **Interactive Historical Season Simulation & Time Machine Sandbox** with point-in-time standings, past scores, upcoming fixtures with strict zero future spoilers, and full stateful simulation session management.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14`, establishing the **Interactive Historical Season Simulation & Time Machine Sandbox**. V1.4.5 is implemented on branch `v145`, delivering the **Multi-Season Strategic Chip Optimization Study & Unified Engine** (`ChipOpportunityOptimizer`); the historical simulator uses it (default `c1_linear_decay`, wastage 48% to 8%), while full live `/api/chips` parity remains open.
 
 ---
 
@@ -196,8 +196,8 @@ Automated learning loops
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
 | **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
 | **V1.4** | **Interactive historical season simulation & Time Machine sandbox platform** | **Completed and validated on branch `v14`** |
-| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Planned (Next release)** |
-| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study** | **Planned (Follows V1.4.5)** |
+| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Completed and validated on branch `v145`** |
+| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study** | **Planned (Next milestone)** |
 | V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
 
 ---
@@ -1803,7 +1803,7 @@ within documented tolerances for the frozen engine.
 
 # 24.5. V1.4.5 — Strategic Chip Optimization & Multi-Team Isolation Hardening
 
-**Status: planned for next release (following V1.4).**
+**Status: completed and validated on branch `v145`.**
 
 ### Core Problems Addressed
 1. **Flawed Heuristic & Fixed Threshold Paradigms**: Current chip triggers in both live mode (`chip_strategy.py`) and historical backtests (`SeasonalChipPolicy`) rely on hard-coded gates, arbitrary delta cutoffs, or static calendars. Fixed thresholding is structurally brittle:

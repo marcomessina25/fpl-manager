@@ -392,6 +392,159 @@ def evaluate_chip_candidates(
     }
 
 
+def optimizer_chip_candidates(
+    start_gw: int,
+    end_gw: int,
+    available: list[str],
+    calendar_info: dict[str, Any],
+    squad_path: Path | None = None,
+    database_path: Path = DATABASE_PATH,
+    recent_wildcard_gw: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Score chip candidates using ChipOpportunityOptimizer (V1.4.5 unified framework)."""
+    from .simulation.chip_optimizer import (
+        ChipOpportunityOptimizer,
+        extract_season_fixture_topology,
+    )
+
+    opt = ChipOpportunityOptimizer(variant="c2_ev_planner")
+
+    squad_ids: list[int] = []
+    if squad_path and Path(squad_path).exists():
+        try:
+            state = load_current_squad(squad_path)
+            squad_ids = list(state.player_ids)
+        except Exception:
+            pass
+
+    store = SnapshotStore(database_path)
+    store.initialize()
+
+    fixtures_list: list[dict[str, Any]] = []
+    with closing(store._connect()) as connection:
+        snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        snapshot_id = snapshot[0] if snapshot else None
+        if snapshot_id:
+            fix_rows = connection.execute(
+                """
+                SELECT fixture_id, event, team_h, team_a, team_h_difficulty, team_a_difficulty
+                FROM fixtures WHERE snapshot_id = ?
+                """,
+                (snapshot_id,),
+            ).fetchall()
+            for r in fix_rows:
+                fixtures_list.append({
+                    "id": r[0],
+                    "event": r[1],
+                    "team_h": r[2],
+                    "team_a": r[3],
+                    "team_h_difficulty": r[4] or 3,
+                    "team_a_difficulty": r[5] or 3,
+                })
+
+    topo_map = extract_season_fixture_topology(raw_fixtures=fixtures_list)
+
+    recent_history: dict[str, int] = {}
+    if recent_wildcard_gw is not None:
+        recent_history["wildcard"] = recent_wildcard_gw
+
+    candidates: dict[str, list[dict[str, Any]]] = {
+        "triplecaptain": [],
+        "freehit": [],
+        "benchboost": [],
+        "wildcard": [],
+    }
+
+    norm_to_strat = {
+        "triple_captain": "triplecaptain",
+        "free_hit": "freehit",
+        "bench_boost": "benchboost",
+        "wildcard": "wildcard",
+    }
+
+    base_cands = evaluate_chip_candidates(
+        start_gw=start_gw,
+        end_gw=end_gw,
+        squad_path=squad_path or DEFAULT_SQUAD_PATH,
+        database_path=database_path,
+    )
+
+    # For each gameweek in the planning window, evaluate opportunities
+    for gw in range(start_gw, end_gw + 1):
+        try:
+            projections = project_gameweek(gameweek=gw, database_path=database_path)
+        except Exception:
+            projections = []
+
+        class DummySnapshot:
+            players = []
+            fixtures = []
+
+        dummy_snapshot = DummySnapshot()
+        try:
+            dummy_snapshot.players = store.latest_players()
+        except Exception:
+            dummy_snapshot.players = []
+
+        canon_available = []
+        for c in available:
+            if c == "freehit":
+                canon_available.append("free_hit")
+            elif c == "triplecaptain":
+                canon_available.append("triple_captain")
+            elif c == "benchboost":
+                canon_available.append("bench_boost")
+            else:
+                canon_available.append(c)
+
+        opps = opt.evaluate_all_opportunities(
+            gameweek=gw,
+            available_chips=canon_available,
+            squad_ids=squad_ids,
+            snapshot=dummy_snapshot,
+            projections=projections,
+            recent_chip_history=recent_history,
+            fixture_topology=topo_map,
+        )
+
+        for canon_chip, opp_val in opps.items():
+            strat_key = norm_to_strat.get(canon_chip)
+            if not strat_key:
+                continue
+
+            matching_base = None
+            for bc in base_cands.get(strat_key, []):
+                if bc["gameweek"] == gw:
+                    matching_base = bc
+                    break
+
+            gw_type = matching_base.get("gw_type", "STANDARD") if matching_base else "STANDARD"
+            base_reasoning = matching_base.get("reasoning", "") if matching_base else ""
+
+            candidate_dict = {
+                "gameweek": gw,
+                "gw_type": gw_type,
+                "rating": max(0.0, round(opp_val.immediate_ev, 1)),
+                "immediate_ev": opp_val.immediate_ev,
+                "future_opportunity": opp_val.future_max_ev,
+                "net_utility": opp_val.net_utility,
+                "confidence": opp_val.confidence,
+                "reasoning": opp_val.reasoning,
+            }
+            if matching_base:
+                for k, v in matching_base.items():
+                    if k not in candidate_dict:
+                        candidate_dict[k] = v
+
+            candidates[strat_key].append(candidate_dict)
+
+    for strat_key in candidates:
+        # Sort candidates by rating descending (highest immediate EV first)
+        candidates[strat_key].sort(key=lambda x: (x.get("rating", 0.0), x.get("immediate_ev", 0.0)), reverse=True)
+
+    return candidates
+
+
 def recommend_chip_strategy(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
@@ -467,12 +620,6 @@ def recommend_chip_strategy(
         squad_path=squad_path,
         database_path=database_path,
     )
-    candidates = evaluate_chip_candidates(
-        start_gw=start_gw,
-        end_gw=end_gw,
-        squad_path=squad_path,
-        database_path=database_path,
-    )
 
     # Detect recently played wildcard to prevent anti-synergistic immediate chip deployment (cooldown)
     recent_wc_gw: int | None = None
@@ -495,6 +642,16 @@ def recommend_chip_strategy(
 
     cooldown_gws = {recent_wc_gw + 1, recent_wc_gw + 2} if recent_wc_gw is not None else set()
 
+    candidates = optimizer_chip_candidates(
+        start_gw=start_gw,
+        end_gw=end_gw,
+        available=available,
+        calendar_info=calendar_info,
+        squad_path=squad_path,
+        database_path=database_path,
+        recent_wildcard_gw=recent_wc_gw,
+    )
+
     assigned_gws: set[int] = set()
     recommendations: list[dict[str, Any]] = []
 
@@ -512,46 +669,24 @@ def recommend_chip_strategy(
             if gw in cooldown_gws and chip in ("freehit", "wildcard"):
                 continue
 
-            # Threshold guard: Free Hit must target a confirmed BGW/DGW or a gameweek with >= 2 squad blanks
-            if chip == "freehit":
-                is_bgw_or_dgw = cand.get("gw_type") in ("BLANK", "DOUBLE", "BLANK_AND_DOUBLE")
-                has_squad_blanks = cand.get("squad_blanks", 0) >= 2
-                if not is_bgw_or_dgw and not has_squad_blanks and cand.get("rating", 0.0) < 10.0:
-                    continue
-
-            # Immediate gameweek guard: if scheduling for immediate deadline start_gw, verify SeasonalChipPolicy endorses deployment
-            if gw == start_gw:
-                try:
-                    s_state = load_current_squad(squad_path)
-                    s_projs = project_gameweek(start_gw, database_path=database_path)
-                    s_snap = store.get_latest_snapshot()
-                    s_inv = SeasonalChipInventory(
-                        wildcard_w1="wildcard" in available and start_gw <= 19,
-                        free_hit_w1="freehit" in available and start_gw <= 19,
-                        triple_captain_w1="triplecaptain" in available and start_gw <= 19,
-                        bench_boost_w1="benchboost" in available and start_gw <= 19,
-                        wildcard_w2="wildcard" in available and start_gw >= 20,
-                        free_hit_w2="freehit" in available and start_gw >= 20,
-                        triple_captain_w2="triplecaptain" in available and start_gw >= 20,
-                        bench_boost_w2="benchboost" in available and start_gw >= 20,
-                    )
-                    pol_chip = SeasonalChipPolicy().evaluate_gameweek_chip(
-                        start_gw, s_inv, s_state.player_ids, s_snap, s_projs, tuple(s_state.player_ids)
-                    )
-                    norm_pol = CHIP_ALIASES.get(pol_chip, pol_chip) if pol_chip else None
-                    if norm_pol != chip:
-                        # SeasonalChipPolicy does not endorse playing this chip immediately at start_gw
-                        continue
-                except Exception:
-                    pass
+            # Threshold/immediate guards removed in V1.4.5: candidates come from ChipOpportunityOptimizer,
+            # which applies guardrails and (at start_gw) the same decision as the simulator.
 
             assigned_gws.add(gw)
+            imm_ev = cand.get("immediate_ev", cand["rating"])
+            fut_ev = cand.get("future_opportunity", round(cand["rating"] * 0.8, 1))
+            net_u = cand.get("net_utility", round(cand["rating"] * 0.2, 1))
+            conf = cand.get("confidence", 0.9)
             recommendations.append({
                 "chip": chip,
                 "gameweek": gw,
                 "gw_type": cand["gw_type"],
                 "rating": cand["rating"],
                 "reasoning": cand["reasoning"],
+                "immediate_ev": imm_ev,
+                "future_opportunity": fut_ev,
+                "net_utility": net_u,
+                "confidence": conf,
                 "details": cand,
             })
             break
@@ -715,7 +850,7 @@ class SeasonalChipInventory:
 
 @dataclass
 class SeasonalChipPolicy:
-    """Historically calibrated seasonal chip policy with anti-pathology guardrails (V1.1.5)."""
+    """Historically calibrated seasonal chip policy with unified opportunity-cost engine (V1.4.5)."""
 
     min_wc_deteriorated_players: int = 4
     early_wc_restricted_gws: tuple[int, ...] = (2, 3, 4)
@@ -725,6 +860,8 @@ class SeasonalChipPolicy:
     min_bb_bench_xp: float = 10.0
     min_bb_bench_play_prob: float = 0.65
     max_fh_active_players_threshold: int = 8
+    use_optimizer: bool = True
+    optimizer_variant: str = "c1_linear_decay"
 
     def evaluate_gameweek_chip(
         self,
@@ -736,6 +873,19 @@ class SeasonalChipPolicy:
         initial_squad_ids: tuple[int, ...] | None = None,
     ) -> str | None:
         """Determine whether to deploy a chip for the upcoming gameweek based on calibrated policy hypotheses."""
+        if self.use_optimizer:
+            from .simulation.chip_optimizer import ChipOpportunityOptimizer
+
+            opt = ChipOpportunityOptimizer(variant=self.optimizer_variant)
+            return opt.evaluate_gameweek_chip(
+                gameweek=gameweek,
+                available_chips=inventory,
+                squad_ids=squad_ids,
+                snapshot=snapshot,
+                projections=projections,
+                initial_squad_ids=initial_squad_ids,
+            )
+
         available = inventory.available_chips(gameweek)
         if not available:
             return None

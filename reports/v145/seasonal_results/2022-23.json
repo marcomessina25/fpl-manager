@@ -1,0 +1,216 @@
+{
+  "season": "2022-23",
+  "track_a_net_points": 1908,
+  "variants": {
+    "c0_baseline": {
+      "variant": "c0_baseline",
+      "total_net_points": 1946,
+      "total_gross_points": 1946,
+      "total_hits": 0,
+      "chip_surplus": 38,
+      "chips_used": {
+        "bench_boost": 1,
+        "free_hit": 1,
+        "triple_captain": 1
+      },
+      "chip_deployments": [
+        {
+          "gameweek": 23,
+          "chip": "bench_boost",
+          "net_points": 64,
+          "gross_points": 64
+        },
+        {
+          "gameweek": 28,
+          "chip": "free_hit",
+          "net_points": 45,
+          "gross_points": 45
+        },
+        {
+          "gameweek": 37,
+          "chip": "triple_captain",
+          "net_points": 50,
+          "gross_points": 50
+        }
+      ],
+      "unplayed_chips": [
+        "wildcard_1",
+        "wildcard_2"
+      ],
+      "wasted_count": 2,
+      "premature_burn_count": 0,
+      "duration_ms": 24833.3
+    },
+    "c1_linear_decay": {
+      "variant": "c1_linear_decay",
+      "total_net_points": 2050,
+      "total_gross_points": 2050,
+      "total_hits": 0,
+      "chip_surplus": 142,
+      "chips_used": {
+        "free_hit": 2,
+        "wildcard": 2,
+        "bench_boost": 2,
+        "triple_captain": 1
+      },
+      "chip_deployments": [
+        {
+          "gameweek": 7,
+          "chip": "free_hit",
+          "net_points": 0,
+          "gross_points": 0
+        },
+        {
+          "gameweek": 8,
+          "chip": "wildcard",
+          "net_points": 62,
+          "gross_points": 62
+        },
+        {
+          "gameweek": 9,
+          "chip": "bench_boost",
+          "net_points": 104,
+          "gross_points": 104
+        },
+        {
+          "gameweek": 21,
+          "chip": "bench_boost",
+          "net_points": 87,
+          "gross_points": 87
+        },
+        {
+          "gameweek": 25,
+          "chip": "wildcard",
+          "net_points": 52,
+          "gross_points": 52
+        },
+        {
+          "gameweek": 28,
+          "chip": "free_hit",
+          "net_points": 45,
+          "gross_points": 45
+        },
+        {
+          "gameweek": 34,
+          "chip": "triple_captain",
+          "net_points": 62,
+          "gross_points": 62
+        }
+      ],
+      "unplayed_chips": [],
+      "wasted_count": 0,
+      "premature_burn_count": 0,
+      "duration_ms": 28033.4
+    },
+    "c2_ev_planner": {
+      "variant": "c2_ev_planner",
+      "total_net_points": 2025,
+      "total_gross_points": 2025,
+      "total_hits": 0,
+      "chip_surplus": 117,
+      "chips_used": {
+        "wildcard": 2,
+        "free_hit": 2,
+        "triple_captain": 1,
+        "bench_boost": 1
+      },
+      "chip_deployments": [
+        {
+          "gameweek": 8,
+          "chip": "wildcard",
+          "net_points": 62,
+          "gross_points": 62
+        },
+        {
+          "gameweek": 19,
+          "chip": "free_hit",
+          "net_points": 62,
+          "gross_points": 62
+        },
+        {
+          "gameweek": 25,
+          "chip": "wildcard",
+          "net_points": 52,
+          "gross_points": 52
+        },
+        {
+          "gameweek": 34,
+          "chip": "free_hit",
+          "net_points": 73,
+          "gross_points": 73
+        },
+        {
+          "gameweek": 37,
+          "chip": "triple_captain",
+          "net_points": 61,
+          "gross_points": 61
+        },
+        {
+          "gameweek": 38,
+          "chip": "bench_boost",
+          "net_points": 47,
+          "gross_points": 47
+        }
+      ],
+      "unplayed_chips": [],
+      "wasted_count": 0,
+      "premature_burn_count": 0,
+      "duration_ms": 30781.9
+    },
+    "c3_surrogate": {
+      "variant": "c3_surrogate",
+      "total_net_points": 2025,
+      "total_gross_points": 2025,
+      "total_hits": 0,
+      "chip_surplus": 117,
+      "chips_used": {
+        "wildcard": 2,
+        "free_hit": 2,
+        "triple_captain": 1,
+        "bench_boost": 1
+      },
+      "chip_deployments": [
+        {
+          "gameweek": 8,
+          "chip": "wildcard",
+          "net_points": 62,
+          "gross_points": 62
+        },
+        {
+          "gameweek": 19,
+          "chip": "free_hit",
+          "net_points": 62,
+          "gross_points": 62
+        },
+        {
+          "gameweek": 25,
+          "chip": "wildcard",
+          "net_points": 52,
+          "gross_points": 52
+        },
+        {
+          "gameweek": 34,
+          "chip": "free_hit",
+          "net_points": 73,
+          "gross_points": 73
+        },
+        {
+          "gameweek": 37,
+          "chip": "triple_captain",
+          "net_points": 61,
+          "gross_points": 61
+        },
+        {
+          "gameweek": 38,
+          "chip": "bench_boost",
+          "net_points": 47,
+          "gross_points": 47
+        }
+      ],
+      "unplayed_chips": [],
+      "wasted_count": 0,
+      "premature_burn_count": 0,
+      "duration_ms": 30637.7
+    }
+  }
+}
