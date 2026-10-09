@@ -311,9 +311,14 @@ def calculate_component_xp(
         prior_xa90 = 0.005
         goal_pts = 6.0
 
-    w = min(0.85, finished_matches / 5.0) if finished_matches > 0 and (expected_goals_per_90 > 0 or expected_assists_per_90 > 0) else 0.0
-    eff_xg90 = w * expected_goals_per_90 + (1.0 - w) * prior_xg90
-    eff_xa90 = w * expected_assists_per_90 + (1.0 - w) * prior_xa90
+    # Robust shrinkage on observed per-90 metrics to prevent tiny-sample rate explosion
+    # (e.g. Carvalho playing 3 mins with 0.43 xG producing 12.9 xG/90)
+    clamped_xg90 = min(1.20, max(0.0, expected_goals_per_90))
+    clamped_xa90 = min(1.00, max(0.0, expected_assists_per_90))
+
+    w = min(0.85, finished_matches / 5.0) if finished_matches > 0 and (clamped_xg90 > 0 or clamped_xa90 > 0) else 0.0
+    eff_xg90 = w * clamped_xg90 + (1.0 - w) * prior_xg90
+    eff_xa90 = w * clamped_xa90 + (1.0 - w) * prior_xa90
 
     fix_xg = eff_xg90 * mins_ratio * fdr_att * ven_mult
     fix_xa = eff_xa90 * mins_ratio * fdr_att * ven_mult

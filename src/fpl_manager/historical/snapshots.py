@@ -560,3 +560,47 @@ def load_historical_players_meta(
 
     return players_map, team_map
 
+
+def analyze_historical_fixtures(
+    season_dir: Path,
+    num_gameweeks: int = 5,
+    start_gw: int = 1,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Compute average fixture difficulty (FDR) and next fixture ticker for historical season.
+
+    Respects strict point-in-time isolation by reading only the pre-scheduled fixtures list.
+    """
+    fixtures_data = json.loads((season_dir / "fixtures.json").read_text(encoding="utf-8"))
+    teams_data = json.loads((season_dir / "teams.json").read_text(encoding="utf-8"))
+    team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in teams_data}
+
+    target_gws = set(range(start_gw, start_gw + num_gameweeks))
+    difficulties: dict[int, list[float]] = {t["team_id"]: [] for t in teams_data}
+    first_ticker: dict[int, str] = {}
+
+    for f in fixtures_data:
+        ev = f.get("event")
+        if ev in target_gws:
+            th = f.get("team_h")
+            ta = f.get("team_a")
+            th_diff = float(f.get("team_h_difficulty", 3))
+            ta_diff = float(f.get("team_a_difficulty", 3))
+
+            if th in difficulties:
+                difficulties[th].append(th_diff)
+                if th not in first_ticker:
+                    first_ticker[th] = f"{team_map.get(ta, f'T{ta}')} (H)"
+            if ta in difficulties:
+                difficulties[ta].append(ta_diff)
+                if ta not in first_ticker:
+                    first_ticker[ta] = f"{team_map.get(th, f'T{th}')} (A)"
+
+    fdr_map: dict[str, float] = {}
+    ticker_map: dict[str, str] = {}
+    for tid, s_name in team_map.items():
+        diffs = difficulties.get(tid, [])
+        fdr_map[s_name] = round(sum(diffs) / len(diffs), 2) if diffs else 3.0
+        ticker_map[s_name] = first_ticker.get(tid, "None")
+
+    return fdr_map, ticker_map
+

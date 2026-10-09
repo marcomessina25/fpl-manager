@@ -720,7 +720,15 @@ def solve_strategic_squad(
     if validation_errors:
         raise ValueError(f"Constraint validation failed: {'; '.join(validation_errors)}")
 
-    target_gws = (list(range(1, 1 + horizon)) if horizon is not None else list(constraints.target_gameweeks)) or [1, 2, 3, 4, 5]
+    if constraints.target_gameweeks:
+        target_gws = list(constraints.target_gameweeks)
+        if horizon is not None and len(target_gws) != horizon:
+            start_gw = target_gws[0] if target_gws else 1
+            target_gws = list(range(start_gw, start_gw + horizon))
+    elif horizon is not None:
+        target_gws = list(range(1, 1 + horizon))
+    else:
+        target_gws = [1, 2, 3, 4, 5]
     h_len = max(1, len(target_gws))
 
     pool_by_id = {p.id: p for p in candidate_pool}

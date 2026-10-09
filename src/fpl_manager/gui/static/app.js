@@ -1551,10 +1551,12 @@ async function handleDecisionSubmit(e) {
 
   const hits = hitsRaw ? parseInt(hitsRaw) : null;
   const actual_points = actualRaw ? parseInt(actualRaw) : null;
+  const isHist = state.appMode === "historical";
 
   try {
     const payload = {
       team_id: state.activeTeamId,
+      session_id: isHist ? histState.sessionId : null,
       gameweek: gw,
       captain: captain,
       vice_captain: vc,
@@ -1576,8 +1578,13 @@ async function handleDecisionSubmit(e) {
     });
 
     showToast(`Logged decision for GW${gw}!`);
-    await refreshActiveTeamData();
-    await loadDecisions();
+    if (isHist) {
+      await loadHistoricalPitch();
+      await loadDecisions();
+    } else {
+      await refreshActiveTeamData();
+      await loadDecisions();
+    }
   } catch (err) {
     showToast(`Error logging decision: ${err.message}`, true);
   }
@@ -1586,11 +1593,15 @@ async function handleDecisionSubmit(e) {
 async function loadDecisions() {
   const container = document.getElementById("decisions-list");
   if (!container) return;
+  const isHist = state.appMode === "historical";
   try {
-    const data = await api(`/api/decisions?team=${state.activeTeamId}`);
+    const endpoint = isHist && histState.sessionId
+      ? `/api/decisions?session_id=${histState.sessionId}`
+      : `/api/decisions?team=${state.activeTeamId}`;
+    const data = await api(endpoint);
     const list = data.decisions || [];
     if (list.length === 0) {
-      container.innerHTML = '<p class="text-muted">No decisions logged yet for this team.</p>';
+      container.innerHTML = `<p class="text-muted">No decisions logged yet for this ${isHist ? 'simulation' : 'team'}.</p>`;
       return;
     }
 
@@ -1840,8 +1851,11 @@ async function runSuggestTransfers() {
   const risk = document.getElementById("tx-risk").value;
   const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.3.5";
 
+  const isHist = state.appMode === "historical";
+  const sidParam = isHist && histState.sessionId ? `&session_id=${encodeURIComponent(histState.sessionId)}` : "";
+
   try {
-    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}`);
+    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}${sidParam}`);
     const suggestions = data.top_suggestions || [];
     if (suggestions.length === 0) {
       container.innerHTML = '<p class="text-muted">No valid transfer options found within budget and team limits.</p>';
@@ -1905,60 +1919,76 @@ async function runSuggestTransfers() {
       btnApply.addEventListener("click", async (e) => {
         e.stopPropagation();
         const movesSummary = opt.outgoing.map((o, i) => `${o.name} ➔ ${opt.incoming[i].name}`).join(", ");
-        const targetGw = state.selectedGameweek || state.activeGameweek || 1;
+        const targetGw = isHist ? histState.gameweek : (state.selectedGameweek || state.activeGameweek || 1);
         const confirmed = confirm(
           `Apply transfer move #${idx + 1} (${movesSummary}) to your team for GW${targetGw}?`
         );
         if (!confirmed) return;
 
         try {
-          const outByPos = {};
-          opt.outgoing.forEach(p => {
-            const pos = p.position || p.pos_abbr || "DEF";
-            outByPos[pos] = outByPos[pos] || [];
-            outByPos[pos].push(p);
-          });
-          const inByPos = {};
-          opt.incoming.forEach(p => {
-            const pos = p.position || p.pos_abbr || "DEF";
-            inByPos[pos] = inByPos[pos] || [];
-            inByPos[pos].push(p);
-          });
+          if (isHist) {
+            for (let i = 0; i < opt.outgoing.length; i++) {
+              await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+                method: "POST",
+                body: JSON.stringify({
+                  out_id: opt.outgoing[i].id,
+                  in_id: opt.incoming[i].id,
+                }),
+              });
+            }
+            showToast("Transfers staged in Historical session!");
+            await loadHistoricalPitch();
+            await loadHistoricalTransfers();
+            await runSuggestTransfers();
+          } else {
+            const outByPos = {};
+            opt.outgoing.forEach(p => {
+              const pos = p.position || p.pos_abbr || "DEF";
+              outByPos[pos] = outByPos[pos] || [];
+              outByPos[pos].push(p);
+            });
+            const inByPos = {};
+            opt.incoming.forEach(p => {
+              const pos = p.position || p.pos_abbr || "DEF";
+              inByPos[pos] = inByPos[pos] || [];
+              inByPos[pos].push(p);
+            });
 
-          let transfersPayload = [];
-          for (const pos in outByPos) {
-            const outs = outByPos[pos];
-            const ins = inByPos[pos] || [];
-            for (let i = 0; i < outs.length; i++) {
-              if (ins[i]) {
-                transfersPayload.push({
-                  outgoing_id: outs[i].id,
-                  incoming_id: ins[i].id,
-                });
+            let transfersPayload = [];
+            for (const pos in outByPos) {
+              const outs = outByPos[pos];
+              const ins = inByPos[pos] || [];
+              for (let i = 0; i < outs.length; i++) {
+                if (ins[i]) {
+                  transfersPayload.push({
+                    outgoing_id: outs[i].id,
+                    incoming_id: ins[i].id,
+                  });
+                }
               }
             }
-          }
-          if (transfersPayload.length < opt.outgoing.length) {
-            transfersPayload = opt.outgoing.map((outP, i) => ({
-              outgoing_id: outP.id,
-              incoming_id: opt.incoming[i].id,
-            }));
-          }
+            if (transfersPayload.length < opt.outgoing.length) {
+              transfersPayload = opt.outgoing.map((outP, i) => ({
+                outgoing_id: outP.id,
+                incoming_id: opt.incoming[i].id,
+              }));
+            }
 
-          const res = await api("/api/transfers/execute", {
-            method: "POST",
-            body: JSON.stringify({
-              team_id: state.activeTeamId,
-              gameweek: targetGw,
-              transfers: transfersPayload,
-            }),
-          });
+            const res = await api("/api/transfers/execute", {
+              method: "POST",
+              body: JSON.stringify({
+                team_id: state.activeTeamId,
+                gameweek: targetGw,
+                transfers: transfersPayload,
+              }),
+            });
 
-          showToast(res.message || "Transfers applied successfully!");
-          await refreshActiveTeamData();
-          await loadDecisions();
-          await loadLineup();
-          await runSuggestTransfers();
+            showToast(res.message || "Transfers applied successfully!");
+            await refreshActiveTeamData();
+            await loadDecisions();
+            await loadLineup();
+            await runSuggestTransfers();
+          }
         } catch (err) {
           showToast(`Transfer failed: ${err.message}`, true);
         }
@@ -2075,8 +2105,11 @@ async function runPlanner() {
   const risk = document.getElementById("plan-risk").value;
   const noHits = document.getElementById("plan-no-hits").checked;
 
+  const isHist = state.appMode === "historical";
+  const sidParam = isHist && histState.sessionId ? `&session_id=${encodeURIComponent(histState.sessionId)}` : "";
+
   try {
-    const data = await api(`/api/plan?team=${state.activeTeamId}&horizon=${horizon}&risk=${risk}&no_hits=${noHits}`);
+    const data = await api(`/api/plan?team=${state.activeTeamId}&horizon=${horizon}&risk=${risk}&no_hits=${noHits}${sidParam}`);
     const best = data.best_plan;
     if (!best) {
       container.innerHTML = '<p class="text-muted">No plan generated.</p>';
@@ -2163,30 +2196,65 @@ async function runPlanner() {
         if (!confirmed) return;
 
         try {
-          if (txs.length > 0) {
-            const transfersPayload = txs.map(t => ({
-              outgoing_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing),
-              incoming_id: t.in ? t.in.id : (t.incoming_id || t.incoming),
-            }));
-            await api("/api/transfers/execute", {
-              method: "POST",
-              body: JSON.stringify({
-                team_id: state.activeTeamId,
-                gameweek: step0.gameweek,
-                transfers: transfersPayload,
-              }),
-            });
-          }
+          if (isHist) {
+            for (let i = 0; i < txs.length; i++) {
+              const outId = txs[i].out ? txs[i].out.id : (txs[i].outgoing_id || txs[i].outgoing);
+              const inId = txs[i].in ? txs[i].in.id : (txs[i].incoming_id || txs[i].incoming);
+              if (outId && inId) {
+                await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
+                  method: "POST",
+                  body: JSON.stringify({ out_id: outId, in_id: inId }),
+                });
+              }
+            }
+            if (step0.captain && step0.captain.id) {
+              const starters = (histState.sessionData && histState.sessionData.squad)
+                ? histState.sessionData.squad.filter(p => p.role === "STARTER" || p.role === "CAPTAIN" || p.role === "VICE_CAPTAIN").map(p => p.id)
+                : [];
+              const bench = (histState.sessionData && histState.sessionData.squad)
+                ? histState.sessionData.squad.filter(p => p.role !== "STARTER" && p.role !== "CAPTAIN" && p.role !== "VICE_CAPTAIN").map(p => p.id)
+                : [];
+              const vcId = (step0.vice_captain && step0.vice_captain.id) || (starters[1] || starters[0]);
+              await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
+                method: "POST",
+                body: JSON.stringify({
+                  starting_ids: starters,
+                  bench_ids: bench,
+                  captain_id: step0.captain.id,
+                  vice_captain_id: vcId,
+                }),
+              });
+            }
+            showToast(`GW${step0.gameweek} plan move applied to Historical session!`);
+            await loadHistoricalPitch();
+            await loadHistoricalTransfers();
+            await runPlanner();
+          } else {
+            if (txs.length > 0) {
+              const transfersPayload = txs.map(t => ({
+                outgoing_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing),
+                incoming_id: t.in ? t.in.id : (t.incoming_id || t.incoming),
+              }));
+              await api("/api/transfers/execute", {
+                method: "POST",
+                body: JSON.stringify({
+                  team_id: state.activeTeamId,
+                  gameweek: step0.gameweek,
+                  transfers: transfersPayload,
+                }),
+              });
+            }
 
-          if (step0.captain) {
-            setPitchCaptain(step0.captain.id);
-          }
+            if (step0.captain) {
+              setPitchCaptain(step0.captain.id);
+            }
 
-          showToast(`GW${step0.gameweek} plan move applied successfully!`);
-          await refreshActiveTeamData();
-          await loadDecisions();
-          await loadLineup();
-          await runPlanner();
+            showToast(`GW${step0.gameweek} plan move applied successfully!`);
+            await refreshActiveTeamData();
+            await loadDecisions();
+            await loadLineup();
+            await runPlanner();
+          }
         } catch (err) {
           showToast(`Failed to apply plan move: ${err.message}`, true);
         }
@@ -2270,27 +2338,36 @@ async function loadChipStrategy() {
 
 // Undo / Revert Current Gameweek Changes
 async function handleUndoGameweek() {
-  const targetGw = state.selectedGameweek || state.activeGameweek || 1;
+  const isHist = state.appMode === "historical";
+  const targetGw = isHist ? histState.gameweek : (state.selectedGameweek || state.activeGameweek || 1);
   const confirmed = confirm(
     `Are you sure you want to reset all changes for GW${targetGw} and revert your squad to the status of the previous gameweek?`
   );
   if (!confirmed) return;
 
   try {
+    const payload = isHist
+      ? { session_id: histState.sessionId }
+      : { team_id: state.activeTeamId, gameweek: targetGw };
+
     const res = await api("/api/decisions/undo", {
       method: "POST",
-      body: JSON.stringify({
-        team_id: state.activeTeamId,
-        gameweek: targetGw,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    showToast(res.message || `Reverted squad to GW${res.reverted_to_gameweek} state!`);
-    await refreshActiveTeamData();
-    await loadDecisions();
-    const chipTab = document.getElementById("tab-chips");
-    if (chipTab && chipTab.classList.contains("active")) {
-      await loadChipStrategy();
+    if (isHist) {
+      showToast(res.message || `Reverted simulation squad to GW${res.reverted_to_gameweek}!`);
+      await loadHistoricalPitch();
+      await loadHistoricalTransfers();
+      await loadOverview();
+    } else {
+      showToast(res.message || `Reverted squad to GW${res.reverted_to_gameweek} state!`);
+      await refreshActiveTeamData();
+      await loadDecisions();
+      const chipTab = document.getElementById("tab-chips");
+      if (chipTab && chipTab.classList.contains("active")) {
+        await loadChipStrategy();
+      }
     }
   } catch (err) {
     showToast(`Undo failed: ${err.message}`, true);
@@ -2302,11 +2379,15 @@ async function loadEvaluation() {
   const container = document.getElementById("eval-results-container");
   container.innerHTML = '<p class="text-muted">Evaluating historical predictions and manager decisions...</p>';
 
+  const isHist = state.appMode === "historical";
   const gwVal = document.getElementById("eval-gw").value;
   const gwParam = gwVal ? `&gameweek=${gwVal}` : "";
 
   try {
-    const data = await api(`/api/evaluate?team=${state.activeTeamId}${gwParam}`);
+    const endpoint = isHist && histState.sessionId
+      ? `/api/evaluate?session_id=${histState.sessionId}${gwParam}`
+      : `/api/evaluate?team=${state.activeTeamId}${gwParam}`;
+    const data = await api(endpoint);
 
     if (data.finalized_gameweeks !== undefined) {
       // Season summary
@@ -2545,23 +2626,37 @@ function initEventListeners() {
       const gw = parseInt(e.target.value);
       if (gw) {
         try {
-          const decData = await api(`/api/decisions?team=${state.activeTeamId}`);
+          const isHist = state.appMode === "historical";
+          const endpoint = isHist && histState.sessionId
+            ? `/api/decisions?session_id=${histState.sessionId}`
+            : `/api/decisions?team=${state.activeTeamId}`;
+          const decData = await api(endpoint);
           const list = decData.decisions || [];
           const dec = list.find(d => d.gameweek === gw);
           renderExecutedTransfersBox(dec && dec.transfers ? dec.transfers : []);
+          const capSelect = document.getElementById("dec-captain");
+          const vcSelect = document.getElementById("dec-vc");
+          const chipSelect = document.getElementById("dec-chip");
+          const hitsInput = document.getElementById("dec-hits");
+          const notesInput = document.getElementById("dec-notes");
+
           if (dec) {
-            const capSelect = document.getElementById("dec-captain");
-            const vcSelect = document.getElementById("dec-vc");
             if (capSelect && dec.captain_name) capSelect.value = dec.captain_name;
             if (vcSelect && dec.vice_captain_name) vcSelect.value = dec.vice_captain_name;
-            const chipSelect = document.getElementById("dec-chip");
             if (chipSelect) chipSelect.value = dec.chip_played || "";
-            const hitsInput = document.getElementById("dec-hits");
             if (hitsInput) {
               hitsInput.value = "";
               const isFree = dec.chip_played && ["wildcard", "wc", "freehit", "free_hit", "fh"].some(c => dec.chip_played.toLowerCase().includes(c));
               hitsInput.placeholder = isFree ? "0 (Free with Chip)" : `Auto-calculated (${dec.transfer_hits || 0})`;
             }
+            if (notesInput) notesInput.value = dec.notes || "";
+          } else {
+            if (chipSelect) chipSelect.value = "";
+            if (hitsInput) {
+              hitsInput.value = "";
+              hitsInput.placeholder = "Auto-calculated";
+            }
+            if (notesInput) notesInput.value = "";
           }
         } catch (err) {}
       }

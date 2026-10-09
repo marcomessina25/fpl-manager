@@ -26,6 +26,7 @@ from ..decision_log import (
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
 from ..fixtures import get_current_gameweek
 from ..historical.snapshots import (
+    analyze_historical_fixtures,
     build_historical_snapshot,
     load_historical_players_meta,
 )
@@ -226,6 +227,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 rep["team_id"] = tid
                 self._send_json(rep)
             elif path == "/api/transfers":
+                session_id = get_arg("session_id")
                 tid = get_arg("team")
                 num_tx = int(get_arg("transfers", 1))
                 gws = int(get_arg("gameweeks", 5))
@@ -235,19 +237,70 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 horizon_val = int(get_arg("horizon", 3))
                 gw_param = get_arg("gameweek") or get_arg("gw")
                 gw_val = int(gw_param) if gw_param else None
-                squad_path = get_team_squad_path(tid, self.config_dir)
-                rep = suggest_transfers(
-                    num_transfers=num_tx,
-                    squad_path=squad_path,
-                    database_path=self.database_path,
-                    num_gameweeks=gws,
-                    risk_profile=risk,
-                    gameweek=gw_val,
-                    engine=engine,
-                    gamma=gamma_val,
-                    horizon=horizon_val,
-                )
-                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    snap = sim.get_current_snapshot()
+                    season_dir = sim.historical_dir / sim.season
+                    h_len = max(1, min(10, gws))
+                    players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
+                    fdr_map, ticker_map = analyze_historical_fixtures(season_dir, num_gameweeks=h_len, start_gw=sim.current_gw)
+
+                    squad_set = set(sim.squad_ids)
+                    squad_players = [players_map[pid] for pid in sim.squad_ids if pid in players_map]
+                    purch_prices = {
+                        pid: sim.purchase_prices_tenths.get(str(pid), players_map[pid].price_tenths if pid in players_map else 50)
+                        for pid in sim.squad_ids
+                    }
+                    selling_prices = {
+                        pid: selling_price(purch_prices.get(pid, 50), players_map[pid].price_tenths if pid in players_map else 50)
+                        for pid in sim.squad_ids
+                    }
+                    candidate_pool = [
+                        p for p in players_map.values()
+                        if p.id not in squad_set and p.status in ("a", "d") and not getattr(p, "is_long_term_unavailable", False)
+                    ]
+
+                    from ..optimizer import solve_transfers
+                    raw_results, total_evaluated = solve_transfers(
+                        num_transfers=num_tx,
+                        squad_players=squad_players,
+                        candidate_pool=candidate_pool,
+                        bank_tenths=sim.bank_tenths,
+                        free_transfers=sim.free_transfers,
+                        selling_prices=selling_prices,
+                        fdr_map=fdr_map,
+                        ticker_map=ticker_map,
+                        risk_profile=risk,
+                        max_results=5,
+                    )
+                    target_gws = list(range(sim.current_gw, sim.current_gw + h_len))
+                    rep = {
+                        "num_transfers": num_tx,
+                        "free_transfers_available": sim.free_transfers,
+                        "risk_profile": risk,
+                        "engine": engine,
+                        "target_gameweeks": target_gws,
+                        "evaluation_horizon_gws": h_len,
+                        "total_options_evaluated": total_evaluated,
+                        "top_suggestions": raw_results[:5],
+                        "session_id": session_id,
+                    }
+                else:
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    rep = suggest_transfers(
+                        num_transfers=num_tx,
+                        squad_path=squad_path,
+                        database_path=self.database_path,
+                        num_gameweeks=gws,
+                        risk_profile=risk,
+                        gameweek=gw_val,
+                        engine=engine,
+                        gamma=gamma_val,
+                        horizon=horizon_val,
+                    )
+                    rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/wildcard":
                 tid = get_arg("team")
@@ -432,21 +485,60 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/plan":
+                session_id = get_arg("session_id")
                 tid = get_arg("team")
                 horizon = int(get_arg("horizon", 3))
                 start_gw = int(get_arg("start_gw")) if get_arg("start_gw") else None
                 risk = get_arg("risk", "neutral")
                 no_hits = get_arg("no_hits", "false").lower() in ("true", "1", "yes")
-                squad_path = get_team_squad_path(tid, self.config_dir)
-                rep = generate_multi_gameweek_plan(
-                    squad_path=squad_path,
-                    database_path=self.database_path,
-                    horizon=horizon,
-                    start_gw=start_gw,
-                    risk_profile=risk,
-                    allow_hits=not no_hits,
-                )
-                rep["team_id"] = tid or get_active_team_id(self.config_dir)
+
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    recs = sim.get_recommendations()
+                    target_gw = sim.current_gw
+                    step0_transfers = [
+                        {
+                            "out": {"id": t["out_id"], "name": t["out_name"]},
+                            "in": {"id": t["in_id"], "name": t["in_name"]},
+                        }
+                        for t in recs.get("recommended_transfers", [])
+                    ]
+                    steps = [
+                        {
+                            "gameweek": target_gw,
+                            "action": f"{len(step0_transfers)}_TRANSFER" if step0_transfers else "ROLL",
+                            "transfers": step0_transfers,
+                            "formation": "3-4-3",
+                            "captain": {"id": recs.get("recommended_captain"), "name": next((p["name"] for p in sim.get_squad_player_details() if p["id"] == recs.get("recommended_captain")), "Captain")},
+                            "vice_captain": {"id": recs.get("recommended_vice_captain"), "name": next((p["name"] for p in sim.get_squad_player_details() if p["id"] == recs.get("recommended_vice_captain")), "Vice Captain")},
+                            "lineup_xp": recs.get("predicted_lineup_xp", 0.0),
+                            "transfer_hits": max(0, len(step0_transfers) - sim.free_transfers),
+                            "net_xp": recs.get("predicted_lineup_xp", 0.0) - (max(0, len(step0_transfers) - sim.free_transfers) * 4),
+                            "bank_after_tenths": sim.bank_tenths,
+                            "bank_after_fmt": f"£{sim.bank_tenths / 10:.1f}m",
+                            "free_transfers_after": 1,
+                        }
+                    ]
+                    rep = {
+                        "session_id": session_id,
+                        "best_plan": {
+                            "gameweek_steps": steps,
+                            "total_net_xp": steps[0]["net_xp"],
+                            "total_hits": steps[0]["transfer_hits"],
+                        }
+                    }
+                else:
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    rep = generate_multi_gameweek_plan(
+                        squad_path=squad_path,
+                        database_path=self.database_path,
+                        horizon=horizon,
+                        start_gw=start_gw,
+                        risk_profile=risk,
+                        allow_hits=not no_hits,
+                    )
+                    rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/chips":
                 tid = get_arg("team")
@@ -466,26 +558,95 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
             elif path == "/api/decisions":
-                tid = get_arg("team") or get_active_team_id(self.config_dir)
-                season = get_arg("season", "2026/27")
-                gw_arg = get_arg("gameweek")
-                if gw_arg:
-                    gw = int(gw_arg)
-                    dec = get_gameweek_decision(gameweek=gw, team_id=tid, season=season, database_path=self.database_path)
-                    self._send_json({"decision": dec, "team_id": tid})
+                session_id = get_arg("session_id")
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    # Extract decision objects from sim.history
+                    dec_list = []
+                    if getattr(sim, "initial_decision", None):
+                        dec_list.append(dict(sim.initial_decision))
+                    for h in sim.history:
+                        d = h.get("decision")
+                        if d:
+                            d_copy = dict(d)
+                            d_copy["actual_points"] = h.get("gross_points", h.get("points"))
+                            dec_list.append(d_copy)
+                    gw_arg = get_arg("gameweek")
+                    if gw_arg:
+                        gw = int(gw_arg)
+                        dec = next((d for d in dec_list if d.get("gameweek") == gw), None)
+                        self._send_json({"decision": dec, "session_id": session_id})
+                    else:
+                        self._send_json({"decisions": dec_list, "session_id": session_id})
                 else:
-                    decisions = list_decisions(team_id=tid, season=season, database_path=self.database_path)
-                    self._send_json({"decisions": decisions, "team_id": tid})
+                    tid = get_arg("team") or get_active_team_id(self.config_dir)
+                    season = get_arg("season", "2026/27")
+                    gw_arg = get_arg("gameweek")
+                    if gw_arg:
+                        gw = int(gw_arg)
+                        dec = get_gameweek_decision(gameweek=gw, team_id=tid, season=season, database_path=self.database_path)
+                        self._send_json({"decision": dec, "team_id": tid})
+                    else:
+                        decisions = list_decisions(team_id=tid, season=season, database_path=self.database_path)
+                        self._send_json({"decisions": decisions, "team_id": tid})
             elif path == "/api/evaluate":
-                tid = get_arg("team") or get_active_team_id(self.config_dir)
-                season = get_arg("season", "2026/27")
-                gw_arg = get_arg("gameweek")
-                if gw_arg:
-                    gw = int(gw_arg)
-                    rep = evaluate_gameweek_decision(gameweek=gw, team_id=tid, season=season, database_path=self.database_path)
+                session_id = get_arg("session_id")
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    gw_arg = get_arg("gameweek")
+                    if gw_arg:
+                        gw = int(gw_arg)
+                        h_entry = next((h for h in sim.history if h.get("gameweek") == gw), None)
+                        if not h_entry:
+                            self._send_error_json(f"Gameweek {gw} not evaluated yet in session {session_id}", status=404)
+                            return
+                        dec = h_entry.get("decision", {})
+                        self._send_json({
+                            "gameweek": gw,
+                            "actual_lineup_score": h_entry.get("gross_points", 0),
+                            "predicted_lineup_xp": dec.get("predicted_lineup_xp", 0.0),
+                            "captaincy": {
+                                "captain_name": h_entry.get("captain_name", "Captain"),
+                                "captain_actual_points": h_entry.get("captain_points", 0),
+                                "optimal_captain_name": h_entry.get("captain_name", "Captain"),
+                                "optimal_captain_actual_points": h_entry.get("captain_points", 0),
+                                "captaincy_regret_points": 0,
+                            },
+                            "bench": {
+                                "total_bench_points": sum(b.get("points", 0) for b in h_entry.get("bench", [])),
+                                "bench_regret_points": 0,
+                            },
+                        })
+                    else:
+                        # Full session evaluation summary
+                        finalized = [h for h in sim.history if "gross_points" in h or "points" in h]
+                        tot_pred = sum(h.get("decision", {}).get("predicted_lineup_xp", 0.0) for h in finalized)
+                        tot_act = sum(h.get("gross_points", h.get("points", 0)) for h in finalized)
+                        tot_hits = sum(h.get("transfer_hits", 0) for h in finalized)
+                        n = len(finalized)
+                        mae = (sum(abs((h.get("gross_points", h.get("points", 0))) - (h.get("decision", {}).get("predicted_lineup_xp", 0.0))) for h in finalized) / n) if n else 0.0
+                        self._send_json({
+                            "finalized_gameweeks": n,
+                            "total_predicted_xp": tot_pred,
+                            "total_actual_points": tot_act,
+                            "lineup_mae": mae,
+                            "lineup_rmse": mae,
+                            "mean_prediction_bias": ((tot_pred - tot_act) / n) if n else 0.0,
+                            "bias_interpretation": "Slight Overprediction" if tot_pred > tot_act else "Underprediction",
+                            "total_transfer_hits": tot_hits,
+                        })
                 else:
-                    rep = evaluate_season_decisions(team_id=tid, season=season, database_path=self.database_path)
-                self._send_json(rep)
+                    tid = get_arg("team") or get_active_team_id(self.config_dir)
+                    season = get_arg("season", "2026/27")
+                    gw_arg = get_arg("gameweek")
+                    if gw_arg:
+                        gw = int(gw_arg)
+                        rep = evaluate_gameweek_decision(gameweek=gw, team_id=tid, season=season, database_path=self.database_path)
+                    else:
+                        rep = evaluate_season_decisions(team_id=tid, season=season, database_path=self.database_path)
+                    self._send_json(rep)
             elif path == "/api/players":
                 search = get_arg("search", "")
                 all_flag = str(get_arg("all", "false")).lower() in ("true", "1", "yes")
@@ -775,6 +936,36 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json(result)
             elif path == "/api/decisions":
+                session_id = body.get("session_id")
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    gw = int(body.get("gameweek") or sim.current_gw)
+                    # Update or add decision for gw
+                    dec_obj = {
+                        "gameweek": gw,
+                        "season": sim.season,
+                        "session_id": session_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "chip_played": body.get("chip"),
+                        "transfer_hits": int(body.get("hits") or 0),
+                        "transfers": body.get("transfers") or [],
+                        "squad_player_ids": body.get("squad_players") or list(sim.squad_ids),
+                        "starting_player_ids": body.get("starters") or list(sim.starting_ids),
+                        "bench_player_ids": body.get("bench") or list(sim.bench_ids),
+                        "captain_id": body.get("captain") or sim.captain_id,
+                        "vice_captain_id": body.get("vice_captain") or sim.vice_captain_id,
+                        "notes": body.get("notes", ""),
+                    }
+                    existing_entry = next((h for h in sim.history if h.get("gameweek") == gw), None)
+                    if existing_entry:
+                        existing_entry["decision"] = dec_obj
+                    else:
+                        sim.history.append({"gameweek": gw, "type": "manual_decision", "decision": dec_obj})
+                    sim.save(sim_dir)
+                    self._send_json({"success": True, "gameweek": gw, "decision": dec_obj, "session_id": session_id})
+                    return
+
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 gw = int(body["gameweek"])
                 squad_path = get_team_squad_path(tid, self.config_dir)
@@ -822,16 +1013,22 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     )
                 self._send_json(res)
             elif path == "/api/decisions/undo":
-                tid = body.get("team_id") or get_active_team_id(self.config_dir)
-                gw_val = body.get("gameweek")
-                squad_path = get_team_squad_path(tid, self.config_dir)
-                res = undo_gameweek_changes(
-                    squad_path=squad_path,
-                    gameweek=int(gw_val) if gw_val is not None else None,
-                    team_id=tid,
-                    season=body.get("season", "2026/27"),
-                    database_path=self.database_path,
-                )
+                session_id = body.get("session_id")
+                if session_id:
+                    sim_dir = self.config_dir / "simulations"
+                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    res = sim.undo_last_gameweek()
+                else:
+                    tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                    gw_val = body.get("gameweek")
+                    squad_path = get_team_squad_path(tid, self.config_dir)
+                    res = undo_gameweek_changes(
+                        squad_path=squad_path,
+                        gameweek=int(gw_val) if gw_val is not None else None,
+                        team_id=tid,
+                        season=body.get("season", "2026/27"),
+                        database_path=self.database_path,
+                    )
                 self._send_json(res)
             elif path == "/api/wildcard/apply":
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)

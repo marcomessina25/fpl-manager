@@ -24,7 +24,7 @@ from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Pos
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
 from ..rules import MIN_STARTING_QUOTAS, SQUAD_QUOTAS, SQUAD_SIZE
-from ..transfers import selling_price
+from ..transfers import resolve_chained_transfers, selling_price
 from .models import GameweekResolution, SimulationSummary, StagedTransfer
 
 LOGGER = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ class HistoricalSimulationSession:
         vice_captain_id: int = 0,
         transfers_staged: list[dict[str, Any]] | None = None,
         history: list[dict[str, Any]] | None = None,
+        initial_decision: dict[str, Any] | None = None,
         engine_baseline_squad_ids: list[int] | None = None,
         engine_baseline_purchase_prices: dict[str, int] | None = None,
         engine_baseline_bank_tenths: int = 0,
@@ -92,6 +93,7 @@ class HistoricalSimulationSession:
         self.vice_captain_id = vice_captain_id
         self.transfers_staged = list(transfers_staged or [])
         self.history = list(history or [])
+        self.initial_decision = initial_decision
 
         # Parallel baseline engine tracking (frozen v1.3.5 default, or specified version)
         self.engine_baseline_version = engine_baseline_version
@@ -182,6 +184,27 @@ class HistoricalSimulationSession:
             "frozen_engine_version": "v1.3.5",
         }
 
+        # Initial squad selection logged decision
+        initial_decision = {
+            "gameweek": start_gw,
+            "season": season,
+            "session_id": session_id,
+            "timestamp": meta["created_at"],
+            "notes": "Initial squad selection",
+            "chip_played": None,
+            "transfer_hits": 0,
+            "transfers": [],
+            "squad_player_ids": list(squad_ids),
+            "starting_player_ids": list(starters),
+            "bench_player_ids": list(bench),
+            "captain_id": cap,
+            "vice_captain_id": vc,
+            "predicted_lineup_xp": sum(
+                (next((p.expected_points for p in projections_gw1 if p.player_id == pid), 0.0) * (2 if pid == cap else 1))
+                for pid in starters
+            ),
+        }
+
         session = cls(
             session_id=session_id,
             season=season,
@@ -195,6 +218,8 @@ class HistoricalSimulationSession:
             bench_ids=bench,
             captain_id=cap,
             vice_captain_id=vc,
+            history=[],
+            initial_decision=initial_decision,
             engine_baseline_version="v1.3.5",
             engine_baseline_squad_ids=baseline_squad,
             engine_baseline_purchase_prices=baseline_prices,
@@ -230,6 +255,7 @@ class HistoricalSimulationSession:
             "vice_captain_id": self.vice_captain_id,
             "transfers_staged": self.transfers_staged,
             "history": self.history,
+            "initial_decision": self.initial_decision,
             "engine_baseline_version": self.engine_baseline_version,
             "engine_baseline_squad_ids": self.engine_baseline_squad_ids,
             "engine_baseline_purchase_prices": self.engine_baseline_purchase_prices,
@@ -275,6 +301,7 @@ class HistoricalSimulationSession:
             vice_captain_id=data.get("vice_captain_id", 0),
             transfers_staged=data.get("transfers_staged", []),
             history=data.get("history", []),
+            initial_decision=data.get("initial_decision"),
             engine_baseline_version=data.get("engine_baseline_version", "v1.3.5"),
             engine_baseline_squad_ids=data.get("engine_baseline_squad_ids"),
             engine_baseline_purchase_prices=data.get("engine_baseline_purchase_prices"),
@@ -674,8 +701,55 @@ class HistoricalSimulationSession:
         players_map = {p.player_id: p for p in snapshot.players}
         player_positions = {p.player_id: p.position for p in snapshot.players}
 
-        # 1. Apply staged transfers
+        # Capture pre-gameweek state snapshots for 1:1 undo and decision logging
+        pre_squad_ids = list(self.squad_ids)
+        pre_prices = dict(self.purchase_prices_tenths)
+        pre_bank = self.bank_tenths
+        pre_fts = self.free_transfers
+        pre_starters = list(self.starting_ids)
+        pre_bench = list(self.bench_ids)
+        pre_cap = self.captain_id
+        pre_vc = self.vice_captain_id
+        pre_chips_rem = list(self.chips_remaining)
+        pre_chips_used = dict(self.chips_used)
+
+        # 1. Apply staged transfers (with chained transfer collapsing: A -> B, B -> C => A -> C)
         is_free_chip = self.active_chip in ("wildcard_1", "wildcard_2", "free_hit")
+        
+        # Collapse staged transfers if chained
+        if self.transfers_staged:
+            from ..transfers import Transfer
+            tx_objs = [
+                Transfer(
+                    outgoing_id=st["out_id"],
+                    incoming_id=st["in_id"],
+                )
+                for st in self.transfers_staged
+            ]
+            collapsed = resolve_chained_transfers(tx_objs)
+            collapsed_staged = []
+            for t in collapsed:
+                # Find matching original staged item or compute
+                orig_st = next((s for s in self.transfers_staged if s["out_id"] == t.outgoing_id and s["in_id"] == t.incoming_id), None)
+                if orig_st:
+                    collapsed_staged.append(orig_st)
+                else:
+                    out_p = players_map.get(t.outgoing_id)
+                    in_p = players_map.get(t.incoming_id)
+                    p_price = self.purchase_prices_tenths.get(str(t.outgoing_id), out_p.price_tenths if out_p else 50)
+                    s_price = selling_price(p_price, out_p.price_tenths if out_p else 50)
+                    cost = (in_p.price_tenths if in_p else 50) - s_price
+                    collapsed_staged.append({
+                        "out_id": t.outgoing_id,
+                        "in_id": t.incoming_id,
+                        "out_name": out_p.web_name if out_p else f"Player {t.outgoing_id}",
+                        "in_name": in_p.web_name if in_p else f"Player {t.incoming_id}",
+                        "cost_tenths": cost,
+                        "out_selling_price_tenths": s_price,
+                        "in_price_tenths": in_p.price_tenths if in_p else 50,
+                    })
+            self.transfers_staged = collapsed_staged
+
         num_transfers = len(self.transfers_staged)
         extra_transfers = max(0, num_transfers - self.free_transfers) if not is_free_chip else 0
         hits_cost = extra_transfers * 4
@@ -700,7 +774,7 @@ class HistoricalSimulationSession:
                 self.squad_ids[idx] = in_id
             self.bank_tenths -= cost
             self.purchase_prices_tenths.pop(str(out_id), None)
-            self.purchase_prices_tenths[str(in_id)] = st.get("in_price_tenths", players_map[in_id].price_tenths)
+            self.purchase_prices_tenths[str(in_id)] = st.get("in_price_tenths", players_map[in_id].price_tenths if in_id in players_map else 50)
 
             # Update lineup replacements
             if out_id in self.starting_ids:
@@ -809,6 +883,24 @@ class HistoricalSimulationSession:
 
         cum_net = sum(h.get("net_points", 0) for h in self.history) + net_points
 
+        # Auto-log decision record for this gameweek (1:1 with live manager Decision Logger)
+        decision_obj = {
+            "gameweek": gw,
+            "season": self.season,
+            "session_id": self.session_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "chip_played": self.active_chip,
+            "transfer_hits": hits_cost // 4 if hits_cost else 0,
+            "transfers": transfers_executed,
+            "squad_player_ids": list(self.squad_ids),
+            "starting_player_ids": list(self.starting_ids),
+            "bench_player_ids": list(self.bench_ids),
+            "captain_id": self.captain_id,
+            "vice_captain_id": self.vice_captain_id,
+            "predicted_lineup_xp": engine_recs.get("predicted_lineup_xp", 0.0),
+            "notes": f"Simulated matchday GW{gw}",
+        }
+
         resolution = GameweekResolution(
             gameweek=gw,
             gross_points=gross_points,
@@ -828,6 +920,17 @@ class HistoricalSimulationSession:
             squad_ids_after=list(self.squad_ids),
             bank_tenths_after=self.bank_tenths,
             squad_value_tenths_after=squad_value,
+            squad_ids_before=pre_squad_ids,
+            purchase_prices_before=pre_prices,
+            bank_tenths_before=pre_bank,
+            free_transfers_before=pre_fts,
+            starting_ids_before=pre_starters,
+            bench_ids_before=pre_bench,
+            captain_id_before=pre_cap,
+            vice_captain_id_before=pre_vc,
+            chips_remaining_before=pre_chips_rem,
+            chips_used_before=pre_chips_used,
+            decision_logged=decision_obj,
             engine_recommendation=engine_recs,
             engine_net_points=engine_net,
             human_engine_divergence=divergence,
@@ -881,6 +984,67 @@ class HistoricalSimulationSession:
 
         self.save()
         return resolution.to_dict()
+
+    def undo_last_gameweek(self) -> dict[str, Any]:
+        """Undo the last simulated gameweek, restoring squad, bank, chips, and free transfers."""
+        if not self.history:
+            raise ValueError("No gameweeks have been simulated yet to undo.")
+
+        last_entry = self.history.pop()
+        # If the only entry was initial squad, cannot undo further
+        if last_entry.get("type") == "initial_squad" or "gross_points" not in last_entry:
+            self.history.append(last_entry)
+            raise ValueError("Cannot undo initial squad creation.")
+
+        reverted_gw = last_entry["gameweek"]
+        
+        # Restore pre-gameweek state if recorded
+        if "squad_ids_before" in last_entry and last_entry["squad_ids_before"]:
+            self.squad_ids = list(last_entry["squad_ids_before"])
+        elif "squad_ids_after" in last_entry:
+            # Fallback for earlier records: revert transfers in reverse
+            pass
+
+        if "purchase_prices_before" in last_entry and last_entry["purchase_prices_before"] is not None:
+            self.purchase_prices_tenths = dict(last_entry["purchase_prices_before"])
+        if "bank_tenths_before" in last_entry and last_entry["bank_tenths_before"] is not None:
+            self.bank_tenths = int(last_entry["bank_tenths_before"])
+        if "free_transfers_before" in last_entry and last_entry["free_transfers_before"] is not None:
+            self.free_transfers = int(last_entry["free_transfers_before"])
+        if "starting_ids_before" in last_entry and last_entry["starting_ids_before"]:
+            self.starting_ids = list(last_entry["starting_ids_before"])
+        if "bench_ids_before" in last_entry and last_entry["bench_ids_before"]:
+            self.bench_ids = list(last_entry["bench_ids_before"])
+        if "captain_id_before" in last_entry and last_entry["captain_id_before"]:
+            self.captain_id = int(last_entry["captain_id_before"])
+        if "vice_captain_id_before" in last_entry and last_entry["vice_captain_id_before"]:
+            self.vice_captain_id = int(last_entry["vice_captain_id_before"])
+        if "chips_remaining_before" in last_entry and last_entry["chips_remaining_before"] is not None:
+            self.chips_remaining = list(last_entry["chips_remaining_before"])
+        if "chips_used_before" in last_entry and last_entry["chips_used_before"] is not None:
+            self.chips_used = dict(last_entry["chips_used_before"])
+
+        self.current_gw = reverted_gw
+        self.status = "active"
+        self.transfers_staged = []
+        self.active_chip = None
+        self.pre_free_hit_state = None
+
+        # Revert baseline engine history if aligned
+        if self.engine_baseline_history and self.engine_baseline_history[-1].get("gameweek") == reverted_gw:
+            self.engine_baseline_history.pop()
+
+        self.save()
+        return {
+            "success": True,
+            "undone_gameweek": reverted_gw,
+            "current_gw": self.current_gw,
+            "squad": self.get_squad_player_details(),
+            "bank_tenths": self.bank_tenths,
+            "free_transfers": self.free_transfers,
+            "chips_remaining": self.chips_remaining,
+            "chips_used": self.chips_used,
+        }
 
     def _step_baseline_engine(
         self,
