@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.4.5-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.4.6-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
