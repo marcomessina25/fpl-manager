@@ -22,7 +22,7 @@ Canonical Model Pillars (V1.0.1 / V0.9.1-frozen quantitative core):
 See `docs/expected_points.md` for full mathematical documentation.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import os
@@ -100,6 +100,7 @@ class MultiGameweekProfile:
     xp_ceiling: float
     standard_deviation: float
     fixtures_count: int
+    gw_breakdown_xp: dict[int, float] = field(default_factory=dict)
 
 
 def calculate_base_xp(price_tenths: int, total_points: int = 0, finished_matches: int = 0) -> float:
@@ -1052,8 +1053,10 @@ def project_multi_gameweek_profiles(
         total_floor = 0.0
         total_ceil = 0.0
         sum_var = 0.0
+        p_gw_breakdown: dict[int, float] = {}
 
         for f in p_fixtures:
+            f_event = f.get("event")
             fdr = f["fdr"]
             is_home = f["is_home"]
             baseline_xp = calculate_fixture_xp(base_xp, avail, pos, fdr, is_home)
@@ -1087,6 +1090,8 @@ def project_multi_gameweek_profiles(
             total_floor += f_floor
             total_ceil += f_ceil
             sum_var += f_var
+            if f_event is not None:
+                p_gw_breakdown[f_event] = round(p_gw_breakdown.get(f_event, 0.0) + final_xp, 2)
 
         profiles[p_id] = MultiGameweekProfile(
             player_id=p_id,
@@ -1102,6 +1107,7 @@ def project_multi_gameweek_profiles(
             xp_ceiling=round(total_ceil, 2),
             standard_deviation=round(math.sqrt(sum_var), 2),
             fixtures_count=len(p_fixtures),
+            gw_breakdown_xp=p_gw_breakdown,
         )
 
     return profiles

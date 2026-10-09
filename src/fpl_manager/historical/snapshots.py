@@ -533,6 +533,7 @@ def load_historical_players_meta(
 
         import statistics
         p_std = round(statistics.pstdev(p_fwd), 2) if len(p_fwd) > 1 else 0.0
+        p_gw_breakdown = {gw: fwd_projections[gw].get(p.player_id, 0.0) for gw in fwd_projections}
 
         p_info = PlayerInfo(
             id=p.player_id,
@@ -553,6 +554,7 @@ def load_historical_players_meta(
             horizon_floor=gw1_floor * max(1, len(p_fwd)),
             horizon_ceiling=gw1_ceil * max(1, len(p_fwd)),
             is_long_term_unavailable=p.is_long_term_unavailable,
+            gw_breakdown_xp=p_gw_breakdown,
         )
         players_map[p.player_id] = p_info
 

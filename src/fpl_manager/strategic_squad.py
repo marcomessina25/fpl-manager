@@ -403,8 +403,21 @@ def evaluate_strategic_squad_objective(
         )
     else:
         total_horizon_xp = round(lineup_xp_per_gw * h_len, 2)
-
-    horizon_breakdown = {gw: round(total_horizon_xp / h_len, 2) for gw in horizon_gws}
+    has_breakdowns = any(bool(getattr(p, "gw_breakdown_xp", None)) for p in best_starters)
+    if has_breakdowns:
+        horizon_breakdown = {}
+        for gw in horizon_gws:
+            gw_starters_xp = sum(
+                getattr(p, "gw_breakdown_xp", {}).get(gw, getattr(p, "expected_points", 0.0))
+                for p in best_starters
+            )
+            gw_cap_xp = (
+                getattr(best_cap, "gw_breakdown_xp", {}).get(gw, getattr(best_cap, "expected_points", 0.0))
+                if best_cap else 0.0
+            )
+            horizon_breakdown[gw] = round(gw_starters_xp + gw_cap_xp, 2)
+    else:
+        horizon_breakdown = {gw: round(total_horizon_xp / h_len, 2) for gw in horizon_gws}
 
     club_counts: dict[int, int] = {}
     for p in squad:
@@ -613,6 +626,7 @@ def solve_strategic_squad_exact_reference(
                                 "expected_minutes": getattr(p, "expected_minutes", 0.0),
                                 "is_locked": p.id in locked_set,
                                 "is_preferred": p.id in constraints.preferred_player_ids,
+                                "gw_breakdown_xp": getattr(p, "gw_breakdown_xp", {}),
                             }
 
                         starters_ser = [
@@ -1056,6 +1070,7 @@ def solve_strategic_squad(
             "expected_minutes": getattr(p, "expected_minutes", 0.0),
             "is_locked": p.id in locked_set,
             "is_preferred": p.id in pref_set,
+            "gw_breakdown_xp": getattr(p, "gw_breakdown_xp", {}),
         }
 
     starters_ser = [

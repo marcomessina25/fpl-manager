@@ -5,7 +5,7 @@ and squad selling-price rules with the combinatorial optimizers in `fpl_manager.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,6 +62,7 @@ class PlayerInfo:
     horizon_floor: float = 0.0
     horizon_ceiling: float = 0.0
     is_long_term_unavailable: bool = False
+    gw_breakdown_xp: dict[int, float] = field(default_factory=dict)
 
 
 def load_all_players_meta(
@@ -95,7 +96,8 @@ def load_all_players_meta(
     players_map: dict[int, PlayerInfo] = {}
     for p_id, web_name, pos_id, t_id, price, status, pts, news, chance_next, chance_this in players_rows:
         t_short = team_map.get(t_id, f"T{t_id}")
-        prof = profiles_map.get(p_id) if profiles_map else None
+        prof = (profiles_map or {}).get(p_id)
+        p_gw_breakdown = {}
         if isinstance(prof, MultiGameweekProfile):
             p_horizon_xp = float(prof.expected_points)
             f_count = max(1, prof.fixtures_count)
@@ -107,6 +109,7 @@ def load_all_players_meta(
             p_std = prof.standard_deviation
             p_horizon_floor = float(prof.xp_floor)
             p_horizon_ceil = float(prof.xp_ceiling)
+            p_gw_breakdown = dict(prof.gw_breakdown_xp)
         elif isinstance(prof, (int, float)):
             p_xp = float(prof)
             p_gw_xp = p_xp
@@ -149,6 +152,7 @@ def load_all_players_meta(
             is_long_term_unavailable=evaluate_long_term_unavailable(
                 status, news, chance_this, chance_next, datetime.now(timezone.utc)
             ),
+            gw_breakdown_xp=p_gw_breakdown,
         )
 
     return players_map, team_map
