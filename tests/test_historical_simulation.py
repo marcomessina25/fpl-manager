@@ -610,4 +610,25 @@ def test_v146_06_07_20_baseline_undo_and_hit_unit_migration(tmp_path: Path) -> N
     assert summary.total_transfer_hits == 2
 
 
+def test_v146_23_24_human_benchmark_provenance_reconciliation() -> None:
+    """Verify V146-23 & V146-24: committed sanitized 5-season benchmark traces reconcile across 190 GWs."""
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / "verify_v146_human_benchmark.py"
+    spec = importlib.util.spec_from_file_location("verify_v146_human_benchmark", script_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    artifact = mod.verify_provenance()
+    agg = artifact["aggregate_metrics"]
+    assert agg["seasons_evaluated"] == 5
+    assert agg["gameweeks_evaluated"] == 190
+    assert agg["track_b_mean_net_points"] == 2102.0
+    assert agg["track_a_mean_net_points"] == 2038.4
+    assert agg["mean_decision_alpha_points"] == 63.6
+    assert agg["human_season_wins"] == 4
+    assert agg["human_season_win_rate"] == 0.8
+
+
 

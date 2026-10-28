@@ -308,7 +308,25 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-### Current scope (V1.4.5 — Strategic Chip Opportunity-Cost Optimizer Engine & 5-Season Ablation Study)
+### Current scope (V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark, 1:1 Live/Historical Parity & Solver Hardening)
+
+V1.4.6 completes the **5-Season Paired Human-in-the-Loop Replay Benchmark** (`2021-22` through `2025-26`, 190 simulated gameweeks) and enforces strict 1:1 functional, visual, and behavioral parity between Live Manager (`2026/27`) and the Historical Time Machine (`GEMINI.md`):
+
+- **Audited 5-Season Paired Replay Study (Track B Human-Assisted vs. Track A Autonomous Reference Baseline)**:
+  - Evaluates single operator `EXP-HM-01` assisted by point-in-time software recommendations (Track B) against the autonomous frozen reference engine (`DecisionEngineV135` + `ChipOpportunityOptimizer` `c1_linear_decay`, Track A) from identical GW1 `maximum_ev` starting squads.
+  - Across 190 matched gameweeks, Track B achieved a **2,102.0 net pts mean** vs. **2,038.4 net pts** for Track A (**+63.6 pts/season mean decision alpha**, outperforming in **4 of 5 seasons**: `2021-22` +87, `2022-23` +122, `2023-24` -88, `2024-25` +120, `2025-26` +77). Track C (unassisted blind control) is deferred to future multi-operator studies.
+  - Full sanitized 190-GW decision traces, SHA-256 source checksums, and hit/net point reconciliations are committed in [`reports/v146/human_benchmark_provenance.json`](reports/v146/human_benchmark_provenance.json) and verified via `python scripts/verify_v146_human_benchmark.py`.
+- **Historical Replay Ruleset Specification (`V146-24`)**:
+  - Combines era-authentic point-in-time player pools, prices, fixtures, departures, and era-gated free-transfer banking caps (`max_free_transfers = 2` for `2021-22`..`2023-24`, `5` for `2024-25`+) with universal `GW1 -> GW2` 1-FT rollover and the standardized two-segment chip inventory (`Segment 1: GW1–19`, `Segment 2: GW20–38`).
+- **End-to-End 1:1 Parity & State Isolation Hardening (`V146-01` through `V146-22`)**:
+  - **Zero-Leakage Multi-GW Historical Beam Search (`planner.py`)**: Evaluates 0, 1, and 2 transfer trajectories across horizons `1..8` using strictly point-in-time snapshot projections (`sim.get_current_snapshot()`) and supports atomic Step-0 Apply (`POST /api/historical/simulations/<sid>/apply-plan-step` and `POST /api/plan/apply-step`).
+  - **Squad-Sensitive Historical Chip Roadmap (`chip_optimizer.py`)**: Computes point-in-time squad-sensitive EVs, dynamic opportunity costs, net utilities, confidences, and runner-up alternatives across active season segments (`GW1–19`, `GW20–38`).
+  - **Transactional Transfers, Club Quota Repair & Undo Determinism (`session.py`, `optimizer.py`, `server.py`)**: Enforces atomic batch transfer staging (`stage_transfers_batch`), mid-season excess club quota pruning ($\le 3$ per club), deterministic human + baseline Undo (`gw_start_state` and `engine_baseline_*` restoration), and legacy hit-unit normalization (`_normalize_history_hit_units`).
+- Full specification & reports: [`docs/v1.4.6/v146_human_benchmark.md`](docs/v1.4.6/v146_human_benchmark.md), [`reports/v146/human_benchmark_report.md`](reports/v146/human_benchmark_report.md), and [`docs/RELEASE_NOTES_v1.4.6.md`](docs/RELEASE_NOTES_v1.4.6.md).
+
+---
+
+### Previous scope (V1.4.5 — Strategic Chip Opportunity-Cost Optimizer Engine & 5-Season Ablation Study)
 
 V1.4.5 establishes a mathematically principled **Opportunity-Cost Optimizer Engine (`ChipOpportunityOptimizer`)** that replaces static heuristic thresholds across both live operations and historical simulations:
 

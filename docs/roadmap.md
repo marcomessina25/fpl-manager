@@ -2,7 +2,7 @@
 
 > Living document. This is the source of truth for delivery status, engineering priorities, release criteria, known risks, and long-term direction. Human contributors and AI agents must read it before material work and update it when priorities or milestone status changes.
 
-**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14` (#20), establishing the **Interactive Historical Season Simulation & Time Machine Sandbox**. V1.4.5 is completed and validated on branch `v145`, delivering the **Multi-Season Strategic Chip Optimization Study & Unified Engine** (`ChipOpportunityOptimizer`); the winning C1 linear decay baseline (+118.0 pts mean surplus, 8.0% wastage rate vs legacy 48.0%) is fully wired across the historical simulation engine and live `/api/chips` endpoint with 100% decision and contract parity.
+**Current baseline:** V1.3 was completed, validated, and merged into master (#18) as a GBDT quantitative predictor challenger. V1.3.5 is the completed optimizer decision-quality study on branch `v135`, freezing the quantitative predictor, isolating optimizer mechanics across $B_0 \to B_7$, and deploying `DecisionEngineV135` ($H=3, \gamma=0.75, W_{\text{bench}}=0.15, \text{GK}_{\text{hurdle}}=3.0, N=5$, default `initial_strategy="maximum_ev"`). V1.4 is implemented and validated on branch `v14` (#20), establishing the **Interactive Historical Season Simulation & Time Machine Sandbox**. V1.4.5 is completed and validated on branch `v145` (#21), delivering the **Multi-Season Strategic Chip Optimization Study & Unified Engine** (`ChipOpportunityOptimizer`). V1.4.6 is completed and validated on branch `v146` (#22), delivering the **5-Season Paired Human-in-the-Loop Replay Benchmark Study**, strict 1:1 Live/Historical parity (`GEMINI.md`), zero-leakage historical multi-GW beam search, squad-sensitive segment chip roadmaps, and transactional simulation state hardening.
 
 ---
 
@@ -196,9 +196,9 @@ Automated learning loops
 | **V1.2.5** | **Lineup-aware transfer refinements + multi-GW horizon + GK churn suppression + Live wiring** | **Completed, validated, and merged into master (#17)** |
 | **V1.3** | **GBDT quantitative predictor challenger + experimental integration** | **Completed, validated, and merged into master (#18)** |
 | **V1.4** | **Interactive historical season simulation & Time Machine sandbox platform** | **Completed and validated on branch `v14`** |
-| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Completed and validated on branch `v145`** |
-| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study** | **Planned (Next milestone)** |
-| V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned |
+| **V1.4.5** | **Multi-season strategic chip optimization study (ML/EV) & engine unification** | **Completed, validated, and merged into master (#21)** |
+| **V1.4.6** | **Empirical human-in-the-loop replay benchmark study & 1:1 Live/Historical parity** | **Completed and validated on branch `v146` (#22)** |
+| V1.5 | Multi-provider expansion & combinatorial strategic advisory | Planned (Next milestone) |
 
 ---
 
@@ -2245,12 +2245,13 @@ Use distinct states:
 - [x] Pass 25/25 chip regression and contract test suite.
 - [x] Publish benchmark reports in `reports/v145/`.
 
-## Next — V1.4.6 Human-in-the-Loop Replay Benchmark Study
+## Completed — V1.4.6 Human-in-the-Loop Replay Benchmark Study & Parity Hardening
 
-- [ ] Execute controlled replay trials using the V1.4 Time Machine and V1.4.5 reference engine.
-- [ ] Evaluate multi-track performance (Track A Engine, Track B Human-Assisted, Track C Human Blind Control).
-- [ ] Analyze decision divergence and human override alpha.
-- [ ] Publish audited benchmark logs in `reports/v146/`.
+- [x] Execute controlled 5-season paired replay trials (Track B Human-Assisted vs. Track A Autonomous Reference Engine; Track C Blind Control deferred) using the V1.4 Time Machine and V1.4.5 reference engine.
+- [x] Export and verify sanitized 190-GW decision traces, checksums, and hit/net point reconciliations (`reports/v146/human_benchmark_provenance.json`, `scripts/verify_v146_human_benchmark.py`).
+- [x] Document the Historical Replay Ruleset Policy (`V146-24`) and statistical scope/limitations (`docs/v1.4.6/v146_human_benchmark.md`, `reports/v146/human_benchmark_report.md`).
+- [x] Enforce strict 1:1 Live/Historical parity (`GEMINI.md`) across Transfers, Decision Logger, Multi-GW Planner (`1..8` GWs, zero future leakage, atomic Step-0 Apply), Chip Strategy (squad-sensitive segment roadmap), and Strategic Studio.
+- [x] Harden simulation Undo/replay determinism (`gw_start_state` and `engine_baseline_*` restoration) and legacy hit-unit normalization (`V146-01` through `V146-25`).
 
 ## Later — V1.5
 
