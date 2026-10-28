@@ -278,13 +278,13 @@ class TestOptimizerUnavailabilityIntegration:
 
     def test_solve_transfers_excludes_unavailable_incoming(self) -> None:
         squad = [
-            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=45, status="a", total_points=20, expected_points=3.0)
+            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=(i % 7) + 1, team_short=f"T{(i % 7) + 1}", price_tenths=45, status="a", total_points=20, expected_points=3.0)
             for i in range(1, 16)
         ]
         # Candidate pool contains one healthy player and one banned player
         cands = [
-            PlayerOptInfo(id=101, name="Healthy Mid", position=Position.DEFENDER, team_id=2, team_short="T2", price_tenths=45, status="a", total_points=30, expected_points=5.0),
-            PlayerOptInfo(id=102, name="Banned Mid", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=45, status="s", total_points=50, expected_points=8.0),
+            PlayerOptInfo(id=101, name="Healthy Mid", position=Position.DEFENDER, team_id=10, team_short="T10", price_tenths=45, status="a", total_points=30, expected_points=5.0),
+            PlayerOptInfo(id=102, name="Banned Mid", position=Position.DEFENDER, team_id=11, team_short="T11", price_tenths=45, status="s", total_points=50, expected_points=8.0),
         ]
         recs, _ = solve_transfers(
             num_transfers=1,
@@ -302,7 +302,7 @@ class TestOptimizerUnavailabilityIntegration:
 
     def test_solve_transfers_prioritizes_offloading_unavailable_squad_player(self) -> None:
         squad = [
-            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=20, expected_points=3.0)
+            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=(i % 7) + 1, team_short=f"T{(i % 7) + 1}", price_tenths=50, status="a", total_points=20, expected_points=3.0)
             for i in range(1, 14)
         ]
         # 14th player: fit, available squad player with lowest xP (0.1) and price 80 tenths (£8.0m).
@@ -311,8 +311,8 @@ class TestOptimizerUnavailabilityIntegration:
                 id=14,
                 name="Bench Fit",
                 position=Position.DEFENDER,
-                team_id=1,
-                team_short="T1",
+                team_id=8,
+                team_short="T8",
                 price_tenths=80,
                 status="a",
                 total_points=20,
@@ -329,8 +329,8 @@ class TestOptimizerUnavailabilityIntegration:
                 id=15,
                 name="ACL Victim",
                 position=Position.DEFENDER,
-                team_id=2,
-                team_short="T2",
+                team_id=9,
+                team_short="T9",
                 price_tenths=80,
                 status="i",
                 total_points=30,
@@ -339,7 +339,7 @@ class TestOptimizerUnavailabilityIntegration:
                 is_long_term_unavailable=True,
             )
         )
-        cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=75, status="a", total_points=40, expected_points=4.5)
+        cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=10, team_short="T10", price_tenths=75, status="a", total_points=40, expected_points=4.5)
 
         # 1. Verification that the test discriminates (Issue 5 guard):
         # When dead-capital logic is disabled (dead_capital_weight=0.0), pure xP delta prioritizes
@@ -382,7 +382,7 @@ class TestOptimizerUnavailabilityIntegration:
         """A squad player serving a short (1-match) suspension is not dead capital:
         offloading them must NOT receive the dead capital bonus."""
         squad = [
-            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=1, team_short="T1", price_tenths=50, status="a", total_points=20, expected_points=3.0)
+            PlayerOptInfo(id=i, name=f"P{i}", position=Position.DEFENDER, team_id=(i % 7) + 1, team_short=f"T{(i % 7) + 1}", price_tenths=50, status="a", total_points=20, expected_points=3.0)
             for i in range(1, 15)
         ]
         # 15th player is serving a single-match disciplinary suspension (not long-term)
@@ -391,8 +391,8 @@ class TestOptimizerUnavailabilityIntegration:
                 id=15,
                 name="One Match Ban",
                 position=Position.DEFENDER,
-                team_id=2,
-                team_short="T2",
+                team_id=8,
+                team_short="T8",
                 price_tenths=80,
                 status="s",
                 total_points=30,
@@ -400,7 +400,7 @@ class TestOptimizerUnavailabilityIntegration:
                 news="One match violent conduct suspension",
             )
         )
-        cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=3, team_short="T3", price_tenths=75, status="a", total_points=40, expected_points=4.5)
+        cand = PlayerOptInfo(id=101, name="Replacement", position=Position.DEFENDER, team_id=10, team_short="T10", price_tenths=75, status="a", total_points=40, expected_points=4.5)
 
         recs, _ = solve_transfers(
             num_transfers=1,

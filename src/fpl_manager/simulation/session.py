@@ -571,7 +571,7 @@ class HistoricalSimulationSession:
     def get_current_snapshot(self) -> HistoricalGameweekSnapshot:
         """Point-in-time snapshot strictly knowable before current gameweek deadline."""
         season_dir = self.historical_dir / self.season
-        return build_historical_snapshot(season_dir, self.current_gw)
+        return build_historical_snapshot(season_dir, self.current_gw, include_prior_players=True)
 
     def get_squad_player_details(self) -> list[dict[str, Any]]:
         """Get rich player details for current squad at the current historical deadline."""

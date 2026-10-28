@@ -163,6 +163,7 @@ def build_historical_snapshot(
     # unavailability_registry.json into pre-V1.2 measurement paths. Pass True
     # explicitly to reproduce V1.2 behavior.
     apply_unavailability: bool = False,
+    include_prior_players: bool = False,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
     
@@ -321,10 +322,13 @@ def build_historical_snapshot(
             if prior_raw:
                 raw_players = prior_raw
                 break
-    # Base active players on latest known records, overlaid with current GW updates
-    current_gw_players = dict(latest_prior_player_records)
-    for p in raw_players:
-        current_gw_players[p["player_id"]] = p
+    if include_prior_players:
+        # Base active players on latest known records, overlaid with current GW updates
+        current_gw_players = dict(latest_prior_player_records)
+        for p in raw_players:
+            current_gw_players[p["player_id"]] = p
+    else:
+        current_gw_players = {p["player_id"]: p for p in raw_players}
 
     players_list: list[HistoricalPlayerState] = []
     finished_gws = gameweek - 1

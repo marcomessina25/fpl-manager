@@ -560,3 +560,54 @@ def test_gw1_and_gw2_free_transfers_rollover_fpl_rules(tmp_path):
     assert sim.free_transfers == 2
 
 
+def test_v146_06_07_20_baseline_undo_and_hit_unit_migration(tmp_path: Path) -> None:
+    """Verify V146-06 (gw_start_state), V146-07 (engine_baseline Undo), and V146-20 (hit-unit migration)."""
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_baseline_undo",
+        season="2023-24",
+        start_gw=1,
+        starting_strategy="v1.2.5",
+        config_dir=tmp_path,
+    )
+    gw1_base_squad = list(sim.engine_baseline_squad_ids)
+    gw1_base_bank = sim.engine_baseline_bank_tenths
+    gw1_base_ft = sim.engine_baseline_free_transfers
+
+    # Run GW1
+    sim.run_gameweek()
+    assert sim.current_gw == 2
+    assert len(sim.history) == 1
+    assert len(sim.engine_baseline_history) == 1
+
+    # Undo GW1 and verify both human state AND engine_baseline state are restored to pre-GW1
+    sim.undo_last_gameweek()
+    assert sim.current_gw == 1
+    assert len(sim.history) == 0
+    assert len(sim.engine_baseline_history) == 0
+    assert sim.engine_baseline_squad_ids == gw1_base_squad
+    assert sim.engine_baseline_bank_tenths == gw1_base_bank
+    assert sim.engine_baseline_free_transfers == gw1_base_ft
+
+    # V146-20: Simulate legacy persisted history entry where transfer_hits stored points (e.g. 4 or 8)
+    sim.run_gameweek()
+    sim.history[0]["gross_points"] = 60
+    sim.history[0]["net_points"] = 52
+    sim.history[0]["transfer_hits"] = 8  # Legacy points format for 2 hits (-8 pts)
+    sim.history[0].pop("transfer_hit_points", None)
+    # Also append an unplayed strategic_decision entry that lacks gross_points
+    sim.history.append({
+        "gameweek": 2,
+        "type": "strategic_decision",
+        "decision_logged": {"gameweek": 2, "transfer_hits": 1},
+    })
+    sim.save()
+
+    reloaded = HistoricalSimulationSession.load(sim.session_id, config_dir=tmp_path)
+    assert reloaded.history[0]["transfer_hits"] == 2
+    assert reloaded.history[0]["transfer_hit_points"] == 8
+    summary = reloaded.generate_summary()
+    assert summary.gameweeks_completed == 1
+    assert summary.total_transfer_hits == 2
+
+
+

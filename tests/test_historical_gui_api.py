@@ -682,6 +682,260 @@ def test_api_historical_season_ended_lifecycle(test_server) -> None:
         assert recs.get("season_ended") is True
 
 
+def test_v146_02_17_19_unit_regressions(monkeypatch) -> None:
+    """Verify V146-02 (horizon=1 rescore), V146-17 (blank GW 0.0 xP), and V146-19 (explicit C0 policy)."""
+    from fpl_manager.chip_strategy import SeasonalChipPolicy
+    from fpl_manager.models import Position
+    from fpl_manager.suggest_transfers import PlayerInfo, rescore_transfer_candidates
+
+    # V146-19: Explicit use_optimizer=False must remain False even when FPL_CHIP_OPTIMIZER=1
+    monkeypatch.setenv("FPL_CHIP_OPTIMIZER", "1")
+    pol_c0 = SeasonalChipPolicy(use_optimizer=False)
+    assert pol_c0.use_optimizer is False
+    pol_c1 = SeasonalChipPolicy(use_optimizer=True)
+    assert pol_c1.use_optimizer is True
+    pol_default = SeasonalChipPolicy()
+    assert pol_default.use_optimizer is True
+
+    # V146-02 & V146-17: rescore_transfer_candidates with horizon=1 and blank GW (missing key in non-empty gw_breakdown_xp)
+    squad: list[PlayerInfo] = []
+    for idx in range(1, 16):
+        pos = (
+            Position.GOALKEEPER if idx <= 2
+            else (Position.DEFENDER if idx <= 7 else (Position.MIDFIELDER if idx <= 12 else Position.FORWARD))
+        )
+        squad.append(
+            PlayerInfo(
+                id=idx,
+                name=f"P{idx}",
+                position=pos,
+                team_id=(idx % 7) + 1,
+                team_short=f"T{(idx % 7) + 1}",
+                price_tenths=50,
+                status="a",
+                total_points=20,
+                expected_points=3.0,
+                gw_xp=0.0 if idx == 15 else 3.0,
+                horizon_xp=3.0,
+                # Player 15 has a non-empty gw_breakdown_xp that omits GW 10 (blank GW 10 -> must be 0.0, not 3.0)
+                gw_breakdown_xp={11: 3.0} if idx == 15 else {10: 3.0, 11: 3.0},
+            )
+        )
+    in_cand = PlayerInfo(
+        id=99,
+        name="InStar",
+        position=Position.FORWARD,
+        team_id=9,
+        team_short="T9",
+        price_tenths=50,
+        status="a",
+        total_points=40,
+        expected_points=6.0,
+        gw_xp=6.0,
+        horizon_xp=6.0,
+        gw_breakdown_xp={10: 6.0},
+    )
+    players_map = {p.id: p for p in squad}
+    players_map[99] = in_cand
+    raw_results = [
+        {
+            "outgoing": [{"id": 15, "name": "P15", "position": "FORWARD", "team": "T2", "price_tenths": 50, "selling_price_tenths": 50, "xp": 0.0}],
+            "incoming": [{"id": 99, "name": "InStar", "position": "FORWARD", "team": "T9", "price_tenths": 50, "xp": 6.0}],
+            "transfer_hits": 0,
+            "hit_cost": 0,
+            "bank_after_tenths": 0,
+            "bank_after_fmt": "£0.0m",
+            "xp_delta": 6.0,
+            "score": 6.0,
+        }
+    ]
+    projections_by_gw = {
+        10: {p.id: float(p.gw_breakdown_xp.get(10, 0.0)) for p in players_map.values()},
+    }
+    rescored = rescore_transfer_candidates(
+        raw_results=raw_results,
+        squad_players=squad,
+        players_map=players_map,
+        projections_by_gw=projections_by_gw,
+        eff_horizon=1,
+    )
+    assert len(rescored) == 1
+    assert rescored[0]["lineup_xp_delta"] > 0
+    assert rescored[0]["gw1_lineup_xp_delta"] > 0
+    assert rescored[0]["reason_breakdown"]["multi_horizon_gain"] == 0.0
+    assert "reason_breakdown" in rescored[0]
+
+
+def test_v146_03_09_15_api_guards_and_atomic_rollbacks(test_server) -> None:
+    """Verify V146-03 (Undo guard), V146-09 (atomic plan step-0 rollback), and V146-15 (provenance guard)."""
+    base_url, _ = test_server
+
+    # 1. V146-03: Historical Undo without session_id must fail with 400 and never fall through to live Undo
+    undo_req = urllib.request.Request(
+        f"{base_url}/api/decisions/undo",
+        data=json.dumps({"mode": "historical", "session_id": ""}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(undo_req)
+        assert False, "Expected HTTP 400 when undoing historical mode without session_id"
+    except urllib.error.HTTPError as err:
+        assert err.code == 400
+
+    # Create a simulation session
+    sid = "test_v146_guards_sim"
+    create_req = urllib.request.Request(
+        f"{base_url}/api/historical/simulations/create",
+        data=json.dumps({
+            "session_id": sid,
+            "season": "2023-24",
+            "start_gw": 1,
+            "starting_strategy": "v1.2.5",
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(create_req) as r:
+        assert r.status == 200
+        init_sess = json.loads(r.read())
+        init_squad_ids = [p["id"] for p in init_sess["squad"]]
+
+    # 2. V146-15: Cross-mode / cross-session strategic candidate must be rejected with HTTP 400
+    bad_strat_req = urllib.request.Request(
+        f"{base_url}/api/strategic-squad/apply",
+        data=json.dumps({
+            "session_id": sid,
+            "mode": "wildcard",
+            "gameweek": 1,
+            "season": "2023-24",
+            "candidate": {
+                "player_ids": init_squad_ids,
+                "starters": [{"id": pid} for pid in init_squad_ids[:11]],
+                "bench": [{"id": pid} for pid in init_squad_ids[11:]],
+                "captain": {"id": init_squad_ids[0]},
+                "vice_captain": {"id": init_squad_ids[1]},
+                "provenance": {"app_mode": "live", "season": "2026/27", "session_id": None, "gameweek": 1},
+            },
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(bad_strat_req)
+        assert False, "Expected HTTP 400 for live provenance candidate applied to historical session"
+    except urllib.error.HTTPError as err:
+        assert err.code == 400
+
+    # 3. V146-09: Atomic Step-0 Apply rollback when lineup validation fails after staging a valid transfer
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}/players") as r:
+        pool = json.loads(r.read())["players"]
+    out_p = init_sess["squad"][0]
+    in_p = next(
+        p for p in pool
+        if p["position"] == out_p["position"]
+        and p["id"] not in set(init_squad_ids)
+        and p["price_tenths"] <= out_p["selling_price_tenths"]
+        and p["team_id"] == out_p["team_id"]
+    )
+    atomic_fail_req = urllib.request.Request(
+        f"{base_url}/api/historical/simulations/{sid}/apply-plan-step",
+        data=json.dumps({
+            "gameweek": 1,
+            "transfers": [{"out_id": out_p["id"], "in_id": in_p["id"]}],
+            "starting_ids": init_squad_ids[:5],  # Invalid: only 5 starters!
+            "bench_ids": init_squad_ids[11:],
+            "captain_id": init_squad_ids[0],
+            "vice_captain_id": init_squad_ids[1],
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(atomic_fail_req)
+        assert False, "Expected HTTP 400 for invalid starter count in apply-plan-step"
+    except urllib.error.HTTPError as err:
+        assert err.code == 400
+
+    # Verify the valid transfer was rolled back and transfers_staged is still empty
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}") as r:
+        after_sess = json.loads(r.read())
+        assert after_sess["transfers_staged"] == []
+        assert [p["id"] for p in after_sess["squad"]] == init_squad_ids
+
+
+def test_v146_05_08_18_planner_no_future_leakage_and_squad_sensitive_chips(test_server, monkeypatch) -> None:
+    """Verify V146-05/08 (historical beam search planner never loads future GW snapshots) and V146-18 (squad-sensitive chip roadmap)."""
+    import fpl_manager.historical.snapshots as snap_mod
+
+    base_url, _ = test_server
+    sid = "test_v146_plan_chips_sim"
+    create_req = urllib.request.Request(
+        f"{base_url}/api/historical/simulations/create",
+        data=json.dumps({
+            "session_id": sid,
+            "season": "2023-24",
+            "start_gw": 2,
+            "starting_strategy": "v1.2.5",
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(create_req) as r:
+        assert r.status == 200
+
+    orig_build = snap_mod.build_historical_snapshot
+    requested_gws: list[int] = []
+
+    def _guarded_build(season_dir, gameweek, *args, **kwargs):
+        requested_gws.append(int(gameweek))
+        if int(gameweek) > 2:
+            raise AssertionError(f"Future leakage detected: build_historical_snapshot called for GW{gameweek} > current_gw=2")
+        return orig_build(season_dir, gameweek, *args, **kwargs)
+
+    monkeypatch.setattr(snap_mod, "build_historical_snapshot", _guarded_build)
+
+    with urllib.request.urlopen(f"{base_url}/api/plan?session_id={sid}&horizon=4&risk=neutral&no_hits=false") as r:
+        assert r.status == 200
+        plan_rep = json.loads(r.read())
+        assert plan_rep["optimization_metadata"]["algorithm"] == "beam_search_multi_gw"
+        steps = plan_rep["best_plan"]["gameweek_steps"]
+        assert len(steps) == 4
+        assert len(steps[0]["starting_ids"]) == 11
+        assert len(steps[0]["bench_ids"]) == 4
+    assert all(g <= 2 for g in requested_gws)
+
+    # V146-18: Chip roadmap valuations must change when squad changes
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}/chips?start_gw=2") as r:
+        chips_before = json.loads(r.read())
+        sched_before = {s["chip"]: s["immediate_ev"] for s in chips_before["recommended_schedule"]}
+        assert all(s["confidence"] != 0.88 for s in chips_before["recommended_schedule"])
+
+    # Stage a transfer swapping a high-price starter for a low-price bench fodder to alter squad xP
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}") as r:
+        sess = json.loads(r.read())
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}/players") as r:
+        pool = json.loads(r.read())["players"]
+    squad_ids = {p["id"] for p in sess["squad"]}
+    expensive_starter = max((p for p in sess["squad"] if p["is_starter"]), key=lambda x: x["current_price_tenths"])
+    cheap_in = min(
+        (
+            p for p in pool
+            if p["position"] == expensive_starter["position"]
+            and p["id"] not in squad_ids
+            and p["team_id"] == expensive_starter["team_id"]
+        ),
+        key=lambda x: x["expected_points"],
+    )
+    with urllib.request.urlopen(urllib.request.Request(
+        f"{base_url}/api/historical/simulations/{sid}/transfers",
+        data=json.dumps({"out_id": expensive_starter["id"], "in_id": cheap_in["id"]}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )) as r:
+        assert r.status == 200
+
+    with urllib.request.urlopen(f"{base_url}/api/historical/simulations/{sid}/chips?start_gw=2") as r:
+        chips_after = json.loads(r.read())
+        sched_after = {s["chip"]: s["immediate_ev"] for s in chips_after["recommended_schedule"]}
+        assert sched_before != sched_after
+
+
+
 
 
 

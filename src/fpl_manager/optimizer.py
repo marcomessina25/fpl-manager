@@ -335,6 +335,9 @@ def solve_transfers(
                             "floor": p.xp_floor,
                             "ceiling": p.xp_ceiling,
                             "expected_minutes": p.expected_minutes,
+                            "is_departed": is_departed_from_premier_league(p),
+                            "is_unavailable": is_long_term_unavailable(p),
+                            "status": getattr(p, "status", "a"),
                         }
                         for p in picked
                     ],
