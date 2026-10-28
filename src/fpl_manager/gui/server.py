@@ -272,6 +272,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     effective_squad_ids = list(sim.squad_ids)
                     effective_bank_tenths = sim.bank_tenths
                     for st in sim.transfers_staged:
+                        if st.get("already_applied"):
+                            continue
                         o_id = st["out_id"]
                         i_id = st["in_id"]
                         if o_id in effective_squad_ids:
@@ -1309,10 +1311,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if session_id:
                     sim_dir = self.config_dir / "simulations"
                     sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                    for t in tx_list:
-                        o_id = int(t.get("outgoing_id", t.get("out_id")))
-                        i_id = int(t.get("incoming_id", t.get("in_id")))
-                        sim.stage_transfer(o_id, i_id)
+                    batch = [
+                        {
+                            "out_id": int(t.get("outgoing_id", t.get("out_id"))),
+                            "in_id": int(t.get("incoming_id", t.get("in_id"))),
+                        }
+                        for t in tx_list
+                    ]
+                    sim.stage_transfers_batch(batch)
                     sim.save()
                     snap = sim.get_current_snapshot()
                     p_names = {p.player_id: p.web_name for p in snap.players}
@@ -1322,16 +1328,19 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             "incoming_id": st["in_id"],
                             "outgoing_name": st.get("out_name") or p_names.get(st["out_id"], f"Player {st['out_id']}"),
                             "incoming_name": st.get("in_name") or p_names.get(st["in_id"], f"Player {st['in_id']}"),
-                            "selling_price_tenths": st.get("out_price_tenths", 50),
+                            "selling_price_tenths": st.get("out_selling_price_tenths", st.get("out_price_tenths", 50)),
                             "purchase_price_tenths": st.get("in_price_tenths", 50),
                         }
                         for st in sim.transfers_staged
                     ]
+                    effective_bank = sim.bank_tenths - sum(
+                        st.get("cost_tenths", 0) for st in sim.transfers_staged if not st.get("already_applied")
+                    )
                     self._send_json({
                         "success": True,
                         "session_id": session_id,
                         "transfers": executed,
-                        "bank_fmt": f"£{sim.bank_tenths / 10:.1f}m",
+                        "bank_fmt": f"£{effective_bank / 10:.1f}m",
                         "free_transfers": max(0, sim.free_transfers - len(sim.transfers_staged)),
                     })
                     return
@@ -1359,38 +1368,84 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     name_to_id = {getattr(p, "web_name", "").lower(): p.player_id for p in snap.players if hasattr(p, "web_name")}
                     name_to_id.update({getattr(p, "name", "").lower(): p.player_id for p in snap.players if hasattr(p, "name")})
 
+                    def _resolve_player_ref(raw_ref: Any) -> int:
+                        if isinstance(raw_ref, int):
+                            return raw_ref
+                        if isinstance(raw_ref, str):
+                            s_ref = raw_ref.strip()
+                            if s_ref.isdigit():
+                                return int(s_ref)
+                            s_low = s_ref.lower()
+                            if s_low in name_to_id:
+                                return name_to_id[s_low]
+                            tokens = set(s_low.split())
+                            for pool in (sim.starting_ids, sim.squad_ids, list(player_names.keys())):
+                                for pid in pool:
+                                    w_low = player_names.get(pid, "").lower()
+                                    if w_low and (w_low == s_low or w_low in tokens or s_low.endswith(" " + w_low)):
+                                        return pid
+                        raise ValueError(f"Invalid or unknown player reference '{raw_ref}'.")
+
                     cap_raw = body.get("captain") or body.get("captain_id") or sim.captain_id
-                    if isinstance(cap_raw, str):
-                        if cap_raw.isdigit():
-                            cap_val = int(cap_raw)
-                        else:
-                            cap_val = name_to_id.get(cap_raw.lower(), cap_raw)
-                    else:
-                        cap_val = cap_raw
-
                     vc_raw = body.get("vice_captain") or body.get("vice_captain_id") or sim.vice_captain_id
-                    if isinstance(vc_raw, str):
-                        if vc_raw.isdigit():
-                            vc_val = int(vc_raw)
-                        else:
-                            vc_val = name_to_id.get(vc_raw.lower(), vc_raw)
-                    else:
-                        vc_val = vc_raw
+                    cap_val = _resolve_player_ref(cap_raw)
+                    vc_val = _resolve_player_ref(vc_raw)
 
-                    cap_name = player_names.get(cap_val) or (cap_raw if isinstance(cap_raw, str) else f"ID {cap_val}")
-                    vc_name = player_names.get(vc_val) or (vc_raw if isinstance(vc_raw, str) else f"ID {vc_val}")
+                    has_chip_field = ("chip" in body) or ("chip_played" in body)
+                    raw_chip = body.get("chip") if "chip" in body else body.get("chip_played")
+
+                    if gw == sim.current_gw:
+                        if has_chip_field:
+                            if raw_chip is not None and str(raw_chip).strip() != "" and str(raw_chip).strip().lower() != "none":
+                                canonical_chip = sim.play_chip(str(raw_chip))
+                            else:
+                                sim.cancel_chip()
+                                canonical_chip = None
+                        else:
+                            canonical_chip = sim.active_chip
+
+                        target_starters = (
+                            [int(x) for x in body["starters"]]
+                            if body.get("starters")
+                            else list(sim.starting_ids)
+                        )
+                        target_bench = (
+                            [int(x) for x in body["bench"]]
+                            if body.get("bench")
+                            else list(sim.bench_ids)
+                        )
+                        sim.set_lineup(target_starters, target_bench, cap_val, vc_val)
+                        cap_val = sim.captain_id
+                        vc_val = sim.vice_captain_id
+                        logged_starters = list(sim.starting_ids)
+                        logged_bench = list(sim.bench_ids)
+                    else:
+                        canonical_chip = raw_chip if has_chip_field else None
+                        logged_starters = [int(x) for x in body["starters"]] if body.get("starters") else list(sim.starting_ids)
+                        logged_bench = [int(x) for x in body["bench"]] if body.get("bench") else list(sim.bench_ids)
+
+                    cap_name = (
+                        cap_raw.strip()
+                        if isinstance(cap_raw, str) and not cap_raw.strip().isdigit()
+                        else player_names.get(cap_val, f"ID {cap_val}")
+                    )
+                    vc_name = (
+                        vc_raw.strip()
+                        if isinstance(vc_raw, str) and not vc_raw.strip().isdigit()
+                        else player_names.get(vc_val, f"ID {vc_val}")
+                    )
 
                     dec_obj = {
                         "gameweek": gw,
                         "season": sim.season,
                         "session_id": session_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "chip_played": body.get("chip"),
+                        "chip_played": canonical_chip,
                         "transfer_hits": int(body.get("hits") or 0),
                         "transfers": body.get("transfers") or [],
                         "squad_player_ids": body.get("squad_players") or list(sim.squad_ids),
-                        "starting_player_ids": body.get("starters") or list(sim.starting_ids),
-                        "bench_player_ids": body.get("bench") or list(sim.bench_ids),
+                        "starting_player_ids": logged_starters,
+                        "bench_player_ids": logged_bench,
                         "captain_id": cap_val,
                         "captain_name": cap_name,
                         "vice_captain_id": vc_val,
@@ -1405,18 +1460,6 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         sim.initial_decision = dec_obj
                     else:
                         sim.history.append({"gameweek": gw, "type": "manual_decision", "decision_logged": dec_obj, "decision": dec_obj})
-                    if gw == sim.current_gw:
-                        if dec_obj.get("captain_id"):
-                            try:
-                                sim.captain_id = int(dec_obj["captain_id"])
-                            except Exception:
-                                pass
-                        if dec_obj.get("vice_captain_id"):
-                            try:
-                                sim.vice_captain_id = int(dec_obj["vice_captain_id"])
-                            except Exception:
-                                pass
-                        sim.active_chip = dec_obj.get("chip_played")
                     sim.save()
                     self._send_json({"success": True, "gameweek": gw, "decision": dec_obj, "session_id": session_id})
                     return

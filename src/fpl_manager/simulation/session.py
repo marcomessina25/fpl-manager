@@ -68,6 +68,7 @@ class HistoricalSimulationSession:
         engine_baseline_chips_used: dict[str, int] | None = None,
         engine_baseline_version: str = "v1.3.5",
         experiment_metadata: dict[str, Any] | None = None,
+        gw_start_state: dict[str, Any] | None = None,
         config_dir: Path | None = None,
         historical_dir: Path | None = None,
     ) -> None:
@@ -123,6 +124,18 @@ class HistoricalSimulationSession:
         else:
             self.start_gw = int(current_gw or 1)
 
+        # Normalize persisted hit units across history and baseline history
+        self._normalize_history_hit_units()
+
+        # Reconcile chip inventory according to 2-segment rules (GW1-19 and GW20-38)
+        self._reconcile_chips()
+
+        # Capture or restore clean pre-gameweek start state before staging mutations
+        if gw_start_state and gw_start_state.get("gameweek") == self.current_gw:
+            self.gw_start_state = dict(gw_start_state)
+        else:
+            self.gw_start_state = self._reconstruct_gw_start_state()
+
         # Align lineup player references with staged transfers if present
         if self.transfers_staged:
             for st in self.transfers_staged:
@@ -137,8 +150,98 @@ class HistoricalSimulationSession:
                 if self.vice_captain_id == o_id:
                     self.vice_captain_id = i_id
 
-        # Reconcile chip inventory according to 2-segment rules (GW1-19 and GW20-38)
-        self._reconcile_chips()
+    def _normalize_history_hit_units(self) -> None:
+        """Normalize transfer_hits to hit count (and transfer_hit_points to points) across history records."""
+        for h in self.history:
+            if not isinstance(h, dict):
+                continue
+            if "gross_points" in h and "net_points" in h and h["gross_points"] is not None and h["net_points"] is not None:
+                gross = int(h["gross_points"])
+                net = int(h["net_points"])
+                hit_pts = max(0, gross - net)
+                hit_count = hit_pts // 4
+                h["transfer_hits"] = hit_count
+                h["transfer_hit_points"] = hit_pts
+                h["hit_unit"] = "count"
+                for dec_key in ("decision_logged", "decision"):
+                    dec = h.get(dec_key)
+                    if isinstance(dec, dict):
+                        dec["transfer_hits"] = hit_count
+                        dec["transfer_hit_points"] = hit_pts
+        for eh in self.engine_baseline_history:
+            if not isinstance(eh, dict):
+                continue
+            if "gross_points" in eh and "net_points" in eh and eh["gross_points"] is not None and eh["net_points"] is not None:
+                gross = int(eh["gross_points"])
+                net = int(eh["net_points"])
+                hit_pts = max(0, gross - net)
+                hit_count = hit_pts // 4
+                eh["transfer_hits"] = hit_count
+                eh["transfer_hit_points"] = hit_pts
+                eh["hit_unit"] = "count"
+
+    def _reconstruct_gw_start_state(self) -> dict[str, Any]:
+        """Reconstruct clean start-of-GW state prior to any current-GW staged or applied transfers."""
+        base_squad = list(self.squad_ids)
+        base_prices = dict(self.purchase_prices_tenths)
+        base_bank = int(self.bank_tenths)
+        base_starters = list(self.starting_ids)
+        base_bench = list(self.bench_ids)
+        base_cap = int(self.captain_id)
+        base_vc = int(self.vice_captain_id)
+
+        if self.pre_free_hit_state:
+            base_squad = list(self.pre_free_hit_state.get("squad_ids", base_squad))
+            base_prices = dict(self.pre_free_hit_state.get("purchase_prices_tenths", base_prices))
+            base_bank = int(self.pre_free_hit_state.get("bank_tenths", base_bank))
+        elif self.transfers_staged:
+            for st in reversed(self.transfers_staged):
+                o_id = st["out_id"]
+                i_id = st["in_id"]
+                if st.get("already_applied"):
+                    if i_id in base_squad:
+                        base_squad[base_squad.index(i_id)] = o_id
+                    base_bank += int(st.get("cost_tenths", 0))
+                    base_prices.pop(str(i_id), None)
+                    base_prices[str(o_id)] = int(st.get("out_selling_price_tenths", 50))
+                if i_id in base_starters:
+                    base_starters = [o_id if x == i_id else x for x in base_starters]
+                if i_id in base_bench:
+                    base_bench = [o_id if x == i_id else x for x in base_bench]
+                if base_cap == i_id:
+                    base_cap = o_id
+                if base_vc == i_id:
+                    base_vc = o_id
+
+        return {
+            "gameweek": self.current_gw,
+            "squad_ids": base_squad,
+            "purchase_prices_tenths": base_prices,
+            "bank_tenths": base_bank,
+            "free_transfers": int(self.free_transfers),
+            "starting_ids": base_starters,
+            "bench_ids": base_bench,
+            "captain_id": base_cap,
+            "vice_captain_id": base_vc,
+            "chips_remaining": list(self.chips_remaining),
+            "chips_used": dict(self.chips_used),
+        }
+
+    def _capture_gw_start_state(self) -> None:
+        """Record the clean start-of-gameweek state before any staging or mid-GW mutations."""
+        self.gw_start_state = {
+            "gameweek": self.current_gw,
+            "squad_ids": list(self.squad_ids),
+            "purchase_prices_tenths": dict(self.purchase_prices_tenths),
+            "bank_tenths": int(self.bank_tenths),
+            "free_transfers": int(self.free_transfers),
+            "starting_ids": list(self.starting_ids),
+            "bench_ids": list(self.bench_ids),
+            "captain_id": int(self.captain_id),
+            "vice_captain_id": int(self.vice_captain_id),
+            "chips_remaining": list(self.chips_remaining),
+            "chips_used": dict(self.chips_used),
+        }
 
     def _reconcile_chips(self) -> None:
         """Ensure chip inventory matches FPL 2-segment rules (GW1-19 and GW20-38).
@@ -339,6 +442,7 @@ class HistoricalSimulationSession:
 
     def save(self) -> Path:
         """Persist session state to isolated JSON file."""
+        self._normalize_history_hit_units()
         self.config_dir.mkdir(parents=True, exist_ok=True)
         file_path = self.config_dir / f"{self.session_id}.json"
         data = {
@@ -370,6 +474,7 @@ class HistoricalSimulationSession:
             "engine_baseline_chips_used": self.engine_baseline_chips_used,
             "engine_baseline_history": self.engine_baseline_history,
             "experiment_metadata": self.experiment_metadata,
+            "gw_start_state": getattr(self, "gw_start_state", None),
         }
         file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return file_path
@@ -416,6 +521,7 @@ class HistoricalSimulationSession:
             engine_baseline_chips_used=data.get("engine_baseline_chips_used", {}),
             engine_baseline_history=data.get("engine_baseline_history", []),
             experiment_metadata=data.get("experiment_metadata", {}),
+            gw_start_state=data.get("gw_start_state"),
             config_dir=c_dir,
             historical_dir=historical_dir,
         )
@@ -437,14 +543,15 @@ class HistoricalSimulationSession:
         for p in c_dir.glob("*.json"):
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
+                completed_hist = [h for h in data.get("history", []) if isinstance(h, dict) and "gross_points" in h]
                 sessions.append({
                     "session_id": data.get("session_id", p.stem),
                     "season": data.get("season"),
                     "current_gw": data.get("current_gw"),
                     "status": data.get("status"),
-                    "is_completed": data.get("status") == "completed" or data.get("current_gw", 1) > 38 or len(data.get("history", [])) >= 38,
-                    "gameweeks_completed": len(data.get("history", [])),
-                    "total_net_points": sum(h.get("net_points", 0) for h in data.get("history", [])),
+                    "is_completed": data.get("status") == "completed" or data.get("current_gw", 1) > 38 or len(completed_hist) >= 38,
+                    "gameweeks_completed": len(completed_hist),
+                    "total_net_points": sum(h.get("net_points", 0) for h in completed_hist),
                     "created_at": data.get("experiment_metadata", {}).get("created_at"),
                     "manager_name": data.get("experiment_metadata", {}).get("manager_name", "Human"),
                 })
@@ -483,6 +590,8 @@ class HistoricalSimulationSession:
         effective_squad_ids = list(self.squad_ids)
         staged_in_map = {st["in_id"]: st for st in self.transfers_staged}
         for st in self.transfers_staged:
+            if st.get("already_applied"):
+                continue
             o_id = st["out_id"]
             i_id = st["in_id"]
             if o_id in effective_squad_ids:
@@ -668,15 +777,22 @@ class HistoricalSimulationSession:
         snapshot = self.get_current_snapshot()
         players_map = {p.player_id: p for p in snapshot.players}
 
-        validated_items = []
         batch_out_ids: set[int] = set()
         batch_in_ids: set[int] = set()
-
         for t in transfers:
             out_id = int(t["out_id"])
             in_id = int(t["in_id"])
+            if out_id in batch_out_ids:
+                raise ValueError(f"Duplicate outgoing player {out_id} in transfer batch.")
+            if in_id in batch_in_ids:
+                raise ValueError(f"Duplicate incoming player {in_id} in transfer batch.")
             batch_out_ids.add(out_id)
             batch_in_ids.add(in_id)
+
+        validated_items = []
+        for t in transfers:
+            out_id = int(t["out_id"])
+            in_id = int(t["in_id"])
 
             if out_id not in self.squad_ids:
                 raise ValueError(f"Player {out_id} is not in the current squad.")
@@ -707,10 +823,10 @@ class HistoricalSimulationSession:
                 "in_price_tenths": in_p.price_tenths,
             })
 
-        # Calculate net finances: available bank excluding transfers replaced by this batch
+        # Calculate net finances: available bank excluding unapplied transfers replaced by this batch
         curr_bank = self.bank_tenths
         for st in self.transfers_staged:
-            if st["out_id"] not in batch_out_ids:
+            if not st.get("already_applied") and st["out_id"] not in batch_out_ids:
                 curr_bank -= st.get("cost_tenths", 0)
 
         batch_cost = sum(item["cost_tenths"] for item in validated_items)
@@ -723,7 +839,7 @@ class HistoricalSimulationSession:
         # Team quota check (max 3 players from any club) on resulting squad
         final_squad = [pid for pid in self.squad_ids if pid not in batch_out_ids]
         for st in self.transfers_staged:
-            if st["out_id"] not in batch_out_ids:
+            if not st.get("already_applied") and st["out_id"] not in batch_out_ids:
                 if st["out_id"] in final_squad:
                     final_squad.remove(st["out_id"])
                 if st["in_id"] not in final_squad:
@@ -738,9 +854,9 @@ class HistoricalSimulationSession:
                 if club_counts[p_obj.team_id] > 3:
                     raise ValueError("Club player limit exceeded: max 3 players allowed per Premier League club.")
 
-        # Revert lineup references for any old staged transfers being replaced
+        # Revert lineup references for any old unapplied staged transfers being replaced
         for old_st in self.transfers_staged:
-            if old_st["out_id"] in batch_out_ids:
+            if not old_st.get("already_applied") and old_st["out_id"] in batch_out_ids:
                 old_in = old_st["in_id"]
                 orig_out = old_st["out_id"]
                 if old_in in self.starting_ids:
@@ -752,8 +868,11 @@ class HistoricalSimulationSession:
                 if self.vice_captain_id == old_in:
                     self.vice_captain_id = orig_out
 
-        # Merge new validated transfers with un-replaced staged transfers
-        new_staged = [st for st in self.transfers_staged if st["out_id"] not in batch_out_ids]
+        # Merge new validated transfers with un-replaced staged transfers (keeping already_applied chains)
+        new_staged = [
+            st for st in self.transfers_staged
+            if st.get("already_applied") or st["out_id"] not in batch_out_ids
+        ]
         new_staged.extend(validated_items)
         self.transfers_staged = new_staged
 
@@ -875,9 +994,11 @@ class HistoricalSimulationSession:
             "fh": "free_hit",
             "benchboost": "bench_boost",
             "bench_boost": "bench_boost",
+            "bboost": "bench_boost",
             "bb": "bench_boost",
             "triplecaptain": "triple_captain",
             "triple_captain": "triple_captain",
+            "3xc": "triple_captain",
             "tc": "triple_captain",
         }
         canonical = alias_map.get(norm)
@@ -971,25 +1092,37 @@ class HistoricalSimulationSession:
         eff_fts = 999 if free_hits_active else self.free_transfers
 
         # Get optimal lineup on current squad (reflecting staged transfers if present)
+        players_map = {p.player_id: p for p in snapshot.players}
         eff_squad = list(self.squad_ids)
+        eff_bank = self.bank_tenths
+        purch_prices_int = {int(k): v for k, v in self.purchase_prices_tenths.items()}
         for st in self.transfers_staged:
-            if st["out_id"] in eff_squad:
-                eff_squad[eff_squad.index(st["out_id"])] = st["in_id"]
+            if not st.get("already_applied"):
+                o_id = st["out_id"]
+                i_id = st["in_id"]
+                if o_id in eff_squad:
+                    eff_squad[eff_squad.index(o_id)] = i_id
+                eff_bank -= st.get("cost_tenths", 0)
+                purch_prices_int.pop(o_id, None)
+                purch_prices_int[i_id] = st.get(
+                    "in_price_tenths",
+                    players_map[i_id].price_tenths if i_id in players_map else 50,
+                )
+        if not free_hits_active:
+            eff_fts = max(0, self.free_transfers - len(self.transfers_staged))
+
         best_starters, best_bench, best_cap, best_vc, best_xp = select_best_lineup(eff_squad, projections)
 
         # Decide recommended transfers
-        purch_prices_int = {int(k): v for k, v in self.purchase_prices_tenths.items()}
         rec_transfers = engine.decide_transfers(
             strategy_name="balanced",
-            current_squad_ids=self.squad_ids,
+            current_squad_ids=eff_squad,
             purchase_prices=purch_prices_int,
-            bank_tenths=self.bank_tenths,
+            bank_tenths=eff_bank,
             free_transfers=eff_fts,
             snapshot=snapshot,
             projections=projections,
         )
-
-        players_map = {p.player_id: p for p in snapshot.players}
         transfer_details = [
             {
                 "out_id": out_id,
@@ -1052,82 +1185,86 @@ class HistoricalSimulationSession:
         player_positions = {p.player_id: p.position for p in snapshot.players}
 
         # Capture pre-gameweek state snapshots for 1:1 undo and decision logging
-        pre_squad_ids = list(self.squad_ids)
-        pre_prices = dict(self.purchase_prices_tenths)
-        pre_bank = self.bank_tenths
-        pre_fts = self.free_transfers
-        pre_starters = list(self.starting_ids)
-        pre_bench = list(self.bench_ids)
-        pre_cap = self.captain_id
-        pre_vc = self.vice_captain_id
-        pre_chips_rem = list(self.chips_remaining)
-        pre_chips_used = dict(self.chips_used)
+        gw_start = getattr(self, "gw_start_state", None)
+        if not isinstance(gw_start, dict) or gw_start.get("gameweek") != gw:
+            gw_start = self._reconstruct_gw_start_state()
+        pre_squad_ids = list(gw_start.get("squad_ids", self.squad_ids))
+        pre_prices = dict(gw_start.get("purchase_prices_tenths", self.purchase_prices_tenths))
+        pre_bank = int(gw_start.get("bank_tenths", self.bank_tenths))
+        pre_fts = int(gw_start.get("free_transfers", self.free_transfers))
+        pre_starters = list(gw_start.get("starting_ids", self.starting_ids))
+        pre_bench = list(gw_start.get("bench_ids", self.bench_ids))
+        pre_cap = int(gw_start.get("captain_id", self.captain_id))
+        pre_vc = int(gw_start.get("vice_captain_id", self.vice_captain_id))
+        pre_chips_rem = list(gw_start.get("chips_remaining", self.chips_remaining))
+        pre_chips_used = dict(gw_start.get("chips_used", self.chips_used))
 
-        # 1. Apply staged transfers (with chained transfer collapsing: A -> B, B -> C => A -> C)
-        is_free_chip = bool(self.active_chip and (self.active_chip.startswith("wildcard") or self.active_chip in ("free_hit", "freehit")))
-        
-        # Collapse staged transfers if chained
-        if self.transfers_staged:
-            from ..transfers import Transfer
-            tx_objs = [
-                Transfer(
-                    outgoing_id=st["out_id"],
-                    incoming_id=st["in_id"],
-                )
-                for st in self.transfers_staged
-            ]
-            collapsed = resolve_chained_transfers(tx_objs)
-            collapsed_staged = []
-            for t in collapsed:
-                # Find matching original staged item or compute
-                orig_st = next((s for s in self.transfers_staged if s["out_id"] == t.outgoing_id and s["in_id"] == t.incoming_id), None)
-                if orig_st:
-                    collapsed_staged.append(orig_st)
-                else:
-                    out_p = players_map.get(t.outgoing_id)
-                    in_p = players_map.get(t.incoming_id)
-                    p_price = self.purchase_prices_tenths.get(str(t.outgoing_id), out_p.price_tenths if out_p else 50)
-                    s_price = selling_price(p_price, out_p.price_tenths if out_p else 50)
-                    cost = (in_p.price_tenths if in_p else 50) - s_price
-                    collapsed_staged.append({
-                        "out_id": t.outgoing_id,
-                        "in_id": t.incoming_id,
-                        "out_name": out_p.web_name if out_p else f"Player {t.outgoing_id}",
-                        "in_name": in_p.web_name if in_p else f"Player {t.incoming_id}",
-                        "cost_tenths": cost,
-                        "out_selling_price_tenths": s_price,
-                        "in_price_tenths": in_p.price_tenths if in_p else 50,
-                    })
-            self.transfers_staged = collapsed_staged
+        # Ensure pre_starters and pre_bench strictly belong to pre_squad_ids
+        if set(pre_starters + pre_bench) != set(pre_squad_ids) or len(pre_starters) != 11 or len(pre_bench) != 4:
+            rev_map = {st["in_id"]: st["out_id"] for st in self.transfers_staged}
+            cand_st = [rev_map.get(x, x) for x in pre_starters]
+            cand_bn = [rev_map.get(x, x) for x in pre_bench]
+            if set(cand_st + cand_bn) == set(pre_squad_ids) and len(cand_st) == 11 and len(cand_bn) == 4:
+                pre_starters = cand_st
+                pre_bench = cand_bn
+                pre_cap = rev_map.get(pre_cap, pre_cap)
+                pre_vc = rev_map.get(pre_vc, pre_vc)
+            else:
+                try:
+                    projs_pre = reconstruct_features_and_project(snapshot)
+                    pre_starters, pre_bench, pre_cap, pre_vc, _ = select_best_lineup(pre_squad_ids, projs_pre)
+                except Exception:
+                    pass
+        if pre_cap not in pre_starters and pre_starters:
+            pre_cap = pre_starters[0]
+        if (pre_vc not in pre_starters or pre_vc == pre_cap) and len(pre_starters) > 1:
+            pre_vc = next((x for x in pre_starters if x != pre_cap), pre_starters[0])
 
-        num_transfers = len(self.transfers_staged)
-        extra_transfers = 0 if (self.current_gw == 1 or is_free_chip) else max(0, num_transfers - self.free_transfers)
-        hits_cost = extra_transfers * 4
+        # Normalize active_chip if an alias was set
+        if self.active_chip:
+            norm_chip = str(self.active_chip).strip().lower().replace("-", "_").replace(" ", "_")
+            chip_alias_map = {
+                "wildcard": "wildcard_1" if gw <= 19 else "wildcard_2",
+                "wildcard_1": "wildcard_1",
+                "wildcard_2": "wildcard_2",
+                "wc": "wildcard_1" if gw <= 19 else "wildcard_2",
+                "freehit": "free_hit",
+                "free_hit": "free_hit",
+                "fh": "free_hit",
+                "benchboost": "bench_boost",
+                "bench_boost": "bench_boost",
+                "bb": "bench_boost",
+                "triplecaptain": "triple_captain",
+                "triple_captain": "triple_captain",
+                "tc": "triple_captain",
+            }
+            self.active_chip = chip_alias_map.get(norm_chip, self.active_chip)
 
         # If Free Hit, stash pre-free-hit state before applying transfers
         if self.active_chip == "free_hit" and not self.pre_free_hit_state:
             self.pre_free_hit_state = {
-                "squad_ids": list(self.squad_ids),
-                "purchase_prices_tenths": dict(self.purchase_prices_tenths),
-                "bank_tenths": self.bank_tenths,
+                "squad_ids": list(pre_squad_ids),
+                "purchase_prices_tenths": dict(pre_prices),
+                "bank_tenths": pre_bank,
             }
 
-        transfers_executed = []
+        # 1a. Execute any unapplied staged transfers onto current squad/bank/lineup first
         for st in self.transfers_staged:
             out_id = st["out_id"]
             in_id = st["in_id"]
             cost = st.get("cost_tenths", 0)
 
             if not st.get("already_applied"):
-                # Update squad
                 if out_id in self.squad_ids:
                     idx = self.squad_ids.index(out_id)
                     self.squad_ids[idx] = in_id
                 self.bank_tenths -= cost
                 self.purchase_prices_tenths.pop(str(out_id), None)
-                self.purchase_prices_tenths[str(in_id)] = st.get("in_price_tenths", players_map[in_id].price_tenths if in_id in players_map else 50)
+                self.purchase_prices_tenths[str(in_id)] = st.get(
+                    "in_price_tenths",
+                    players_map[in_id].price_tenths if in_id in players_map else 50,
+                )
 
-                # Update lineup replacements
                 if out_id in self.starting_ids:
                     s_idx = self.starting_ids.index(out_id)
                     self.starting_ids[s_idx] = in_id
@@ -1140,10 +1277,66 @@ class HistoricalSimulationSession:
                 if self.vice_captain_id == out_id:
                     self.vice_captain_id = in_id
 
-            transfers_executed.append(st)
+                st["already_applied"] = True
 
-        # 2. Re-verify lineup legality
-        if len(self.starting_ids) != 11 or len(self.bench_ids) != 4:
+        # 1b. Collapse chained staged transfers (A -> B, B -> C => A -> C) for audit & hit counting
+        is_free_chip = bool(
+            self.active_chip
+            and (self.active_chip.startswith("wildcard") or self.active_chip in ("free_hit", "freehit"))
+        )
+        if self.transfers_staged:
+            from ..transfers import Transfer
+            tx_objs = [
+                Transfer(
+                    outgoing_id=st["out_id"],
+                    incoming_id=st["in_id"],
+                )
+                for st in self.transfers_staged
+            ]
+            collapsed = resolve_chained_transfers(tx_objs)
+            collapsed_staged = []
+            for t in collapsed:
+                orig_st = next(
+                    (s for s in self.transfers_staged if s["out_id"] == t.outgoing_id and s["in_id"] == t.incoming_id),
+                    None,
+                )
+                if orig_st:
+                    st_copy = dict(orig_st)
+                    st_copy["already_applied"] = True
+                    collapsed_staged.append(st_copy)
+                else:
+                    out_p = players_map.get(t.outgoing_id)
+                    in_p = players_map.get(t.incoming_id)
+                    p_price = pre_prices.get(
+                        str(t.outgoing_id),
+                        self.purchase_prices_tenths.get(str(t.outgoing_id), out_p.price_tenths if out_p else 50),
+                    )
+                    s_price = selling_price(p_price, out_p.price_tenths if out_p else 50)
+                    in_price = in_p.price_tenths if in_p else 50
+                    cost = in_price - s_price
+                    collapsed_staged.append({
+                        "out_id": t.outgoing_id,
+                        "in_id": t.incoming_id,
+                        "out_name": out_p.web_name if out_p else f"Player {t.outgoing_id}",
+                        "in_name": in_p.web_name if in_p else f"Player {t.incoming_id}",
+                        "cost_tenths": cost,
+                        "out_selling_price_tenths": s_price,
+                        "in_price_tenths": in_price,
+                        "already_applied": True,
+                    })
+            self.transfers_staged = collapsed_staged
+
+        num_transfers = len(self.transfers_staged)
+        extra_transfers = 0 if (self.current_gw == 1 or is_free_chip) else max(0, num_transfers - self.free_transfers)
+        hits_cost = extra_transfers * 4
+        transfers_executed = list(self.transfers_staged)
+
+        # 2. Re-verify lineup legality and squad membership
+        if (
+            len(self.starting_ids) != 11
+            or len(self.bench_ids) != 4
+            or set(self.starting_ids + self.bench_ids) != set(self.squad_ids)
+        ):
             # Fall back to optimal lineup selection on new squad
             projections = reconstruct_features_and_project(snapshot)
             self.starting_ids, self.bench_ids, self.captain_id, self.vice_captain_id, _ = select_best_lineup(
@@ -1232,7 +1425,7 @@ class HistoricalSimulationSession:
             for pid in self.squad_ids if pid in players_map
         ) + self.bank_tenths
 
-        cum_net = sum(h.get("net_points", 0) for h in self.history) + net_points
+        cum_net = sum(h.get("net_points", 0) for h in self.history if "gross_points" in h and h.get("gameweek") != gw) + net_points
 
         # Check for pre-logged decision for this gameweek to preserve user notes/metadata
         existing_hist_idx = next((i for i, h in enumerate(self.history) if h.get("gameweek") == gw), None)
@@ -1359,12 +1552,20 @@ class HistoricalSimulationSession:
                     "gameweek": self.current_gw,
                     "issue": f"Lineup auto-update failed: {err}",
                 })
+            self._capture_gw_start_state()
 
         self.save()
         return resolution.to_dict()
 
     def undo_last_gameweek(self) -> dict[str, Any]:
-        """Undo the last simulated gameweek, restoring squad, bank, chips, and free transfers."""
+        """Undo the last simulated gameweek, restoring squad, bank, chips, lineup, and baseline state to the clean pre-GW state."""
+        if not self.history:
+            raise ValueError("No gameweeks have been simulated yet to undo.")
+
+        # Strip any un-run pending decision entries for the current gameweek first
+        while self.history and "gross_points" not in self.history[-1] and self.history[-1].get("type") != "initial_squad":
+            self.history.pop()
+
         if not self.history:
             raise ValueError("No gameweeks have been simulated yet to undo.")
 
@@ -1375,12 +1576,11 @@ class HistoricalSimulationSession:
             raise ValueError("Cannot undo initial squad creation.")
 
         reverted_gw = last_entry["gameweek"]
-        
+
         # Restore pre-gameweek state if recorded
         if "squad_ids_before" in last_entry and last_entry["squad_ids_before"]:
             self.squad_ids = list(last_entry["squad_ids_before"])
         elif "squad_ids_after" in last_entry:
-            # Fallback for earlier records: revert transfers in reverse
             pass
 
         if "purchase_prices_before" in last_entry and last_entry["purchase_prices_before"] is not None:
@@ -1411,10 +1611,77 @@ class HistoricalSimulationSession:
         self.active_chip = None
         self.pre_free_hit_state = None
 
-        # Revert baseline engine history if aligned
-        if self.engine_baseline_history and self.engine_baseline_history[-1].get("gameweek") == reverted_gw:
-            self.engine_baseline_history.pop()
+        # Ensure restored lineup strictly matches restored squad_ids (fixing any legacy staged-lineup leakage)
+        if (
+            len(self.starting_ids) != 11
+            or len(self.bench_ids) != 4
+            or set(self.starting_ids + self.bench_ids) != set(self.squad_ids)
+        ):
+            rev_map = {}
+            for tx in reversed(last_entry.get("transfers_executed", [])):
+                if isinstance(tx, dict) and "in_id" in tx and "out_id" in tx:
+                    rev_map[int(tx["in_id"])] = int(tx["out_id"])
+            cand_st = [rev_map.get(x, x) for x in self.starting_ids]
+            cand_bn = [rev_map.get(x, x) for x in self.bench_ids]
+            if len(cand_st) == 11 and len(cand_bn) == 4 and set(cand_st + cand_bn) == set(self.squad_ids):
+                self.starting_ids = cand_st
+                self.bench_ids = cand_bn
+                self.captain_id = rev_map.get(self.captain_id, self.captain_id)
+                self.vice_captain_id = rev_map.get(self.vice_captain_id, self.vice_captain_id)
+            else:
+                try:
+                    snap_rev = self.get_current_snapshot()
+                    proj_rev = reconstruct_features_and_project(snap_rev)
+                    self.starting_ids, self.bench_ids, self.captain_id, self.vice_captain_id, _ = select_best_lineup(
+                        self.squad_ids, proj_rev
+                    )
+                except Exception:
+                    self.starting_ids = list(self.squad_ids[:11])
+                    self.bench_ids = list(self.squad_ids[11:15])
+        if self.captain_id not in self.starting_ids and self.starting_ids:
+            self.captain_id = self.starting_ids[0]
+        if (self.vice_captain_id not in self.starting_ids or self.vice_captain_id == self.captain_id) and len(self.starting_ids) > 1:
+            self.vice_captain_id = next((x for x in self.starting_ids if x != self.captain_id), self.starting_ids[0])
 
+        # Revert baseline engine history and mutable baseline state
+        if self.engine_baseline_history and self.engine_baseline_history[-1].get("gameweek") == reverted_gw:
+            eng_last = self.engine_baseline_history.pop()
+            if "squad_ids_before" in eng_last and eng_last["squad_ids_before"]:
+                self.engine_baseline_squad_ids = list(eng_last["squad_ids_before"])
+                self.engine_baseline_purchase_prices = dict(eng_last.get("purchase_prices_before") or {})
+                self.engine_baseline_bank_tenths = int(eng_last.get("bank_tenths_before", 0))
+                self.engine_baseline_free_transfers = (
+                    1 if reverted_gw <= 2 else int(eng_last.get("free_transfers_before", 1))
+                )
+                if eng_last.get("chips_remaining_before") is not None:
+                    self.engine_baseline_chips_remaining = list(eng_last["chips_remaining_before"])
+                if eng_last.get("chips_used_before") is not None:
+                    self.engine_baseline_chips_used = dict(eng_last["chips_used_before"])
+            elif self.engine_baseline_history:
+                prev_eng = self.engine_baseline_history[-1]
+                if "squad_ids" in prev_eng and "purchase_prices_tenths" in prev_eng:
+                    self.engine_baseline_squad_ids = list(prev_eng["squad_ids"])
+                    self.engine_baseline_purchase_prices = dict(prev_eng["purchase_prices_tenths"])
+                    self.engine_baseline_bank_tenths = int(prev_eng.get("bank_tenths", 0))
+                    self.engine_baseline_free_transfers = int(prev_eng.get("free_transfers_after", 1))
+                    if prev_eng.get("chips_remaining_after") is not None:
+                        self.engine_baseline_chips_remaining = list(prev_eng["chips_remaining_after"])
+                    if prev_eng.get("chips_used_after") is not None:
+                        self.engine_baseline_chips_used = dict(prev_eng["chips_used_after"])
+                else:
+                    raise DataIntegrityError(
+                        f"Legacy session missing pre-GW baseline state for GW{reverted_gw}; cannot deterministically restore baseline engine state.",
+                        details={"session_id": self.session_id, "gameweek": reverted_gw},
+                    )
+            elif reverted_gw == getattr(self, "start_gw", 1):
+                self.engine_baseline_squad_ids = list(self.squad_ids)
+                self.engine_baseline_purchase_prices = dict(self.purchase_prices_tenths)
+                self.engine_baseline_bank_tenths = int(self.bank_tenths)
+                self.engine_baseline_free_transfers = 1
+                self.engine_baseline_chips_remaining = list(self.chips_remaining)
+                self.engine_baseline_chips_used = dict(self.chips_used)
+
+        self._capture_gw_start_state()
         self.save()
         return {
             "success": True,
@@ -1435,6 +1702,13 @@ class HistoricalSimulationSession:
         player_positions: dict[int, Position],
     ) -> int:
         """Step the parallel frozen baseline engine on its own squad trajectory with chip execution."""
+        eng_pre_squad_ids = list(self.engine_baseline_squad_ids)
+        eng_pre_prices = dict(self.engine_baseline_purchase_prices)
+        eng_pre_bank = int(self.engine_baseline_bank_tenths)
+        eng_pre_fts = int(self.engine_baseline_free_transfers)
+        eng_pre_chips_rem = list(self.engine_baseline_chips_remaining)
+        eng_pre_chips_used = dict(self.engine_baseline_chips_used)
+
         engine_ver = getattr(self, "engine_baseline_version", "v1.3.5")
         engine = resolve_decision_engine(engine_ver)
         projections = reconstruct_features_and_project(snapshot)
@@ -1627,12 +1901,24 @@ class HistoricalSimulationSession:
         self.engine_baseline_history.append({
             "gameweek": gw,
             "gross_points": gross_pts,
-            "transfer_hits": hits,
+            "transfer_hits": hits // 4,
+            "transfer_hit_points": hits,
+            "hit_unit": "count",
             "net_points": net_pts,
             "chip_used": current_chip,
             "transfers": txs,
             "squad_ids": list(self.engine_baseline_squad_ids),
             "bank_tenths": self.engine_baseline_bank_tenths,
+            "purchase_prices_tenths": dict(self.engine_baseline_purchase_prices),
+            "free_transfers_after": self.engine_baseline_free_transfers,
+            "chips_remaining_after": list(self.engine_baseline_chips_remaining),
+            "chips_used_after": dict(self.engine_baseline_chips_used),
+            "squad_ids_before": eng_pre_squad_ids,
+            "purchase_prices_before": eng_pre_prices,
+            "bank_tenths_before": eng_pre_bank,
+            "free_transfers_before": eng_pre_fts,
+            "chips_remaining_before": eng_pre_chips_rem,
+            "chips_used_before": eng_pre_chips_used,
         })
         return net_pts
 
@@ -1642,27 +1928,29 @@ class HistoricalSimulationSession:
 
     def generate_summary(self) -> SimulationSummary:
         """Generate high-level season simulation summary."""
-        tot_gross = sum(h.get("gross_points", 0) for h in self.history)
-        tot_hits = sum(h.get("transfer_hits", 0) for h in self.history)
-        tot_net = sum(h.get("net_points", 0) for h in self.history)
-        tot_txs = sum(len(h.get("transfers_executed", [])) for h in self.history)
-        cap_pts = sum(h.get("captain_points", 0) for h in self.history)
-        cap_proms = sum(1 for h in self.history if h.get("captain_promoted"))
-        autosub_cnt = sum(len(h.get("autosubs", [])) for h in self.history)
+        self._normalize_history_hit_units()
+        completed_hist = [h for h in self.history if isinstance(h, dict) and "gross_points" in h]
+        tot_gross = sum(h.get("gross_points", 0) for h in completed_hist)
+        tot_hits = sum(h.get("transfer_hits", 0) for h in completed_hist)
+        tot_net = sum(h.get("net_points", 0) for h in completed_hist)
+        tot_txs = sum(len(h.get("transfers_executed", [])) for h in completed_hist)
+        cap_pts = sum(h.get("captain_points", 0) for h in completed_hist)
+        cap_proms = sum(1 for h in completed_hist if h.get("captain_promoted"))
+        autosub_cnt = sum(len(h.get("autosubs", [])) for h in completed_hist)
 
         engine_tot = sum(e.get("net_points", 0) for e in self.engine_baseline_history) if self.engine_baseline_history else None
         delta = (tot_net - engine_tot) if engine_tot is not None else None
 
-        overrides = [h for h in self.history if h.get("human_engine_divergence", {}).get("human_override")]
+        overrides = [h for h in completed_hist if h.get("human_engine_divergence", {}).get("human_override")]
         pos_overrides = sum(1 for h in overrides if h.get("human_engine_divergence", {}).get("point_delta_vs_engine", 0) > 0)
         neg_overrides = sum(1 for h in overrides if h.get("human_engine_divergence", {}).get("point_delta_vs_engine", 0) < 0)
 
-        last_val = self.history[-1].get("squad_value_tenths_after", 1000) if self.history else 1000
+        last_val = completed_hist[-1].get("squad_value_tenths_after", 1000) if completed_hist else 1000
 
         return SimulationSummary(
             session_id=self.session_id,
             season=self.season,
-            gameweeks_completed=len(self.history),
+            gameweeks_completed=len(completed_hist),
             total_gross_points=tot_gross,
             total_transfer_hits=tot_hits,
             total_net_points=tot_net,
@@ -1720,6 +2008,8 @@ class HistoricalSimulationSession:
             "|---|---|---|---|---|---|---|---|---|",
         ]
         for h in self.history:
+            if not isinstance(h, dict) or "gross_points" not in h:
+                continue
             gw_num = h["gameweek"]
             gross = h["gross_points"]
             hits = h["transfer_hits"]

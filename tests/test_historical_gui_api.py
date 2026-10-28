@@ -321,7 +321,7 @@ def test_api_historical_decisions_isolation(test_server) -> None:
         assert dec["gameweek"] == 1
         assert dec["captain_name"] == "Erling Haaland"
         assert dec["vice_captain_name"] == "Bukayo Saka"
-        assert dec["chip_played"] == "3xc"
+        assert dec["chip_played"] == "triple_captain"
         assert dec["notes"] == "Historical test captaincy"
 
 

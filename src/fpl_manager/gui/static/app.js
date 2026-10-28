@@ -1600,6 +1600,16 @@ async function savePitchLineup() {
   }
 }
 
+function toLoggerChipOptionValue(chip) {
+  if (!chip) return "";
+  const norm = String(chip).toLowerCase().trim().replace(/[-_\s]/g, "");
+  if (norm.startsWith("wildcard") || norm === "wc") return "wildcard";
+  if (norm.startsWith("freehit") || norm === "fh") return "freehit";
+  if (norm.startsWith("benchboost") || norm === "bboost" || norm === "bb") return "benchboost";
+  if (norm.startsWith("triplecaptain") || norm === "3xc" || norm === "tc") return "triplecaptain";
+  return "";
+}
+
 // Decision Logger
 async function handleDecisionSubmit(e) {
   e.preventDefault();
@@ -1755,7 +1765,7 @@ async function loadDecisions() {
       }
       const chipSelect = document.getElementById("dec-chip");
       if (chipSelect && curDec.chip_played && !chipSelect.value) {
-        chipSelect.value = curDec.chip_played;
+        chipSelect.value = toLoggerChipOptionValue(curDec.chip_played);
       }
       const hitsInput = document.getElementById("dec-hits");
       if (hitsInput && (!hitsInput.value || hitsInput.value === "")) {
@@ -5170,7 +5180,22 @@ async function loadHistoricalSession(sessionId) {
     const decGwInput = document.getElementById("dec-gw");
     if (decGwInput) decGwInput.value = data.current_gw;
     const decChipSelect = document.getElementById("dec-chip");
-    if (decChipSelect) decChipSelect.value = data.active_chip || "";
+    if (decChipSelect) {
+      const currentGw = data.current_gw || 1;
+      const rawRemaining = data.chips_remaining || [];
+      const remainingChips = rawRemaining.filter(c => {
+        if (c === "wildcard_1" && currentGw >= 20) return false;
+        if (c === "wildcard_2" && currentGw < 20) return false;
+        return true;
+      }).map(c => c.toLowerCase().replace(/_\d+$/, "").replace(/_/g, ""));
+      Array.from(decChipSelect.options).forEach(opt => {
+        if (!opt.value) return;
+        const normOpt = opt.value.toLowerCase().replace(/_/g, "");
+        const isAvail = remainingChips.includes(normOpt) || (data.active_chip && data.active_chip.toLowerCase().replace(/_/g, "").includes(normOpt));
+        opt.disabled = !isAvail;
+      });
+      decChipSelect.value = toLoggerChipOptionValue(data.active_chip);
+    }
 
     // Synchronize Transfers & Staging results container
     const txContainer = document.getElementById("tx-results-container");
