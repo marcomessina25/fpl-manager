@@ -200,6 +200,7 @@ def rescore_transfer_candidates(
                 single_delta = round(new_single_lineup_xp - curr_single_lineup_xp, 2)
                 multi_horizon_gain = round(lineup_delta - single_delta, 2)
             else:
+                single_delta = lineup_delta
                 multi_horizon_gain = 0.0
 
             hits = rec.get("transfer_hits", 0)
@@ -209,6 +210,8 @@ def rescore_transfer_candidates(
             v125_net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
         else:
             lineup_delta = rec.get("xp_delta", 0.0)
+            single_delta = lineup_delta
+            hit_pts = rec.get("transfer_hits", 0) * 4
             v125_net_gain = rec.get("score", 0.0)
             multi_horizon_gain = 0.0
 
@@ -287,6 +290,8 @@ def suggest_transfers(
     engine: str = "v1.3.5",
     gamma: float = 0.75,
     horizon: int = 3,
+    team_id: str | None = None,
+    config_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad.
 
@@ -311,7 +316,21 @@ def suggest_transfers(
     curr_gw = get_current_gameweek(store)
     if squad_path.exists():
         from .teams import sync_squad_with_current_gameweek
-        state = sync_squad_with_current_gameweek(squad_path, database_path=database_path)
+        resolved_team_id = team_id
+        resolved_config_dir = config_dir
+        if not resolved_team_id:
+            if squad_path.name == "squad.json" and squad_path.parent.parent.name == "teams":
+                resolved_team_id = squad_path.parent.name
+                if resolved_config_dir is None:
+                    resolved_config_dir = squad_path.parent.parent.parent
+            else:
+                resolved_team_id = "default"
+        state = sync_squad_with_current_gameweek(
+            squad_path,
+            team_id=resolved_team_id,
+            config_dir=resolved_config_dir,
+            database_path=database_path,
+        )
     else:
         state = load_current_squad(squad_path)
 
@@ -388,13 +407,27 @@ def suggest_transfers(
         projections_by_gw: dict[int, dict[int, float]] = {}
         for gw_idx, gw in enumerate(target_gws[:eff_horizon]):
             if gw_idx == 0:
-                projections_by_gw[gw] = {p.id: p.expected_points for p in players_map.values()}
+                projections_by_gw[gw] = {
+                    p.id: (
+                        p.gw_breakdown_xp.get(gw, 0.0)
+                        if getattr(p, "gw_breakdown_xp", None)
+                        else p.expected_points
+                    )
+                    for p in players_map.values()
+                }
             else:
                 try:
                     projs = project_gameweek(gw, database_path=database_path)
                     projections_by_gw[gw] = {p.player_id: p.expected_points for p in projs}
                 except Exception:
-                    projections_by_gw[gw] = {p.id: p.expected_points for p in players_map.values()}
+                    projections_by_gw[gw] = {
+                        p.id: (
+                            p.gw_breakdown_xp.get(gw, 0.0)
+                            if getattr(p, "gw_breakdown_xp", None)
+                            else p.expected_points
+                        )
+                        for p in players_map.values()
+                    }
 
         top_results = rescore_transfer_candidates(
             raw_results=raw_results,

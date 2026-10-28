@@ -245,11 +245,26 @@ def compute_player_strategic_value(
     strat = strategy.lower().strip()
 
     # Detect if player already provides an explicit horizon aggregate
+    bd = getattr(player, "gw_breakdown_xp", None)
+    has_bd = isinstance(bd, dict) and len(bd) > 0
     has_horizon_xp = float(getattr(player, "horizon_xp", 0.0) or 0.0) > 0.0
     if has_horizon_xp:
         base_xp = float(player.horizon_xp)
         floor_val = float(getattr(player, "horizon_floor", 0.0) or getattr(player, "xp_floor", 0.0) or base_xp)
         ceil_val = float(getattr(player, "horizon_ceiling", 0.0) or getattr(player, "xp_ceiling", 0.0) or base_xp)
+    elif has_bd:
+        base_xp = float(sum(bd.values()))
+        active_gws = sum(1 for v in bd.values() if v > 0)
+        floor_val = float(
+            getattr(player, "horizon_floor", 0.0)
+            or (getattr(player, "xp_floor", 0.0) * active_gws)
+            or base_xp
+        )
+        ceil_val = float(
+            getattr(player, "horizon_ceiling", 0.0)
+            or (getattr(player, "xp_ceiling", 0.0) * active_gws)
+            or base_xp
+        )
     else:
         gw_xp = float(getattr(player, "gw_xp", 0.0) or getattr(player, "expected_points", 0.0))
         base_xp = gw_xp * horizon_len
@@ -390,33 +405,47 @@ def evaluate_strategic_squad_objective(
             best_vc = vc
 
     # Compute component scores
+    def _player_gw_xp(p: Any, gw: int) -> float:
+        bd = getattr(p, "gw_breakdown_xp", None)
+        if isinstance(bd, dict) and len(bd) > 0:
+            return float(bd.get(gw, 0.0))
+        return float(getattr(p, "gw_xp", getattr(p, "expected_points", 0.0)))
+
+    def _player_horizon_xp(p: Any) -> float:
+        bd = getattr(p, "gw_breakdown_xp", None)
+        if isinstance(bd, dict) and len(bd) > 0:
+            return sum(float(bd.get(gw, 0.0)) for gw in horizon_gws)
+        h_xp = getattr(p, "horizon_xp", None)
+        if h_xp is not None and float(h_xp) != 0.0:
+            return float(h_xp)
+        return float(getattr(p, "gw_xp", getattr(p, "expected_points", 0.0))) * h_len
+
     starters_xp_per_gw = sum(getattr(p, "gw_xp", getattr(p, "expected_points", 0.0)) for p in best_starters)
     cap_bonus_per_gw = getattr(best_cap, "gw_xp", getattr(best_cap, "expected_points", 0.0)) if best_cap else 0.0
     lineup_xp_per_gw = starters_xp_per_gw + cap_bonus_per_gw
 
     has_horizon = any(getattr(p, "horizon_xp", 0.0) != 0.0 for p in best_starters)
-    if has_horizon:
+    has_breakdowns = any(bool(getattr(p, "gw_breakdown_xp", None)) for p in best_starters)
+    if has_breakdowns:
+        horizon_breakdown = {}
+        for gw in horizon_gws:
+            gw_starters_xp = sum(_player_gw_xp(p, gw) for p in best_starters)
+            gw_cap_xp = _player_gw_xp(best_cap, gw) if best_cap else 0.0
+            horizon_breakdown[gw] = round(gw_starters_xp + gw_cap_xp, 2)
+        total_horizon_xp = round(
+            sum(_player_horizon_xp(p) for p in best_starters)
+            + (_player_horizon_xp(best_cap) if best_cap else 0.0),
+            2,
+        )
+    elif has_horizon:
         total_horizon_xp = round(
             sum(getattr(p, "horizon_xp", getattr(p, "expected_points", 0.0) * h_len) for p in best_starters)
             + (getattr(best_cap, "horizon_xp", getattr(best_cap, "expected_points", 0.0) * h_len) if best_cap else 0.0),
             2,
         )
+        horizon_breakdown = {gw: round(total_horizon_xp / h_len, 2) for gw in horizon_gws}
     else:
         total_horizon_xp = round(lineup_xp_per_gw * h_len, 2)
-    has_breakdowns = any(bool(getattr(p, "gw_breakdown_xp", None)) for p in best_starters)
-    if has_breakdowns:
-        horizon_breakdown = {}
-        for gw in horizon_gws:
-            gw_starters_xp = sum(
-                getattr(p, "gw_breakdown_xp", {}).get(gw, getattr(p, "expected_points", 0.0))
-                for p in best_starters
-            )
-            gw_cap_xp = (
-                getattr(best_cap, "gw_breakdown_xp", {}).get(gw, getattr(best_cap, "expected_points", 0.0))
-                if best_cap else 0.0
-            )
-            horizon_breakdown[gw] = round(gw_starters_xp + gw_cap_xp, 2)
-    else:
         horizon_breakdown = {gw: round(total_horizon_xp / h_len, 2) for gw in horizon_gws}
 
     club_counts: dict[int, int] = {}

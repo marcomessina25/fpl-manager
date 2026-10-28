@@ -1058,7 +1058,7 @@ def project_multi_gameweek_profiles(
         total_floor = 0.0
         total_ceil = 0.0
         sum_var = 0.0
-        p_gw_breakdown: dict[int, float] = {}
+        p_gw_breakdown: dict[int, float] = {int(gw): 0.0 for gw in gameweeks}
 
         for f in p_fixtures:
             f_event = f.get("event")

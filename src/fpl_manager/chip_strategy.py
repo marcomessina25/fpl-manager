@@ -862,13 +862,18 @@ class SeasonalChipPolicy:
     min_bb_bench_xp: float = 10.0
     min_bb_bench_play_prob: float = 0.65
     max_fh_active_players_threshold: int = 8
-    use_optimizer: bool = True
+    use_optimizer: bool | None = None
     optimizer_variant: str = "c1_linear_decay"
 
     def __post_init__(self) -> None:
-        env_flag = os.getenv("FPL_CHIP_OPTIMIZER")
-        if env_flag is not None:
-            self.use_optimizer = env_flag.strip().lower() not in ("0", "false", "no", "legacy")
+        if self.use_optimizer is None:
+            env_flag = os.getenv("FPL_CHIP_OPTIMIZER")
+            if env_flag is not None:
+                self.use_optimizer = env_flag.strip().lower() not in ("0", "false", "no", "legacy")
+            else:
+                self.use_optimizer = True
+        else:
+            self.use_optimizer = bool(self.use_optimizer)
         if not self.use_optimizer:
             logging.getLogger(__name__).info(
                 "SeasonalChipPolicy running in legacy C0 heuristic threshold mode."

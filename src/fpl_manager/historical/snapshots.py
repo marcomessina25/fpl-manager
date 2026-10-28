@@ -538,7 +538,8 @@ def load_historical_players_meta(
 
         import statistics
         p_std = round(statistics.pstdev(p_fwd), 2) if len(p_fwd) > 1 else 0.0
-        p_gw_breakdown = {gw: fwd_projections[gw].get(p.player_id, 0.0) for gw in fwd_projections}
+        target_gws = list(range(snapshot.gameweek, min(39, snapshot.gameweek + max(1, horizon))))
+        p_gw_breakdown = {gw: float(fwd_projections.get(gw, {}).get(p.player_id, 0.0)) for gw in target_gws}
 
         p_info = PlayerInfo(
             id=p.player_id,

@@ -1603,15 +1603,32 @@ async function savePitchLineup() {
 // Decision Logger
 async function handleDecisionSubmit(e) {
   e.preventDefault();
-  const gw = parseInt(document.getElementById("dec-gw").value);
+  const gw = parseInt(document.getElementById("dec-gw").value, 10);
   const chip = document.getElementById("dec-chip").value || null;
   const captain = document.getElementById("dec-captain").value.trim();
   const vc = document.getElementById("dec-vc").value.trim();
-  const hitsRaw = document.getElementById("dec-hits").value;
-  const actualRaw = document.getElementById("dec-actual-pts").value;
+  const hitsRaw = (document.getElementById("dec-hits").value ?? "").trim();
+  const actualRaw = (document.getElementById("dec-actual-pts").value ?? "").trim();
   const notes = document.getElementById("dec-notes").value.trim();
 
-  const hits = hitsRaw ? parseInt(hitsRaw) : null;
+  let hits = null;
+  if (hitsRaw !== "") {
+    if (!/^-?\d+$/.test(hitsRaw)) {
+      showToast("Invalid transfer hits value: must be an integer.", true);
+      return;
+    }
+    hits = parseInt(hitsRaw, 10);
+  }
+
+  let actual_points = null;
+  if (actualRaw !== "") {
+    if (!/^-?\d+$/.test(actualRaw)) {
+      showToast("Invalid actual points value: must be an integer.", true);
+      return;
+    }
+    actual_points = parseInt(actualRaw, 10);
+  }
+
   const isHist = state.appMode === "historical";
   if (isHist && histState.isCompleted) {
     showToast("Cannot log matchday decision: The season is ended. All 38 gameweeks have been completed.", true);
@@ -1635,8 +1652,18 @@ async function handleDecisionSubmit(e) {
     if (isHist) {
       if (histState.sessionData && histState.sessionData.squad) {
         const squad = histState.sessionData.squad;
-        payload.starters = squad.filter(p => p.role === "STARTER" || p.role === "CAPTAIN" || p.role === "VICE_CAPTAIN").map(p => p.id || p.player_id);
-        payload.bench = squad.filter(p => p.role !== "STARTER" && p.role !== "CAPTAIN" && p.role !== "VICE_CAPTAIN").map(p => p.id || p.player_id);
+        const starters = squad.filter(
+          p => p.is_starter === true || p.role === "STARTER" || p.role === "CAPTAIN" || p.role === "VICE_CAPTAIN"
+        );
+        const bench = squad
+          .filter(
+            p =>
+              p.is_bench === true ||
+              (p.is_starter !== true && p.role && p.role !== "STARTER" && p.role !== "CAPTAIN" && p.role !== "VICE_CAPTAIN")
+          )
+          .sort((a, b) => (a.bench_order || 99) - (b.bench_order || 99));
+        payload.starters = starters.map(p => p.id || p.player_id);
+        payload.bench = bench.map(p => p.id || p.player_id);
       }
     } else {
       if (state.currentLineup && state.currentLineup.starters) {

@@ -339,7 +339,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         eff_gamma = 1.0 if is_v12 else gamma_val
 
                         projections_by_gw = {
-                            gw: {p.id: getattr(p, "gw_breakdown_xp", {}).get(gw, p.expected_points) for p in players_map.values()}
+                            gw: {
+                                p.id: (
+                                    p.gw_breakdown_xp.get(gw, 0.0)
+                                    if getattr(p, "gw_breakdown_xp", None)
+                                    else p.expected_points
+                                )
+                                for p in players_map.values()
+                            }
                             for gw in target_gws[:eff_horizon]
                         }
 
@@ -410,6 +417,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         engine=engine,
                         gamma=gamma_val,
                         horizon=horizon_val,
+                        team_id=tid,
+                        config_dir=self.config_dir,
                     )
                     rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
