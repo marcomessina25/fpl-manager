@@ -5,6 +5,7 @@ and squad selling-price rules with the combinatorial optimizers in `fpl_manager.
 """
 
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -158,12 +159,126 @@ def load_all_players_meta(
     return players_map, team_map
 
 
+def rescore_transfer_candidates(
+    raw_results: list[dict[str, Any]],
+    squad_players: list[Any],
+    players_map: dict[int, Any],
+    projections_by_gw: dict[int, dict[int, float]],
+    eff_horizon: int = 1,
+    eff_gamma: float = 1.0,
+    max_results: int = 30,
+) -> list[dict[str, Any]]:
+    """Rescore raw transfer combinations using multi-horizon lineup xP, GK security hurdles, and reason breakdowns."""
+    from .backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
+
+    curr_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+        squad_players, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+    )
+    curr_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+        squad_players, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
+    )
+
+    rescored_results: list[dict[str, Any]] = []
+    for idx, rec in enumerate(raw_results):
+        out_ids = [p["id"] for p in rec.get("outgoing", [])]
+        in_ids = [p["id"] for p in rec.get("incoming", [])]
+        out_set = set(out_ids)
+
+        if len(squad_players) == 15:
+            new_squad = [p for p in squad_players if p.id not in out_set] + [
+                players_map[pid] for pid in in_ids if pid in players_map
+            ]
+            new_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+                new_squad, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+            )
+            lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
+
+            if eff_horizon > 1:
+                new_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+                    new_squad, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
+                )
+                single_delta = round(new_single_lineup_xp - curr_single_lineup_xp, 2)
+                multi_horizon_gain = round(lineup_delta - single_delta, 2)
+            else:
+                multi_horizon_gain = 0.0
+
+            hits = rec.get("transfer_hits", 0)
+            hit_pts = hits * 4
+            fdr_gain = rec.get("fdr_improvement", 0.0)
+            dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
+            v125_net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
+        else:
+            lineup_delta = rec.get("xp_delta", 0.0)
+            v125_net_gain = rec.get("score", 0.0)
+            multi_horizon_gain = 0.0
+
+        # Role-Specific Transfer Hurdle & GK Playing Security Invariant (Pillar 2)
+        has_gk = any(
+            p.get("position") in ("GKP", 1, Position.GOALKEEPER)
+            or getattr(players_map.get(p["id"]), "position", None) == Position.GOALKEEPER
+            for p in rec.get("outgoing", [])
+        )
+        if has_gk:
+            incumbent_insecure = False
+            for p in rec.get("outgoing", []):
+                p_meta = players_map.get(p["id"])
+                if p_meta and getattr(p_meta, "position", None) == Position.GOALKEEPER:
+                    if getattr(p_meta, "status", "a") != "a" or getattr(p_meta, "play_probability", 1.0) < 0.50:
+                        incumbent_insecure = True
+                        break
+            if incumbent_insecure:
+                hurdle = 0.50
+                gk_status = "approved_incumbent_insecure"
+            else:
+                hurdle = 3.00 if eff_horizon >= 3 else 1.50
+                gk_status = "approved_hurdle_met" if v125_net_gain >= hurdle else "suppressed_high_hurdle"
+        else:
+            hurdle = 0.50
+            gk_status = "n/a"
+
+        hurdle_passed = bool(v125_net_gain >= hurdle)
+        pool_expansion_surfaced = bool(idx >= 5)
+
+        if has_gk and gk_status == "suppressed_high_hurdle":
+            summary = f"GK swap (+{v125_net_gain:.2f} xP) suppressed below {hurdle:.2f} hurdle"
+        elif pool_expansion_surfaced:
+            summary = f"Pool expansion surfaced Starting XI upgrade (+{lineup_delta:.2f} xP)"
+        elif multi_horizon_gain > 0.5:
+            summary = f"Multi-GW fixture horizon elevated asset (+{multi_horizon_gain:.2f} xP over 1-GW)"
+        else:
+            summary = f"Lineup-optimized Starting XI move (+{lineup_delta:.2f} xP)"
+
+        rec_copy = dict(rec)
+        rec_copy["lineup_xp_delta"] = lineup_delta
+        rec_copy["gw1_lineup_xp_delta"] = single_delta if len(squad_players) == 15 else lineup_delta
+        rec_copy["net_lineup_xp_delta"] = round(lineup_delta - hit_pts, 2) if len(squad_players) == 15 else round(lineup_delta - (rec.get("transfer_hits", 0) * 4), 2)
+        rec_copy["v125_net_gain"] = v125_net_gain
+        rec_copy["hurdle"] = hurdle
+        rec_copy["hurdle_passed"] = hurdle_passed
+        rec_copy["score"] = v125_net_gain
+        rec_copy["net_xp_gain"] = v125_net_gain
+        rec_copy["reason_breakdown"] = {
+            "pool_expansion_surfaced": pool_expansion_surfaced,
+            "gk_suppression": gk_status,
+            "multi_horizon_gain": multi_horizon_gain,
+            "hurdle": hurdle,
+            "hurdle_passed": hurdle_passed,
+            "summary": summary,
+        }
+        rescored_results.append(rec_copy)
+
+    rescored_results.sort(
+        key=lambda r: (r.get("hurdle_passed", True), r.get("v125_net_gain", r.get("score", 0.0))),
+        reverse=True,
+    )
+    return rescored_results[:max_results]
+
 
 def suggest_transfers(
     num_transfers: int = 1,
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
-    max_results: int = 15,
+    max_results: int = 30,
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
@@ -192,14 +307,20 @@ def suggest_transfers(
     is_v135 = clean_engine in ("v1.3.5", "v1.4", "v135", "v14", "default") or (not is_legacy and not is_v12 and not is_v125)
     engine_name = "v1.3.5" if is_v135 else ("v1.2.5" if is_v125 else ("v1.2" if is_v12 else "legacy"))
 
-    state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
+    curr_gw = get_current_gameweek(store)
+    if squad_path.exists():
+        from .teams import sync_squad_with_current_gameweek
+        state = sync_squad_with_current_gameweek(squad_path, database_path=database_path)
+    else:
+        state = load_current_squad(squad_path)
+
     if gameweek is not None:
         start_gw = gameweek
-    elif state.gameweek is not None:
+    elif state.gameweek is not None and state.gameweek >= curr_gw:
         start_gw = state.gameweek
     else:
-        start_gw = get_current_gameweek(store)
+        start_gw = curr_gw
     target_gws = list(range(start_gw, start_gw + num_gameweeks))
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)
@@ -260,8 +381,6 @@ def suggest_transfers(
             "top_suggestions": top_results,
         }
     else:
-        from .backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
-
         eff_horizon = 1 if is_v12 else min(num_gameweeks, horizon)
         eff_gamma = 1.0 if is_v12 else gamma
 
@@ -277,105 +396,15 @@ def suggest_transfers(
                 except Exception:
                     projections_by_gw[gw] = {p.id: p.expected_points for p in players_map.values()}
 
-        curr_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-            squad_players, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+        top_results = rescore_transfer_candidates(
+            raw_results=raw_results,
+            squad_players=squad_players,
+            players_map=players_map,
+            projections_by_gw=projections_by_gw,
+            eff_horizon=eff_horizon,
+            eff_gamma=eff_gamma,
+            max_results=max_results,
         )
-        curr_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-            squad_players, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
-        )
-
-        rescored_results: list[dict[str, Any]] = []
-        for idx, rec in enumerate(raw_results):
-            out_ids = [p["id"] for p in rec.get("outgoing", [])]
-            in_ids = [p["id"] for p in rec.get("incoming", [])]
-            out_set = set(out_ids)
-
-            if len(squad_players) == 15:
-                new_squad = [p for p in squad_players if p.id not in out_set] + [
-                    players_map[pid] for pid in in_ids if pid in players_map
-                ]
-                new_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-                    new_squad, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
-                )
-                lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
-
-                if eff_horizon > 1:
-                    new_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-                        new_squad, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
-                    )
-                    single_delta = round(new_single_lineup_xp - curr_single_lineup_xp, 2)
-                    multi_horizon_gain = round(lineup_delta - single_delta, 2)
-                else:
-                    multi_horizon_gain = 0.0
-
-                hits = rec.get("transfer_hits", 0)
-                hit_pts = hits * 4
-                fdr_gain = rec.get("fdr_improvement", 0.0)
-                dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
-                v125_net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
-            else:
-                lineup_delta = rec.get("xp_delta", 0.0)
-                v125_net_gain = rec.get("score", 0.0)
-                multi_horizon_gain = 0.0
-
-            # Role-Specific Transfer Hurdle & GK Playing Security Invariant (Pillar 2)
-            has_gk = any(
-                p.get("position") in ("GKP", 1, Position.GOALKEEPER)
-                or getattr(players_map.get(p["id"]), "position", None) == Position.GOALKEEPER
-                for p in rec.get("outgoing", [])
-            )
-            if has_gk:
-                incumbent_insecure = False
-                for p in rec.get("outgoing", []):
-                    p_meta = players_map.get(p["id"])
-                    if p_meta and getattr(p_meta, "position", None) == Position.GOALKEEPER:
-                        if getattr(p_meta, "status", "a") != "a" or getattr(p_meta, "play_probability", 1.0) < 0.50:
-                            incumbent_insecure = True
-                            break
-                if incumbent_insecure:
-                    hurdle = 0.50
-                    gk_status = "approved_incumbent_insecure"
-                else:
-                    hurdle = 3.00 if eff_horizon >= 3 else 1.50
-                    gk_status = "approved_hurdle_met" if v125_net_gain >= hurdle else "suppressed_high_hurdle"
-            else:
-                hurdle = 0.50
-                gk_status = "n/a"
-
-            hurdle_passed = bool(v125_net_gain >= hurdle)
-            pool_expansion_surfaced = bool(idx >= 5)
-
-            if has_gk and gk_status == "suppressed_high_hurdle":
-                summary = f"GK swap (+{v125_net_gain:.2f} xP) suppressed below {hurdle:.2f} hurdle"
-            elif pool_expansion_surfaced:
-                summary = f"Pool expansion surfaced Starting XI upgrade (+{lineup_delta:.2f} xP)"
-            elif multi_horizon_gain > 0.5:
-                summary = f"Multi-GW fixture horizon elevated asset (+{multi_horizon_gain:.2f} xP over 1-GW)"
-            else:
-                summary = f"Lineup-optimized Starting XI move (+{lineup_delta:.2f} xP)"
-
-            rec_copy = dict(rec)
-            rec_copy["lineup_xp_delta"] = lineup_delta
-            rec_copy["v125_net_gain"] = v125_net_gain
-            rec_copy["hurdle"] = hurdle
-            rec_copy["hurdle_passed"] = hurdle_passed
-            rec_copy["score"] = v125_net_gain
-            rec_copy["net_xp_gain"] = v125_net_gain
-            rec_copy["reason_breakdown"] = {
-                "pool_expansion_surfaced": pool_expansion_surfaced,
-                "gk_suppression": gk_status,
-                "multi_horizon_gain": multi_horizon_gain,
-                "hurdle": hurdle,
-                "hurdle_passed": hurdle_passed,
-                "summary": summary,
-            }
-            rescored_results.append(rec_copy)
-
-        rescored_results.sort(
-            key=lambda r: (r.get("hurdle_passed", True), r.get("v125_net_gain", r.get("score", 0.0))),
-            reverse=True,
-        )
-        top_results = rescored_results[:max_results]
 
         report = {
             "num_transfers": num_transfers,
@@ -397,6 +426,22 @@ def suggest_transfers(
                     for r in top_results
                 ),
             },
+        }
+
+    team_counts = Counter(getattr(p, "team_short", getattr(p, "team_id", "")) for p in squad_players)
+    excess_teams = {t: c for t, c in team_counts.items() if c > 3}
+    if excess_teams:
+        max_excess = max(excess_teams.values())
+        min_tx_needed = max_excess - 3
+        report["team_quota_warning"] = {
+            "excess_teams": excess_teams,
+            "min_transfers_needed": min_tx_needed,
+            "message": (
+                f"Squad currently has {', '.join(f'{c} players from {t}' for t, c in excess_teams.items())} "
+                f"due to mid-season real-life transfers. Official FPL rules require that any transfer move "
+                f"must restore your squad to at most 3 players per club. A minimum of {min_tx_needed} transfer(s) "
+                f"selling players from these club(s) is required to produce a legal squad."
+            ),
         }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)

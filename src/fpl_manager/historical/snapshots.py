@@ -270,16 +270,6 @@ def build_historical_snapshot(
                 )
             )
 
-    # Load current GW raw data for point-in-time player status/price/ownership
-    raw_players = load_gameweek_raw_data(season_dir, gameweek)
-    if not raw_players and gameweek > 1:
-        for prev_g in range(gameweek - 1, 0, -1):
-            prior_raw = load_gameweek_raw_data(season_dir, prev_g)
-            if prior_raw:
-                raw_players = prior_raw
-                break
-    current_gw_players = {p["player_id"]: p for p in raw_players}
-
     # Accumulate prior historical statistics strictly from GW 1 to GW (N-1)
     cum_minutes: dict[int, int] = {}
     cum_starts: dict[int, int] = {}
@@ -294,11 +284,13 @@ def build_historical_snapshot(
     recent_pts: dict[int, list[int]] = {}
     recent_starts_hist: dict[int, list[int]] = {}
     recent_mins_hist: dict[int, list[int]] = {}
+    latest_prior_player_records: dict[int, dict[str, Any]] = {}
 
     for prev_gw in range(1, gameweek):
         prev_data = load_gameweek_raw_data(season_dir, prev_gw)
         for p in prev_data:
             pid = p["player_id"]
+            latest_prior_player_records[pid] = p
             p_mins = p.get("minutes", 0)
             p_starts = p.get("starts", 1 if p_mins >= 60 else 0)
 
@@ -320,6 +312,19 @@ def build_historical_snapshot(
             recent_pts[pid].append(p.get("total_points", 0))
             recent_starts_hist[pid].append(p_starts)
             recent_mins_hist[pid].append(p_mins)
+
+    # Load current GW raw data for point-in-time player status/price/ownership
+    raw_players = load_gameweek_raw_data(season_dir, gameweek)
+    if not raw_players and gameweek > 1:
+        for prev_g in range(gameweek - 1, 0, -1):
+            prior_raw = load_gameweek_raw_data(season_dir, prev_g)
+            if prior_raw:
+                raw_players = prior_raw
+                break
+    # Base active players on latest known records, overlaid with current GW updates
+    current_gw_players = dict(latest_prior_player_records)
+    for p in raw_players:
+        current_gw_players[p["player_id"]] = p
 
     players_list: list[HistoricalPlayerState] = []
     finished_gws = gameweek - 1

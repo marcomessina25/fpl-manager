@@ -334,20 +334,141 @@ body {
 }
 
 #tab-pitch.active {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 1.5rem;
+  display: block;
+  width: 100%;
 }
 
-@media (max-width: 992px) {
-  #tab-pitch.active {
-    grid-template-columns: 1fr;
+.pitch-mode-wrapper {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .pitch-mode-wrapper {
+    flex-wrap: wrap;
   }
+}
+
+/* Gameweek Table Sidebar */
+.pitch-gw-table-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.pitch-gw-table-header {
+  padding: 0.65rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pitch-gw-table-scroll {
+  max-height: 540px;
+  overflow-y: auto;
+}
+
+.pitch-gw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.pitch-gw-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  z-index: 1;
+}
+
+.pitch-gw-table thead th:last-child {
+  text-align: right;
+}
+
+.pitch-gw-table tbody tr.gw-table-row {
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pitch-gw-table tbody tr.gw-table-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pitch-gw-table tbody tr.gw-table-row.active-row {
+  background: rgba(16, 185, 129, 0.18);
+  font-weight: 700;
+}
+
+.pitch-gw-table tbody tr.gw-table-row.active-row td:first-child {
+  color: var(--accent-green);
+  border-left: 3px solid var(--accent-green);
+}
+
+.pitch-gw-table tbody td {
+  padding: 0.45rem 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pitch-gw-table tbody td:first-child {
+  font-weight: 600;
+  border-left: 3px solid transparent;
+}
+
+.pitch-gw-table tbody td:last-child {
+  text-align: right;
+}
+
+.gw-table-score {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.gw-table-tag {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.gw-table-tag.active-tag {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
 }
 
 .pitch-container-wrapper {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
 }
 
 .pitch-header-panel {
@@ -376,81 +497,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-/* Gameweek Pill Navigator */
-.gw-pill-nav-container {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 1.25rem;
-  background: var(--bg-primary);
-  border-left: 1px solid var(--border-color);
-  border-right: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-  overflow-x: auto;
-}
-
-.gw-nav-label {
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.gw-pill-nav {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: nowrap;
-}
-
-.gw-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.gw-pill:hover {
-  color: var(--text-primary);
-  border-color: #475569;
-  background: #252e3e;
-}
-
-.gw-pill.active {
-  background: rgba(16, 185, 129, 0.18);
-  color: var(--accent-green);
-  border-color: var(--accent-green);
-  font-weight: 700;
-}
-
-.gw-pill-score {
-  background: rgba(16, 185, 129, 0.25);
-  color: #34d399;
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 0.1rem 0.4rem;
-  border-radius: 10px;
-}
-
-.gw-pill-tag {
-  background: rgba(59, 130, 246, 0.25);
-  color: #93c5fd;
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.1rem 0.4rem;
-  border-radius: 10px;
 }
 
 /* Matchday State Banner */
@@ -1130,6 +1176,7 @@ body {
   padding: 1rem;
 }
 
+.hidden { display: none !important; }
 .modal-overlay.hidden { display: none !important; }
 
 .modal-dialog {

@@ -234,6 +234,16 @@ def solve_transfers(
         for p in out_combo:
             temp_team_counts[p.team_id] -= 1
 
+        # Strict FPL Team Quota Feasibility Check:
+        # In FPL, max 3 players per Premier League club is permitted in any legal squad.
+        # If real-world mid-season transfers (e.g. January transfer window) caused the squad
+        # to exceed 3 players for any club, any transfer move MUST restore compliance (<= 3).
+        # Since incoming candidates can only add (+1) to a club count, if any club still has > 3
+        # players after removing this out_combo, it is mathematically impossible for any incoming
+        # candidate selection to produce a legal squad.
+        if any(cnt > 3 for cnt in temp_team_counts.values()):
+            continue
+
         out_xp = sum(p.expected_points for p in out_combo)
         out_floor = sum(p.xp_floor for p in out_combo)
         out_ceil = sum(p.xp_ceiling for p in out_combo)
@@ -258,6 +268,8 @@ def solve_transfers(
             picked: list[Any],
         ) -> None:
             if slot == num_transfers:
+                if any(cnt > 3 for cnt in temp_team_counts.values()):
+                    return
                 in_fdr_avg = curr_fdr_sum / num_transfers
                 fdr_delta = round(out_fdr_avg - in_fdr_avg, 2)
                 points_delta = curr_pts - out_pts

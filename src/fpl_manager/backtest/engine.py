@@ -149,10 +149,17 @@ def select_best_lineup(
 
     # Bench ordering: reserve GK goes to the end, outfield bench ordered by xP descending
     bench_set = set(squad_ids) - set(best_starters)
-    outfield_bench = [pid for pid in squad_ids if pid in bench_set and proj_map.get(pid) and proj_map[pid].position != Position.GOALKEEPER]
-    outfield_bench.sort(key=lambda pid: proj_map.get(pid).expected_points if proj_map.get(pid) else 0.0, reverse=True)
-    gk_bench = [pid for pid in squad_ids if pid in bench_set and proj_map.get(pid) and proj_map[pid].position == Position.GOALKEEPER]
+    outfield_bench = []
+    gk_bench = []
+    for pid in squad_ids:
+        if pid in bench_set:
+            p_obj = proj_map.get(pid)
+            if p_obj and p_obj.position == Position.GOALKEEPER:
+                gk_bench.append(pid)
+            else:
+                outfield_bench.append(pid)
 
+    outfield_bench.sort(key=lambda pid: proj_map.get(pid).expected_points if proj_map.get(pid) else 0.0, reverse=True)
     ordered_bench = outfield_bench + gk_bench
     return best_starters, ordered_bench, captain_id, vice_captain_id, round(best_xp, 2)
 
