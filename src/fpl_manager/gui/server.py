@@ -1511,10 +1511,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     )
                 self._send_json(res)
             elif path == "/api/decisions/undo":
+                mode_arg = str(body.get("mode") or "").strip().lower()
+                has_session_key = "session_id" in body
                 session_id = body.get("session_id")
-                if session_id:
+                if mode_arg == "historical" or has_session_key:
+                    if not isinstance(session_id, str) or not session_id.strip():
+                        raise ValueError("Historical Undo requires a valid simulation session_id.")
                     sim_dir = self.config_dir / "simulations"
-                    sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
+                    sim = HistoricalSimulationSession.load(session_id.strip(), config_dir=sim_dir)
                     res = sim.undo_last_gameweek()
                 else:
                     tid = body.get("team_id") or get_active_team_id(self.config_dir)
@@ -1631,13 +1635,25 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             horizon=h_len,
                             failed_profiles=failed_profiles_map,
                         )
+                        prov_ctx = {
+                            "app_mode": "historical",
+                            "season": season,
+                            "gameweek": gw,
+                            "session_id": session_id,
+                            "team_id": None,
+                        }
+                        rep.setdefault("provenance", {}).update(prov_ctx)
+                        if isinstance(rep.get("selected_candidate"), dict):
+                            rep["selected_candidate"].setdefault("provenance", {}).update(prov_ctx)
                         rep["requested_profiles"] = getattr(all_cands, "requested_profiles", list(all_cands.keys()))
                         rep["successful_profiles"] = getattr(all_cands, "successful_profiles", list(all_cands.keys()))
                         rep["failed_profiles"] = failed_profiles_map
-                        rep["strategic_candidates"] = {
-                            s: cand.to_dict() for s, cand in all_cands.items()
-                        }
-                        rep["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+                        rep["strategic_candidates"] = {}
+                        for s, cand in all_cands.items():
+                            c_dict = cand.to_dict()
+                            c_dict.setdefault("provenance", {}).update(prov_ctx)
+                            rep["strategic_candidates"][s] = c_dict
+                        rep["candidates"] = list(rep["strategic_candidates"].values())
                         rep["season"] = season
                         rep["session_id"] = session_id
                     else:
@@ -1655,6 +1671,25 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             generate_all_candidates=True,
                         )
                         rep["team_id"] = tid
+                        live_gw = (rep.get("horizon_gws") or [gw])[0]
+                        prov_ctx = {
+                            "app_mode": "live",
+                            "season": "2026/27",
+                            "gameweek": live_gw,
+                            "session_id": None,
+                            "team_id": tid,
+                        }
+                        rep.setdefault("provenance", {}).update(prov_ctx)
+                        if isinstance(rep.get("selected_candidate"), dict):
+                            rep["selected_candidate"].setdefault("provenance", {}).update(prov_ctx)
+                        if isinstance(rep.get("strategic_candidates"), dict):
+                            for c_dict in rep["strategic_candidates"].values():
+                                if isinstance(c_dict, dict):
+                                    c_dict.setdefault("provenance", {}).update(prov_ctx)
+                        if isinstance(rep.get("candidates"), list):
+                            for c_dict in rep["candidates"]:
+                                if isinstance(c_dict, dict):
+                                    c_dict.setdefault("provenance", {}).update(prov_ctx)
                     self._send_json(rep)
                 except ValueError as err:
                     self._send_json({"error": str(err), "error_type": "INFEASIBLE_CONSTRAINTS", "status": "error"}, status=400)
@@ -1795,20 +1830,35 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 else:
                     impact = {"summary": "Re-optimization completed.", "opportunity_cost": 0.0, "objective_delta": 0.0}
 
-                res = new_cand.to_dict()
-                res["constraint_impact"] = impact
-                res["strategic_candidates"] = {
-                    s: cand.to_dict() for s, cand in all_cands.items()
+                prov_ctx = {
+                    "app_mode": "historical" if season else "live",
+                    "season": season or "2026/27",
+                    "gameweek": gw if season else (target_gws[0] if target_gws else 1),
+                    "session_id": session_id if season else None,
+                    "team_id": None if season else tid,
                 }
-                res["candidates"] = [cand.to_dict() for cand in all_cands.values()]
+                res = new_cand.to_dict()
+                res.setdefault("provenance", {}).update(prov_ctx)
+                res["constraint_impact"] = impact
+                res["strategic_candidates"] = {}
+                for s, cand in all_cands.items():
+                    c_dict = cand.to_dict()
+                    c_dict.setdefault("provenance", {}).update(prov_ctx)
+                    res["strategic_candidates"][s] = c_dict
+                res["candidates"] = list(res["strategic_candidates"].values())
                 res["failed_profiles"] = failed_profiles_map
                 self._send_json(res)
             elif path == "/api/strategic-squad/apply":
                 season = body.get("season")
                 session_id = body.get("session_id")
+                has_session_key = "session_id" in body
+                app_mode_arg = str(body.get("app_mode") or "").strip().lower()
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 mode = body.get("mode", "initial")
-                cand_data = body.get("candidate", {})
+                cand_data = body.get("candidate", {}) or {}
+                cand_prov = (cand_data.get("provenance") or {}) if isinstance(cand_data, dict) else {}
+                cand_ctx = (cand_data.get("_context") or {}) if isinstance(cand_data, dict) else {}
+
                 squad_ids = [int(i) for i in cand_data.get("player_ids", body.get("squad_ids", []))]
                 starter_ids = [int(p["id"]) for p in cand_data.get("starters", [])] or [int(i) for i in body.get("starter_ids", [])]
                 bench_ids = [int(p["id"]) for p in cand_data.get("bench", [])] or [int(i) for i in body.get("bench_ids", [])]
@@ -1818,56 +1868,140 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 gw_val = body.get("gameweek")
                 gw = int(gw_val) if gw_val is not None else 1
 
-                is_historical = bool(session_id or (season and "-" in season and len(season) == 7))
+                is_historical = bool(
+                    app_mode_arg == "historical"
+                    or has_session_key
+                    or (season and "-" in str(season) and len(str(season)) == 7)
+                )
                 if is_historical:
                     sim_dir = self.config_dir / "simulations"
-                    target_session_id = session_id
-                    if not target_session_id:
-                        # Find active or first simulation matching season
+                    if has_session_key or app_mode_arg == "historical":
+                        if not isinstance(session_id, str) or not session_id.strip():
+                            raise ValueError("Historical strategic squad apply requires a valid session_id.")
+                        target_session_id = session_id.strip()
+                    else:
                         active_sims = HistoricalSimulationSession.list_sessions(sim_dir)
                         matched = [s for s in active_sims if s.get("season") == season]
-                        if matched:
+                        if len(matched) == 1:
                             target_session_id = matched[0]["session_id"]
-                    if target_session_id and (sim_dir / f"{target_session_id}.json").exists():
-                        sim = HistoricalSimulationSession.load(target_session_id, config_dir=sim_dir)
-                        hist_dir = PROJECT_ROOT / "data" / "historical"
-                        season_dir = hist_dir / (season or sim.season)
-                        snap = build_historical_snapshot(season_dir, sim.current_gw)
-                        price_map = {p.player_id: p.price_tenths for p in snap.players}
-                        players_map = {p.player_id: p for p in snap.players}
-                        norm_mode = (mode or "initial").lower().strip()
+                        elif len(matched) > 1:
+                            raise ValueError(f"Multiple simulation sessions exist for season '{season}'; explicit session_id is required.")
+                        else:
+                            target_session_id = None
 
-                        old_squad = list(sim.squad_ids)
-                        outs = [pid for pid in old_squad if pid not in squad_ids]
-                        ins = [pid for pid in squad_ids if pid not in old_squad]
+                    if not target_session_id or not (sim_dir / f"{target_session_id}.json").exists():
+                        raise ValueError(f"No active simulation session '{target_session_id or ''}' found for season '{season}' to apply squad.")
 
-                        # Pair transfers by position
-                        staged_list = []
-                        if outs and ins:
-                            remaining_outs = list(outs)
-                            remaining_ins = list(ins)
-                            pos_order = [Position.GOALKEEPER, Position.DEFENDER, Position.MIDFIELDER, Position.FORWARD]
-                            for pos in pos_order:
-                                p_outs = [p for p in remaining_outs if players_map.get(p) and players_map[p].position == pos]
-                                p_ins = [p for p in remaining_ins if players_map.get(p) and players_map[p].position == pos]
-                                for o_id, i_id in zip(p_outs, p_ins):
-                                    remaining_outs.remove(o_id)
-                                    remaining_ins.remove(i_id)
-                                    o_p = players_map.get(o_id)
-                                    i_p = players_map.get(i_id)
-                                    p_price = sim.purchase_prices_tenths.get(str(o_id), o_p.price_tenths if o_p else 50)
-                                    s_price = selling_price(p_price, o_p.price_tenths if o_p else 50)
-                                    i_price = i_p.price_tenths if i_p else 50
-                                    staged_list.append({
-                                        "out_id": o_id,
-                                        "in_id": i_id,
-                                        "out_name": o_p.web_name if o_p else f"Player {o_id}",
-                                        "in_name": i_p.web_name if i_p else f"Player {i_id}",
-                                        "cost_tenths": i_price - s_price,
-                                        "out_selling_price_tenths": s_price,
-                                        "in_price_tenths": i_price,
-                                    })
-                            for o_id, i_id in zip(remaining_outs, remaining_ins):
+                    sim = HistoricalSimulationSession.load(target_session_id, config_dir=sim_dir)
+                    if season and season != sim.season:
+                        raise ValueError(f"Season mismatch: request season '{season}' does not match session season '{sim.season}'.")
+                    if gw_val is not None and int(gw_val) != sim.current_gw:
+                        raise ValueError(f"Gameweek mismatch: request gameweek {gw_val} does not match session current_gw {sim.current_gw}.")
+
+                    prov_mode = (cand_prov.get("app_mode") or cand_ctx.get("appMode") or "").lower()
+                    if prov_mode == "live":
+                        raise ValueError("Cannot apply a Live Manager strategic candidate to a Historical simulation session.")
+                    prov_season = cand_prov.get("season") or cand_ctx.get("season")
+                    if prov_season and prov_season != sim.season:
+                        raise ValueError(f"Candidate provenance season '{prov_season}' does not match session season '{sim.season}'.")
+                    prov_gw = cand_prov.get("gameweek") if cand_prov.get("gameweek") is not None else cand_ctx.get("gameweek")
+                    if prov_gw is not None and int(prov_gw) != sim.current_gw:
+                        raise ValueError(f"Candidate provenance gameweek {prov_gw} does not match session gameweek {sim.current_gw}.")
+                    prov_sid = cand_prov.get("session_id") or cand_ctx.get("sessionId")
+                    if prov_sid and prov_sid != sim.session_id:
+                        raise ValueError(f"Candidate provenance session_id '{prov_sid}' does not match target session '{sim.session_id}'.")
+
+                    hist_dir = PROJECT_ROOT / "data" / "historical"
+                    season_dir = hist_dir / sim.season
+                    snap = build_historical_snapshot(season_dir, sim.current_gw)
+                    price_map = {p.player_id: p.price_tenths for p in snap.players}
+                    players_map = {p.player_id: p for p in snap.players}
+                    norm_mode = (mode or "initial").lower().strip()
+
+                    # Validate full 15-player roster legality against destination snapshot
+                    if len(squad_ids) != 15 or len(set(squad_ids)) != 15:
+                        raise ValueError("Strategic squad must contain exactly 15 distinct players.")
+                    missing_pids = [pid for pid in squad_ids if pid not in players_map]
+                    if missing_pids:
+                        raise ValueError(f"Strategic squad contains player IDs not present in {sim.season} GW{sim.current_gw}: {missing_pids}")
+
+                    pos_totals: dict[Position, int] = {pos: 0 for pos in Position}
+                    club_totals: dict[int, int] = {}
+                    for pid in squad_ids:
+                        p_obj = players_map[pid]
+                        pos_totals[p_obj.position] = pos_totals.get(p_obj.position, 0) + 1
+                        club_totals[p_obj.team_id] = club_totals.get(p_obj.team_id, 0) + 1
+                    expected_pos = {
+                        Position.GOALKEEPER: 2,
+                        Position.DEFENDER: 5,
+                        Position.MIDFIELDER: 5,
+                        Position.FORWARD: 3,
+                    }
+                    if pos_totals != expected_pos:
+                        raise ValueError(f"Invalid squad position distribution: {pos_totals}")
+                    over_quota = [cid for cid, cnt in club_totals.items() if cnt > 3]
+                    if over_quota:
+                        raise ValueError(f"Strategic squad violates max 3 players per club for team IDs: {over_quota}")
+
+                    if len(starter_ids) != 11 or len(bench_ids) != 4 or set(starter_ids + bench_ids) != set(squad_ids):
+                        raise ValueError("Lineup must have 11 starters and 4 bench players matching the 15-player squad.")
+                    st_pos: dict[Position, int] = {pos: 0 for pos in Position}
+                    for pid in starter_ids:
+                        st_pos[players_map[pid].position] += 1
+                    if (
+                        st_pos[Position.GOALKEEPER] != 1
+                        or st_pos[Position.DEFENDER] < 3
+                        or st_pos[Position.MIDFIELDER] < 2
+                        or st_pos[Position.FORWARD] < 1
+                    ):
+                        raise ValueError("Invalid starting 11 formation.")
+                    if cap_id not in starter_ids or vc_id not in starter_ids or cap_id == vc_id:
+                        raise ValueError("Captain and Vice-Captain must be distinct players in the starting 11.")
+
+                    old_squad = list(sim.squad_ids)
+                    if norm_mode in ("initial", "init", "start") and sim.current_gw == 1:
+                        avail_budget = max(1000, int(round(float(body.get("budget", 100.0)) * 10)))
+                        req_cost = sum(players_map[pid].price_tenths for pid in squad_ids)
+                    else:
+                        avail_budget = sim.bank_tenths + sum(
+                            selling_price(
+                                sim.purchase_prices_tenths.get(str(pid), players_map[pid].price_tenths),
+                                players_map[pid].price_tenths,
+                            )
+                            for pid in old_squad
+                            if pid in players_map
+                        )
+                        req_cost = sum(
+                            (
+                                selling_price(
+                                    sim.purchase_prices_tenths.get(str(pid), players_map[pid].price_tenths),
+                                    players_map[pid].price_tenths,
+                                )
+                                if pid in old_squad
+                                else players_map[pid].price_tenths
+                            )
+                            for pid in squad_ids
+                        )
+                    if req_cost > avail_budget:
+                        raise ValueError(f"Strategic squad cost ({req_cost} tenths) exceeds available budget ({avail_budget} tenths).")
+                    if bank_tenths < 0 or bank_tenths > avail_budget:
+                        bank_tenths = avail_budget - req_cost
+
+                    outs = [pid for pid in old_squad if pid not in squad_ids]
+                    ins = [pid for pid in squad_ids if pid not in old_squad]
+
+                    # Pair transfers by position
+                    staged_list = []
+                    if outs and ins:
+                        remaining_outs = list(outs)
+                        remaining_ins = list(ins)
+                        pos_order = [Position.GOALKEEPER, Position.DEFENDER, Position.MIDFIELDER, Position.FORWARD]
+                        for pos in pos_order:
+                            p_outs = [p for p in remaining_outs if players_map.get(p) and players_map[p].position == pos]
+                            p_ins = [p for p in remaining_ins if players_map.get(p) and players_map[p].position == pos]
+                            for o_id, i_id in zip(p_outs, p_ins):
+                                remaining_outs.remove(o_id)
+                                remaining_ins.remove(i_id)
                                 o_p = players_map.get(o_id)
                                 i_p = players_map.get(i_id)
                                 p_price = sim.purchase_prices_tenths.get(str(o_id), o_p.price_tenths if o_p else 50)
@@ -1882,103 +2016,126 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                                     "out_selling_price_tenths": s_price,
                                     "in_price_tenths": i_price,
                                 })
-
-                        chip_played = None
-                        if norm_mode in ("wildcard", "wc"):
-                            chip_played = sim.play_chip("wildcard")
-                        elif norm_mode in ("freehit", "free_hit", "fh"):
-                            chip_played = sim.play_chip("free_hit")
-                            if not sim.pre_free_hit_state:
-                                sim.pre_free_hit_state = {
-                                    "squad_ids": list(old_squad),
-                                    "purchase_prices_tenths": dict(sim.purchase_prices_tenths),
-                                    "bank_tenths": sim.bank_tenths,
-                                }
-
-                        sim.squad_ids = list(squad_ids)
-                        sim.starting_ids = list(starter_ids)
-                        sim.bench_ids = list(bench_ids)
-                        sim.captain_id = cap_id
-                        sim.vice_captain_id = vc_id
-                        sim.purchase_prices_tenths = {
-                            str(pid): (sim.purchase_prices_tenths.get(str(pid)) if pid in old_squad else price_map.get(pid, 50))
-                            for pid in squad_ids
-                        }
-                        sim.bank_tenths = bank_tenths
-
-                        if norm_mode == "initial" and sim.current_gw == 1:
-                            staged_list = []
-                        else:
-                            for st in staged_list:
-                                st["already_applied"] = True
-
-                        sim.transfers_staged = staged_list
-
-                        strategy_lbl = cand_data.get("strategy", "strategic").upper()
-                        notes_lbl = f"Applied {chip_played.upper()} squad from Strategic Studio ({strategy_lbl})" if chip_played else f"Initial squad selection from Strategic Studio ({strategy_lbl})"
-
-                        cap_p = players_map.get(cap_id)
-                        vc_p = players_map.get(vc_id)
-                        dec_obj = {
-                            "gameweek": sim.current_gw,
-                            "season": sim.season,
-                            "session_id": sim.session_id,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "chip_played": chip_played,
-                            "transfer_hits": 0,
-                            "transfers": [
-                                {
-                                    "outgoing_id": st["out_id"],
-                                    "incoming_id": st["in_id"],
-                                    "outgoing_name": st["out_name"],
-                                    "incoming_name": st["in_name"],
-                                    "selling_price_tenths": st["out_selling_price_tenths"],
-                                    "purchase_price_tenths": st["in_price_tenths"],
-                                }
-                                for st in staged_list
-                            ],
-                            "squad_player_ids": list(squad_ids),
-                            "starting_player_ids": list(starter_ids),
-                            "bench_player_ids": list(bench_ids),
-                            "captain_id": cap_id,
-                            "captain_name": cap_p.web_name if cap_p else f"ID {cap_id}",
-                            "vice_captain_id": vc_id,
-                            "vice_captain_name": vc_p.web_name if vc_p else f"ID {vc_id}",
-                            "predicted_lineup_xp": round(float(cand_data.get("predicted_lineup_xp") or cand_data.get("start_gw_lineup_xp") or 0.0), 2),
-                            "notes": notes_lbl,
-                        }
-
-                        if norm_mode in ("initial", "init", "start") or sim.current_gw == 1:
-                            sim.initial_decision = dict(dec_obj)
-
-                        existing_entry = next((h for h in sim.history if h.get("gameweek") == sim.current_gw), None)
-                        if existing_entry:
-                            existing_entry["decision_logged"] = dec_obj
-                            existing_entry["decision"] = dec_obj
-                            if chip_played:
-                                existing_entry["chip_used"] = chip_played
-                        else:
-                            sim.history.append({
-                                "gameweek": sim.current_gw,
-                                "type": "strategic_decision",
-                                "decision_logged": dec_obj,
-                                "decision": dec_obj,
-                                "chip_used": chip_played,
+                        for o_id, i_id in zip(remaining_outs, remaining_ins):
+                            o_p = players_map.get(o_id)
+                            i_p = players_map.get(i_id)
+                            p_price = sim.purchase_prices_tenths.get(str(o_id), o_p.price_tenths if o_p else 50)
+                            s_price = selling_price(p_price, o_p.price_tenths if o_p else 50)
+                            i_price = i_p.price_tenths if i_p else 50
+                            staged_list.append({
+                                "out_id": o_id,
+                                "in_id": i_id,
+                                "out_name": o_p.web_name if o_p else f"Player {o_id}",
+                                "in_name": i_p.web_name if i_p else f"Player {i_id}",
+                                "cost_tenths": i_price - s_price,
+                                "out_selling_price_tenths": s_price,
+                                "in_price_tenths": i_price,
                             })
 
-                        sim.save()
-                        self._send_json({
-                            "success": True,
-                            "session_id": sim.session_id,
-                            "squad": sim.get_squad_player_details(),
-                            "bank_tenths": sim.bank_tenths,
-                            "active_chip": sim.active_chip,
-                            "transfers_staged": sim.transfers_staged,
-                            "message": f"Successfully applied {norm_mode.upper()} squad ({len(staged_list)} transfers, chip: {chip_played or 'None'})",
-                        })
+                    chip_played = None
+                    if norm_mode in ("wildcard", "wc"):
+                        chip_played = sim.play_chip("wildcard")
+                    elif norm_mode in ("freehit", "free_hit", "fh"):
+                        chip_played = sim.play_chip("free_hit")
+                        if not sim.pre_free_hit_state:
+                            sim.pre_free_hit_state = {
+                                "squad_ids": list(old_squad),
+                                "purchase_prices_tenths": dict(sim.purchase_prices_tenths),
+                                "bank_tenths": sim.bank_tenths,
+                            }
+
+                    sim.squad_ids = list(squad_ids)
+                    sim.starting_ids = list(starter_ids)
+                    sim.bench_ids = list(bench_ids)
+                    sim.captain_id = cap_id
+                    sim.vice_captain_id = vc_id
+                    sim.purchase_prices_tenths = {
+                        str(pid): (sim.purchase_prices_tenths.get(str(pid)) if pid in old_squad else price_map.get(pid, 50))
+                        for pid in squad_ids
+                    }
+                    sim.bank_tenths = bank_tenths
+
+                    if norm_mode == "initial" and sim.current_gw == 1:
+                        staged_list = []
                     else:
-                        raise ValueError(f"No active simulation session found for season '{season}' to apply squad.")
+                        for st in staged_list:
+                            st["already_applied"] = True
+
+                    sim.transfers_staged = staged_list
+
+                    strategy_lbl = cand_data.get("strategy", "strategic").upper()
+                    notes_lbl = f"Applied {chip_played.upper()} squad from Strategic Studio ({strategy_lbl})" if chip_played else f"Initial squad selection from Strategic Studio ({strategy_lbl})"
+
+                    cap_p = players_map.get(cap_id)
+                    vc_p = players_map.get(vc_id)
+                    dec_obj = {
+                        "gameweek": sim.current_gw,
+                        "season": sim.season,
+                        "session_id": sim.session_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "chip_played": chip_played,
+                        "transfer_hits": 0,
+                        "transfers": [
+                            {
+                                "outgoing_id": st["out_id"],
+                                "incoming_id": st["in_id"],
+                                "outgoing_name": st["out_name"],
+                                "incoming_name": st["in_name"],
+                                "selling_price_tenths": st["out_selling_price_tenths"],
+                                "purchase_price_tenths": st["in_price_tenths"],
+                            }
+                            for st in staged_list
+                        ],
+                        "squad_player_ids": list(squad_ids),
+                        "starting_player_ids": list(starter_ids),
+                        "bench_player_ids": list(bench_ids),
+                        "captain_id": cap_id,
+                        "captain_name": cap_p.web_name if cap_p else f"ID {cap_id}",
+                        "vice_captain_id": vc_id,
+                        "vice_captain_name": vc_p.web_name if vc_p else f"ID {vc_id}",
+                        "predicted_lineup_xp": round(float(cand_data.get("predicted_lineup_xp") or cand_data.get("start_gw_lineup_xp") or 0.0), 2),
+                        "notes": notes_lbl,
+                    }
+
+                    if norm_mode in ("initial", "init", "start") or sim.current_gw == 1:
+                        sim.initial_decision = dict(dec_obj)
+
+                    existing_entry = next((h for h in sim.history if h.get("gameweek") == sim.current_gw), None)
+                    if existing_entry:
+                        existing_entry["decision_logged"] = dec_obj
+                        existing_entry["decision"] = dec_obj
+                        if chip_played:
+                            existing_entry["chip_used"] = chip_played
+                    else:
+                        sim.history.append({
+                            "gameweek": sim.current_gw,
+                            "type": "strategic_decision",
+                            "decision_logged": dec_obj,
+                            "decision": dec_obj,
+                            "chip_used": chip_played,
+                        })
+
+                    sim.save()
+                    self._send_json({
+                        "success": True,
+                        "session_id": sim.session_id,
+                        "squad": sim.get_squad_player_details(),
+                        "bank_tenths": sim.bank_tenths,
+                        "active_chip": sim.active_chip,
+                        "transfers_staged": sim.transfers_staged,
+                        "message": f"Successfully applied {norm_mode.upper()} squad ({len(staged_list)} transfers, chip: {chip_played or 'None'})",
+                    })
                 else:
+                    prov_mode = (cand_prov.get("app_mode") or cand_ctx.get("appMode") or "").lower()
+                    if prov_mode == "historical":
+                        raise ValueError("Cannot apply a Historical strategic candidate to a Live Manager team.")
+                    prov_season = cand_prov.get("season") or cand_ctx.get("season")
+                    if prov_season and prov_season != "2026/27":
+                        raise ValueError(f"Cannot apply candidate from season '{prov_season}' to Live Manager.")
+                    prov_tid = cand_prov.get("team_id") or cand_ctx.get("teamId")
+                    if prov_tid and prov_tid != tid:
+                        raise ValueError(f"Candidate provenance team_id '{prov_tid}' does not match target team '{tid}'.")
+
                     squad_path = get_team_squad_path(tid, self.config_dir)
                     res = apply_wildcard_or_freehit(
                         squad_path=squad_path,

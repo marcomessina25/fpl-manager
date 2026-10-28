@@ -372,7 +372,18 @@ def test_api_strategic_squad_apply_wildcard_historical(test_server) -> None:
     orig_bench = [p["player_id"] for p in sess_data["squad"] if p["is_bench"]]
     out_id = orig_bench[0]
     out_p = next(p for p in snap.players if p.player_id == out_id)
-    cand_p = next(p for p in snap.players if p.position == out_p.position and p.player_id not in orig_squad)
+    rem_ids = [pid for pid in orig_squad if pid != out_id]
+    rem_team_counts: dict[int, int] = {}
+    for pid in rem_ids:
+        tp = next(p for p in snap.players if p.player_id == pid)
+        rem_team_counts[tp.team_id] = rem_team_counts.get(tp.team_id, 0) + 1
+    cand_p = next(
+        p for p in snap.players
+        if p.position == out_p.position
+        and p.player_id not in orig_squad
+        and p.price_tenths <= out_p.price_tenths + sess_data.get("bank_tenths", 0)
+        and rem_team_counts.get(p.team_id, 0) < 3
+    )
 
     new_squad_ids = [cand_p.player_id if pid == out_id else pid for pid in orig_squad]
     starters = [p for p in sess_data["squad"] if p["is_starter"]]

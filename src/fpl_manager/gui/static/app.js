@@ -16,6 +16,10 @@ const state = {
   overviewData: null,
   txResultsGameweek: null,
   txResultsTeamId: null,
+  plannerRequestSeq: 0,
+  activePlanContext: null,
+  decisionsRequestSeq: 0,
+  playerPoolRequestSeq: 0,
 };
 
 // Toast notification helper
@@ -102,6 +106,8 @@ function initModality() {
 
   const setMode = async (mode) => {
     state.appMode = mode;
+    invalidatePlannerState();
+    resetDecisionLoggerUI();
 
     if (mode === "live") {
       histState.txResultsSessionId = null;
@@ -127,6 +133,9 @@ function initModality() {
 
       await loadOverview();
       await refreshActiveTeamData();
+      await loadAllLeaguePlayers();
+      await loadDecisions();
+      syncStrategicStudioContext();
       const activeTabLive = document.querySelector('.tabs-nav .tab-btn.active');
       if (activeTabLive && activeTabLive.dataset.tab === "strategic") {
         await loadStrategicStudio();
@@ -162,6 +171,8 @@ function initModality() {
 
       await loadHistoricalSimulationsList();
       await loadOverview();
+      await loadDecisions();
+      syncStrategicStudioContext();
       const activeTabHist = document.querySelector('.tabs-nav .tab-btn.active');
       if (activeTabHist && activeTabHist.dataset.tab === "strategic") {
         await loadStrategicStudio();
@@ -726,8 +737,16 @@ async function switchTeam(teamId) {
     if (res.gameweek) {
       state.activeGameweek = res.gameweek;
     }
+    invalidatePlannerState();
+    resetDecisionLoggerUI();
+    syncStrategicStudioContext();
     showToast(`Switched active team to ${res.name}`);
     await refreshActiveTeamData();
+    await loadDecisions();
+    const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
+    if (activeTab && activeTab.dataset.tab === "strategic") {
+      await loadStrategicStudio();
+    }
   } catch (err) {
     showToast(`Could not switch team: ${err.message}`, true);
   }
@@ -755,6 +774,7 @@ async function deleteActiveTeam() {
 // Refresh all views for current active team
 async function refreshActiveTeamData() {
   await loadSquadHUD();
+  populateAvailablePlayersDatalist();
   await loadLineup(state.activeGameweek);
 }
 
@@ -935,6 +955,7 @@ function renderPitch(lineup) {
     if (isLogged) {
       bannerEl.classList.remove("hidden");
       bannerEl.classList.remove("model-view");
+      bannerEl.style.display = "flex";
       document.getElementById("banner-icon").textContent = "🔒";
       document.getElementById("banner-title").textContent = `Gameweek ${lineup.gameweek} Logged Team State`;
 
@@ -969,6 +990,7 @@ function renderPitch(lineup) {
     } else if (lineup.has_logged_decision && state.lineupMode === "model") {
       bannerEl.classList.remove("hidden");
       bannerEl.classList.add("model-view");
+      bannerEl.style.display = "flex";
       document.getElementById("banner-icon").textContent = "🔮";
       document.getElementById("banner-title").textContent = `Gameweek ${lineup.gameweek} Model Recommendation`;
       document.getElementById("banner-subtitle").textContent = `Displaying model optimal starting XI based on expected points.`;
@@ -1702,21 +1724,66 @@ async function handleDecisionSubmit(e) {
   }
 }
 
+function resetDecisionLoggerUI() {
+  state.decisionsRequestSeq++;
+  const container = document.getElementById("decisions-list");
+  if (container) {
+    container.innerHTML = `<p class="text-muted">Loading decision history...</p>`;
+  }
+  renderExecutedTransfersBox([]);
+  const capSelect = document.getElementById("dec-captain");
+  if (capSelect) capSelect.innerHTML = '<option value="">-- Select Captain --</option>';
+  const vcSelect = document.getElementById("dec-vc");
+  if (vcSelect) vcSelect.innerHTML = '<option value="">-- Select Vice-Captain --</option>';
+  const outSelect = document.getElementById("tx-exec-out");
+  if (outSelect) outSelect.innerHTML = '<option value="">-- Select player to sell --</option>';
+  const inInput = document.getElementById("tx-exec-in");
+  if (inInput) inInput.value = "";
+  const summaryEl = document.getElementById("tx-exec-summary");
+  if (summaryEl) summaryEl.textContent = "";
+  const datalist = document.getElementById("available-players-datalist");
+  if (datalist) datalist.innerHTML = "";
+  const chipSelect = document.getElementById("dec-chip");
+  if (chipSelect) chipSelect.value = "";
+  const hitsInput = document.getElementById("dec-hits");
+  if (hitsInput) {
+    hitsInput.value = "";
+    hitsInput.placeholder = "Auto-calculated";
+  }
+  const actualPtsInput = document.getElementById("dec-actual-pts");
+  if (actualPtsInput) actualPtsInput.value = "";
+  const notesInput = document.getElementById("dec-notes");
+  if (notesInput) notesInput.value = "";
+}
+
 async function loadDecisions() {
   const container = document.getElementById("decisions-list");
   if (!container) return;
-  const isHist = state.appMode === "historical";
-  if (isHist && !histState.sessionId) {
+  const reqSeq = ++state.decisionsRequestSeq;
+  const reqMode = state.appMode;
+  const reqTeamId = state.activeTeamId;
+  const reqSessionId = histState.sessionId;
+  const isHist = reqMode === "historical";
+  if (isHist && !reqSessionId) {
+    renderExecutedTransfersBox([]);
     container.innerHTML = `<p class="text-muted">No historical simulation session selected. Please select or create a historical simulation session first.</p>`;
     return;
   }
   try {
     const endpoint = isHist
-      ? `/api/decisions?session_id=${histState.sessionId}`
-      : `/api/decisions?team=${state.activeTeamId}`;
+      ? `/api/decisions?session_id=${encodeURIComponent(reqSessionId)}`
+      : `/api/decisions?team=${encodeURIComponent(reqTeamId || "")}`;
     const data = await api(endpoint);
+    if (
+      reqSeq !== state.decisionsRequestSeq ||
+      state.appMode !== reqMode ||
+      (isHist ? histState.sessionId !== reqSessionId : state.activeTeamId !== reqTeamId)
+    ) {
+      return;
+    }
     const list = data.decisions || [];
     if (list.length === 0) {
+      renderExecutedTransfersBox(isHist && histState.sessionData?.transfers_staged ? histState.sessionData.transfers_staged : []);
       container.innerHTML = `<p class="text-muted">No decisions logged yet for this ${isHist ? 'simulation' : 'team'}.</p>`;
       return;
     }
@@ -1774,6 +1841,7 @@ async function loadDecisions() {
       }
     }
   } catch (err) {
+    if (reqSeq !== state.decisionsRequestSeq) return;
     container.innerHTML = `<p class="text-muted">Failed to load decisions: ${err.message}</p>`;
   }
 }
@@ -1782,7 +1850,12 @@ function populateDecisionLoggerSquad(players) {
   const capSelect = document.getElementById("dec-captain");
   const vcSelect = document.getElementById("dec-vc");
   const outSelect = document.getElementById("tx-exec-out");
-  if (!players || !players.length) return;
+  if (!players || !players.length) {
+    if (capSelect) capSelect.innerHTML = '<option value="">-- Select Captain --</option>';
+    if (vcSelect) vcSelect.innerHTML = '<option value="">-- Select Vice-Captain --</option>';
+    if (outSelect) outSelect.innerHTML = '<option value="">-- Select player to sell --</option>';
+    return;
+  }
 
   const curCap = capSelect ? capSelect.value : "";
   const curVc = vcSelect ? vcSelect.value : "";
@@ -1794,7 +1867,7 @@ function populateDecisionLoggerSquad(players) {
       const opt = document.createElement("option");
       opt.value = p.name;
       opt.textContent = `${p.name} (${p.pos_abbr || p.position} · ${p.team_short || p.team})`;
-      if (curCap === p.name || (!curCap && p.role === "CAPTAIN")) opt.selected = true;
+      if (curCap === p.name || (!curCap && (p.role === "CAPTAIN" || p.is_captain))) opt.selected = true;
       capSelect.appendChild(opt);
     });
   }
@@ -1805,7 +1878,7 @@ function populateDecisionLoggerSquad(players) {
       const opt = document.createElement("option");
       opt.value = p.name;
       opt.textContent = `${p.name} (${p.pos_abbr || p.position} · ${p.team_short || p.team})`;
-      if (curVc === p.name || (!curVc && p.role === "VICE_CAPTAIN")) opt.selected = true;
+      if (curVc === p.name || (!curVc && (p.role === "VICE_CAPTAIN" || p.is_vice_captain))) opt.selected = true;
       vcSelect.appendChild(opt);
     });
   }
@@ -1825,11 +1898,19 @@ function populateDecisionLoggerSquad(players) {
 }
 
 async function loadAllLeaguePlayers() {
-  if (state.allLeaguePlayers && state.allLeaguePlayers.length > 0) return;
+  if (state.allLeaguePlayers && state.allLeaguePlayers.length > 0) {
+    if (state.appMode === "live") {
+      populateAvailablePlayersDatalist();
+    }
+    return;
+  }
+  const reqSeq = ++state.playerPoolRequestSeq;
   try {
     const data = await api("/api/players?all=true");
     state.allLeaguePlayers = data.players || [];
-    populateAvailablePlayersDatalist();
+    if (reqSeq === state.playerPoolRequestSeq && state.appMode === "live") {
+      populateAvailablePlayersDatalist();
+    }
   } catch (err) {
     console.error("Failed to load league players:", err);
   }
@@ -1838,12 +1919,12 @@ async function loadAllLeaguePlayers() {
 function populateAvailablePlayersDatalist() {
   const datalist = document.getElementById("available-players-datalist");
   if (!datalist) return;
+  datalist.innerHTML = "";
   const isHist = state.appMode === "historical";
 
   if (isHist) {
-    if (!histState.playerPool) return;
+    if (!histState.sessionId || !histState.playerPool || !histState.playerPool.length) return;
     const squadIds = new Set(histState.sessionData?.squad ? histState.sessionData.squad.map(p => p.player_id || p.id) : []);
-    datalist.innerHTML = "";
     histState.playerPool.forEach(p => {
       const pid = p.id || p.player_id;
       if (!squadIds.has(pid)) {
@@ -1854,10 +1935,9 @@ function populateAvailablePlayersDatalist() {
       }
     });
   } else {
-    if (!state.allLeaguePlayers) return;
+    if (!state.allLeaguePlayers || !state.allLeaguePlayers.length) return;
     const squadIds = new Set(state.currentSquad && state.currentSquad.players ? state.currentSquad.players.map(p => p.id) : []);
 
-    datalist.innerHTML = "";
     state.allLeaguePlayers.forEach(p => {
       if (!squadIds.has(p.id)) {
         const opt = document.createElement("option");
@@ -2400,23 +2480,66 @@ async function runWildcard() {
 }
 
 // Multi-Gameweek Planner View
+function getCurrentPlannerContext() {
+  const isHist = state.appMode === "historical";
+  return {
+    mode: state.appMode,
+    teamId: isHist ? null : state.activeTeamId,
+    sessionId: isHist ? histState.sessionId : null,
+    season: isHist ? histState.season : "2026/27",
+    gameweek: isHist
+      ? (histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1))
+      : (state.activeGameweek || 1),
+  };
+}
+
+function isSamePlannerContext(ctxA, ctxB) {
+  if (!ctxA || !ctxB) return false;
+  return (
+    ctxA.mode === ctxB.mode &&
+    ctxA.teamId === ctxB.teamId &&
+    ctxA.sessionId === ctxB.sessionId &&
+    ctxA.season === ctxB.season &&
+    Number(ctxA.gameweek) === Number(ctxB.gameweek)
+  );
+}
+
+function invalidatePlannerState() {
+  state.plannerRequestSeq++;
+  state.activePlanContext = null;
+  const container = document.getElementById("plan-results-container");
+  if (container) {
+    container.innerHTML = '<p class="text-muted">Click "Generate Multi-GW Plan" to project transfers across upcoming gameweeks.</p>';
+  }
+}
+
 async function runPlanner() {
   const container = document.getElementById("plan-results-container");
+  if (!container) return;
+
+  const isHist = state.appMode === "historical";
+  if (isHist && !histState.sessionId) {
+    state.activePlanContext = null;
+    container.innerHTML = '<p class="text-muted">Please select or create a historical simulation session in the top header first.</p>';
+    return;
+  }
+
+  const reqSeq = ++state.plannerRequestSeq;
+  const planCtx = getCurrentPlannerContext();
   container.innerHTML = '<p class="text-muted">Evaluating rolling multi-gameweek transfer trajectories with beam search...</p>';
 
   const horizon = document.getElementById("plan-horizon").value;
   const risk = document.getElementById("plan-risk").value;
   const noHits = document.getElementById("plan-no-hits").checked;
-
-  const isHist = state.appMode === "historical";
-  if (isHist && !histState.sessionId) {
-    container.innerHTML = '<p class="text-muted">Please select or create a historical simulation session in the top header first.</p>';
-    return;
-  }
-  const sidParam = isHist && histState.sessionId ? `&session_id=${encodeURIComponent(histState.sessionId)}` : "";
+  const sidParam = isHist && planCtx.sessionId ? `&session_id=${encodeURIComponent(planCtx.sessionId)}` : "";
 
   try {
-    const data = await api(`/api/plan?team=${state.activeTeamId}&horizon=${horizon}&risk=${risk}&no_hits=${noHits}${sidParam}`);
+    const data = await api(`/api/plan?team=${encodeURIComponent(planCtx.teamId || state.activeTeamId || "")}&horizon=${horizon}&risk=${risk}&no_hits=${noHits}${sidParam}`);
+    if (reqSeq !== state.plannerRequestSeq || !isSamePlannerContext(planCtx, getCurrentPlannerContext())) {
+      return;
+    }
+    state.activePlanContext = planCtx;
+
     if (isHist && (histState.isCompleted || data.season_ended)) {
       container.innerHTML = `
         <div class="panel card" style="margin-top: 1rem; padding: 1.5rem; text-align: center; border-left: 4px solid var(--accent-color);">
@@ -2499,7 +2622,17 @@ async function runPlanner() {
     const applyStep0Btn = container.querySelector(".btn-apply-plan-step0");
     if (applyStep0Btn) {
       applyStep0Btn.addEventListener("click", async () => {
+        if (!isSamePlannerContext(planCtx, getCurrentPlannerContext())) {
+          showToast("Planner roadmap belongs to a previous mode, session, or gameweek. Please regenerate the plan.", true);
+          invalidatePlannerState();
+          return;
+        }
         const step0 = steps[0];
+        if (Number(step0.gameweek) !== Number(getCurrentPlannerContext().gameweek)) {
+          showToast(`Planner step GW${step0.gameweek} does not match current GW${getCurrentPlannerContext().gameweek}. Please regenerate the plan.`, true);
+          invalidatePlannerState();
+          return;
+        }
         const txs = step0.transfers || [];
         const txSummary = txs.length
           ? txs.map(t => `${t.out ? t.out.name : (t.outgoing_name || 'Out')} ➔ ${t.in ? t.in.name : (t.incoming_name || 'In')}`).join(", ")
@@ -2511,60 +2644,80 @@ async function runPlanner() {
         );
         if (!confirmed) return;
 
+        if (!isSamePlannerContext(planCtx, getCurrentPlannerContext())) {
+          showToast("Active context changed before applying plan move. Please regenerate the plan.", true);
+          invalidatePlannerState();
+          return;
+        }
+
         try {
           if (isHist) {
-            for (let i = 0; i < txs.length; i++) {
-              const outId = txs[i].out ? txs[i].out.id : (txs[i].outgoing_id || txs[i].outgoing);
-              const inId = txs[i].in ? txs[i].in.id : (txs[i].incoming_id || txs[i].incoming);
-              if (outId && inId) {
-                await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
-                  method: "POST",
-                  body: JSON.stringify({ out_id: outId, in_id: inId }),
-                });
-              }
-            }
-            if (step0.captain && step0.captain.id) {
-              const starters = (histState.sessionData && histState.sessionData.squad)
-                ? histState.sessionData.squad.filter(p => p.role === "STARTER" || p.role === "CAPTAIN" || p.role === "VICE_CAPTAIN").map(p => p.id)
-                : [];
-              const bench = (histState.sessionData && histState.sessionData.squad)
-                ? histState.sessionData.squad.filter(p => p.role !== "STARTER" && p.role !== "CAPTAIN" && p.role !== "VICE_CAPTAIN").map(p => p.id)
-                : [];
-              const vcId = (step0.vice_captain && step0.vice_captain.id) || (starters[1] || starters[0]);
-              await api(`/api/historical/simulations/${histState.sessionId}/lineup`, {
-                method: "POST",
-                body: JSON.stringify({
-                  starting_ids: starters,
-                  bench_ids: bench,
-                  captain_id: step0.captain.id,
-                  vice_captain_id: vcId,
-                }),
-              });
-            }
+            const batchTxs = txs
+              .map(t => ({
+                out_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing || t.out_id),
+                in_id: t.in ? t.in.id : (t.incoming_id || t.incoming || t.in_id),
+              }))
+              .filter(t => t.out_id && t.in_id);
+
+            const starters = (step0.starting_ids && step0.starting_ids.length === 11)
+              ? step0.starting_ids
+              : ((histState.sessionData && histState.sessionData.squad)
+                  ? histState.sessionData.squad.filter(p => p.is_starter || p.role === "STARTER" || p.role === "CAPTAIN" || p.role === "VICE_CAPTAIN").map(p => p.id || p.player_id)
+                  : []);
+            const bench = (step0.bench_ids && step0.bench_ids.length === 4)
+              ? step0.bench_ids
+              : ((histState.sessionData && histState.sessionData.squad)
+                  ? histState.sessionData.squad
+                      .filter(p => p.is_bench || (!p.is_starter && p.role !== "STARTER" && p.role !== "CAPTAIN" && p.role !== "VICE_CAPTAIN"))
+                      .sort((a, b) => (a.bench_order ?? 99) - (b.bench_order ?? 99))
+                      .map(p => p.id || p.player_id)
+                  : []);
+            const capId = step0.captain ? step0.captain.id : starters[0];
+            const vcId = (step0.vice_captain && step0.vice_captain.id) || (starters.find(id => id !== capId) || starters[0]);
+
+            await api(`/api/historical/simulations/${encodeURIComponent(planCtx.sessionId)}/apply-plan-step`, {
+              method: "POST",
+              body: JSON.stringify({
+                gameweek: step0.gameweek,
+                transfers: batchTxs,
+                starting_ids: starters,
+                bench_ids: bench,
+                captain_id: capId,
+                vice_captain_id: vcId,
+              }),
+            });
+
             showToast(`GW${step0.gameweek} plan move applied to Historical session!`);
             if (histState.sessionId) {
               await loadHistoricalSession(histState.sessionId);
             }
             await runPlanner();
           } else {
-            if (txs.length > 0) {
-              const transfersPayload = txs.map(t => ({
-                outgoing_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing),
-                incoming_id: t.in ? t.in.id : (t.incoming_id || t.incoming),
-              }));
-              await api("/api/transfers/execute", {
-                method: "POST",
-                body: JSON.stringify({
-                  team_id: state.activeTeamId,
-                  gameweek: step0.gameweek,
-                  transfers: transfersPayload,
-                }),
-              });
-            }
+            const transfersPayload = txs.map(t => ({
+              outgoing_id: t.out ? t.out.id : (t.outgoing_id || t.outgoing || t.out_id),
+              incoming_id: t.in ? t.in.id : (t.incoming_id || t.incoming || t.in_id),
+            }));
+            const starters = (step0.starting_ids && step0.starting_ids.length === 11)
+              ? step0.starting_ids
+              : ((state.currentLineup && state.currentLineup.starters) ? state.currentLineup.starters.map(p => p.id) : []);
+            const bench = (step0.bench_ids && step0.bench_ids.length === 4)
+              ? step0.bench_ids
+              : ((state.currentLineup && state.currentLineup.bench) ? state.currentLineup.bench.map(p => p.id) : []);
+            const capId = step0.captain ? step0.captain.id : starters[0];
+            const vcId = (step0.vice_captain && step0.vice_captain.id) || (starters.find(id => id !== capId) || starters[0]);
 
-            if (step0.captain) {
-              setPitchCaptain(step0.captain.id);
-            }
+            await api("/api/plan/apply-step", {
+              method: "POST",
+              body: JSON.stringify({
+                team_id: planCtx.teamId,
+                gameweek: step0.gameweek,
+                transfers: transfersPayload,
+                starting_ids: starters,
+                bench_ids: bench,
+                captain_id: capId,
+                vice_captain_id: vcId,
+              }),
+            });
 
             showToast(`GW${step0.gameweek} plan move applied successfully!`);
             await refreshActiveTeamData();
@@ -2578,6 +2731,7 @@ async function runPlanner() {
       });
     }
   } catch (err) {
+    if (reqSeq !== state.plannerRequestSeq) return;
     container.innerHTML = `<p class="text-muted">Planner error: ${err.message}</p>`;
   }
 }
@@ -2668,6 +2822,10 @@ async function loadChipStrategy() {
 // Undo / Revert Current Gameweek Changes
 async function handleUndoGameweek() {
   const isHist = state.appMode === "historical";
+  if (isHist && (!histState.sessionId || !String(histState.sessionId).trim())) {
+    showToast("Please select or initialize a historical simulation session before undoing a gameweek.", true);
+    return;
+  }
   const targetGw = isHist ? histState.gameweek : (state.selectedGameweek || state.activeGameweek || 1);
   const confirmed = confirm(
     `Are you sure you want to reset all changes for GW${targetGw} and revert your squad to the status of the previous gameweek?`
@@ -2676,24 +2834,27 @@ async function handleUndoGameweek() {
 
   try {
     const payload = isHist
-      ? { session_id: histState.sessionId }
-      : { team_id: state.activeTeamId, gameweek: targetGw };
+      ? { mode: "historical", session_id: histState.sessionId }
+      : { mode: "live", team_id: state.activeTeamId, gameweek: targetGw };
 
     const res = await api("/api/decisions/undo", {
       method: "POST",
       body: JSON.stringify(payload),
     });
 
+    invalidatePlannerState();
     if (isHist) {
       showToast(res.message || `Reverted simulation squad to GW${res.reverted_to_gameweek}!`);
       if (histState.sessionId) {
         await loadHistoricalSession(histState.sessionId);
       }
+      syncStrategicStudioContext();
       await loadDecisions();
       await loadOverview();
     } else {
       showToast(res.message || `Reverted squad to GW${res.reverted_to_gameweek} state!`);
       await refreshActiveTeamData();
+      syncStrategicStudioContext();
       await loadDecisions();
       const chipTab = document.getElementById("tab-chips");
       if (chipTab && chipTab.classList.contains("active")) {
@@ -3769,17 +3930,71 @@ const strategicState = {
   previousCandidate: null,
   allPlayers: [],
   initialized: false,
+  requestSeq: 0,
+  contextKey: null,
+  contextObj: null,
 };
+
+function getStrategicStudioContext() {
+  const isHist = state.appMode === "historical";
+  const season = isHist ? (histState.season || "2023-24") : "2026/27";
+  const gw = isHist
+    ? (histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1))
+    : (state.activeGameweek || 1);
+  const sid = isHist ? (histState.sessionId || "") : "";
+  const tid = isHist ? "" : (state.activeTeamId || "");
+  return {
+    appMode: state.appMode,
+    season,
+    gameweek: Number(gw),
+    sessionId: sid,
+    teamId: tid,
+    key: `${state.appMode}|${season}|${gw}|${sid}|${tid}`,
+  };
+}
+
+function resetStrategicStudioState(newCtx) {
+  strategicState.requestSeq++;
+  strategicState.contextKey = newCtx ? newCtx.key : null;
+  strategicState.contextObj = newCtx || null;
+  strategicState.candidates = {};
+  strategicState.previousCandidate = null;
+  strategicState.selectedCandidateKey = "maximum_ev";
+  strategicState.lockedPlayerIds.clear();
+  strategicState.excludedPlayerIds.clear();
+  strategicState.preferredPlayerIds.clear();
+
+  const resPanel = document.getElementById("strategic-results-panel");
+  if (resPanel) resPanel.classList.add("hidden");
+  const impactBanner = document.getElementById("constraint-impact-banner");
+  if (impactBanner) impactBanner.classList.add("hidden");
+  const searchInp = document.getElementById("strategic-player-search");
+  if (searchInp) searchInp.value = "";
+  const reoptBtn = document.getElementById("btn-reoptimize-strategic");
+  if (reoptBtn) reoptBtn.disabled = true;
+
+  renderActiveConstraintPills();
+}
+
+function syncStrategicStudioContext() {
+  const ctx = getStrategicStudioContext();
+  if (strategicState.contextKey !== ctx.key) {
+    resetStrategicStudioState(ctx);
+  }
+  return ctx;
+}
 
 async function loadStrategicStudio() {
   try {
+    const ctx = syncStrategicStudioContext();
+    const reqSeq = ++strategicState.requestSeq;
     let endpoint = "/api/strategic-squad/config";
     const contextBadge = document.getElementById("strategic-context-badge");
 
     if (state.appMode === "historical") {
-      const season = histState.season || "2023-24";
-      const gw = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
-      const sid = histState.sessionId || "";
+      const season = ctx.season;
+      const gw = ctx.gameweek;
+      const sid = ctx.sessionId;
       endpoint = `/api/strategic-squad/config?season=${encodeURIComponent(season)}&gameweek=${gw}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}`;
       if (contextBadge) {
         if (histState.isCompleted) {
@@ -3817,6 +4032,9 @@ async function loadStrategicStudio() {
     }
 
     const config = await api(endpoint);
+    if (reqSeq !== strategicState.requestSeq || getStrategicStudioContext().key !== ctx.key) {
+      return;
+    }
     if (config && config.players) {
       strategicState.allPlayers = config.players;
       populateStrategicPlayersDatalist(config.players);
@@ -4233,6 +4451,8 @@ function initStrategicStudio() {
         showToast("Cannot generate squad: The season is ended. All 38 gameweeks have been completed.", true);
         return;
       }
+      const ctx = syncStrategicStudioContext();
+      const reqSeq = ++strategicState.requestSeq;
       try {
         genBtn.disabled = true;
         genBtn.textContent = "⏳ Solving Strategic Space...";
@@ -4249,10 +4469,10 @@ function initStrategicStudio() {
         };
 
         if (state.appMode === "historical") {
-          payload.season = histState.season || "2023-24";
-          payload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
-          if (histState.sessionId) {
-            payload.session_id = histState.sessionId;
+          payload.season = ctx.season;
+          payload.gameweek = ctx.gameweek;
+          if (ctx.sessionId) {
+            payload.session_id = ctx.sessionId;
           }
         }
 
@@ -4261,8 +4481,17 @@ function initStrategicStudio() {
           body: JSON.stringify(payload),
         });
 
+        if (reqSeq !== strategicState.requestSeq || getStrategicStudioContext().key !== ctx.key) {
+          return;
+        }
+
         if (res && res.squad) {
-          strategicState.candidates = res.strategic_candidates || { [res.strategy]: res };
+          res._context = ctx;
+          const candsMap = res.strategic_candidates || { [res.strategy]: res };
+          Object.values(candsMap).forEach(c => {
+            if (c && typeof c === "object") c._context = ctx;
+          });
+          strategicState.candidates = candsMap;
           strategicState.selectedCandidateKey = res.strategy || "maximum_ev";
           strategicState.previousCandidate = res;
 
@@ -4285,6 +4514,7 @@ function initStrategicStudio() {
           }
         }
       } catch (err) {
+        if (reqSeq !== strategicState.requestSeq) return;
         let msg = err.message || "Optimization failed.";
         if (err.error_type === "INFEASIBLE_CONSTRAINTS" || msg.toLowerCase().includes("budget") || msg.toLowerCase().includes("constraint")) {
           msg = `Infeasible Constraints: ${msg}. Please relax player locks or adjust budget.`;
@@ -4304,6 +4534,13 @@ function initStrategicStudio() {
         showToast("Cannot re-optimize: The season is ended. All 38 gameweeks have been completed.", true);
         return;
       }
+      const ctx = syncStrategicStudioContext();
+      if (!strategicState.previousCandidate || (strategicState.previousCandidate._context && strategicState.previousCandidate._context.key !== ctx.key)) {
+        showToast("Previous candidate belongs to an older context. Please generate strategic candidates again.", true);
+        resetStrategicStudioState(ctx);
+        return;
+      }
+      const reqSeq = ++strategicState.requestSeq;
       try {
         reoptBtn.disabled = true;
         reoptBtn.textContent = "⏳ Re-optimizing...";
@@ -4321,10 +4558,10 @@ function initStrategicStudio() {
         };
 
         if (state.appMode === "historical") {
-          payload.season = histState.season || "2023-24";
-          payload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
-          if (histState.sessionId) {
-            payload.session_id = histState.sessionId;
+          payload.season = ctx.season;
+          payload.gameweek = ctx.gameweek;
+          if (ctx.sessionId) {
+            payload.session_id = ctx.sessionId;
           }
         }
 
@@ -4333,8 +4570,17 @@ function initStrategicStudio() {
           body: JSON.stringify(payload),
         });
 
+        if (reqSeq !== strategicState.requestSeq || getStrategicStudioContext().key !== ctx.key) {
+          return;
+        }
+
         if (res && res.squad) {
-          strategicState.candidates = res.strategic_candidates || { [res.strategy]: res };
+          res._context = ctx;
+          const candsMap = res.strategic_candidates || { [res.strategy]: res };
+          Object.values(candsMap).forEach(c => {
+            if (c && typeof c === "object") c._context = ctx;
+          });
+          strategicState.candidates = candsMap;
           strategicState.selectedCandidateKey = res.strategy || "maximum_ev";
           strategicState.previousCandidate = res;
 
@@ -4350,6 +4596,7 @@ function initStrategicStudio() {
           showToast("Re-optimization complete. Opportunity cost evaluated!");
         }
       } catch (err) {
+        if (reqSeq !== strategicState.requestSeq) return;
         showToast(`Re-optimization error: ${err.message}`, true);
       } finally {
         reoptBtn.disabled = false;
@@ -4365,29 +4612,45 @@ function initStrategicStudio() {
         showToast("Cannot apply squad: The season is ended. All 38 gameweeks have been completed.", true);
         return;
       }
+      const curCtx = getStrategicStudioContext();
       const cand = strategicState.candidates[strategicState.selectedCandidateKey] || strategicState.previousCandidate;
       if (!cand) return;
 
+      if (cand._context && cand._context.key !== curCtx.key) {
+        showToast("Strategic candidate belongs to a previous mode, season, session, or gameweek. Please regenerate candidates.", true);
+        resetStrategicStudioState(curCtx);
+        return;
+      }
+      if (state.appMode === "historical" && (!curCtx.sessionId || !String(curCtx.sessionId).trim())) {
+        showToast("Please select or initialize a historical simulation session before applying a squad.", true);
+        return;
+      }
+
       const confirmed = confirm(`Are you sure you want to apply this ${cand.strategy.toUpperCase()} squad (${cand.mode.toUpperCase()}) to your active team?`);
       if (!confirmed) return;
+
+      if (getStrategicStudioContext().key !== curCtx.key) {
+        showToast("Active context changed before applying strategic squad. Please regenerate candidates.", true);
+        resetStrategicStudioState(getStrategicStudioContext());
+        return;
+      }
 
       try {
         applyBtn.disabled = true;
         applyBtn.textContent = "Applying...";
 
         const applyPayload = {
+          app_mode: state.appMode,
           candidate: cand,
           team_id: state.activeTeamId,
           mode: cand.mode,
-          gameweek: state.activeGameweek || 1,
+          gameweek: curCtx.gameweek,
         };
 
         if (state.appMode === "historical") {
-          applyPayload.season = histState.season || "2023-24";
-          applyPayload.gameweek = histState.sessionData ? histState.sessionData.current_gw : (histState.gameweek || 1);
-          if (histState.sessionId) {
-            applyPayload.session_id = histState.sessionId;
-          }
+          applyPayload.season = curCtx.season;
+          applyPayload.gameweek = curCtx.gameweek;
+          applyPayload.session_id = curCtx.sessionId;
         }
 
         const res = await api("/api/strategic-squad/apply", {
@@ -4397,13 +4660,15 @@ function initStrategicStudio() {
 
         if (res && res.success) {
           showToast(`Successfully applied strategic squad!`);
+          invalidatePlannerState();
           if (state.appMode === "historical") {
             if (histState.sessionId) {
               await loadHistoricalSession(histState.sessionId);
             }
+            await loadDecisions();
           } else {
-            await loadCurrentSquad();
-            await loadLineup();
+            await refreshActiveTeamData();
+            await loadDecisions();
           }
         }
       } catch (err) {
@@ -4499,8 +4764,12 @@ function initHistoricalTimeMachine() {
   if (seasonSelect) {
     seasonSelect.addEventListener("change", async (e) => {
       histState.season = e.target.value;
+      invalidatePlannerState();
+      resetDecisionLoggerUI();
       await loadHistoricalOverview();
       await loadHistoricalSimulationsList();
+      await loadDecisions();
+      syncStrategicStudioContext();
       const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
       if (activeTab && activeTab.dataset.tab === "strategic") {
         await loadStrategicStudio();
@@ -4515,7 +4784,9 @@ function initHistoricalTimeMachine() {
       const val = parseInt(e.target.value, 10);
       if (val >= 1 && val <= 38) {
         histState.gameweek = val;
+        invalidatePlannerState();
         await loadHistoricalOverview();
+        syncStrategicStudioContext();
         const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
         if (activeTab && activeTab.dataset.tab === "strategic") {
           await loadStrategicStudio();
@@ -4529,13 +4800,24 @@ function initHistoricalTimeMachine() {
   if (simSelect) {
     simSelect.addEventListener("change", async (e) => {
       const id = e.target.value;
+      invalidatePlannerState();
+      resetDecisionLoggerUI();
       if (id) {
         histState.viewingGw = null;
         await loadHistoricalSession(id);
+        await loadDecisions();
+        syncStrategicStudioContext();
         const activeTab = document.querySelector('.tabs-nav .tab-btn.active');
         if (activeTab && activeTab.dataset.tab === "strategic") {
           await loadStrategicStudio();
         }
+      } else {
+        histState.sessionId = null;
+        histState.sessionData = null;
+        histState.playerPool = [];
+        populateAvailablePlayersDatalist();
+        await loadDecisions();
+        syncStrategicStudioContext();
       }
     });
   }
@@ -5031,7 +5313,14 @@ async function loadHistoricalSimulationsList() {
       select.innerHTML = `<option value="">No Sim for ${histState.season} (Click + New)</option>`;
       histState.sessionId = null;
       histState.sessionData = null;
+      histState.playerPool = [];
+      invalidatePlannerState();
+      resetDecisionLoggerUI();
+      populateDecisionLoggerSquad([]);
+      populateAvailablePlayersDatalist();
+      syncStrategicStudioContext();
       renderEmptyHistoricalSquad();
+      await loadDecisions();
       return;
     }
 
@@ -5057,12 +5346,23 @@ async function loadHistoricalSimulationsList() {
 }
 
 async function loadHistoricalSession(sessionId) {
+  const sessionChanged = histState.sessionId !== sessionId;
   histState.sessionId = sessionId;
+  if (sessionChanged) {
+    invalidatePlannerState();
+    resetDecisionLoggerUI();
+  }
   try {
     const data = await api(`/api/historical/simulations/${sessionId}`);
+    if (histState.sessionId !== sessionId) return;
+    const gwChanged = histState.gameweek !== data.current_gw;
     histState.sessionData = data;
     histState.season = data.season;
     histState.gameweek = data.current_gw;
+    if (gwChanged) {
+      invalidatePlannerState();
+    }
+    syncStrategicStudioContext();
 
     histState.isCompleted = !!(data.is_completed || data.status === "completed" || (data.history && data.history.length >= 38));
 
@@ -5233,8 +5533,9 @@ async function loadHistoricalSession(sessionId) {
       }
     }
 
-    // Refresh matchday center
+    // Refresh matchday center and decision logger history
     await loadHistoricalOverview();
+    await loadDecisions();
 
     // If chip tab is currently active, refresh chip strategy view
     const chipsTab = document.getElementById("tab-chips");
@@ -5819,12 +6120,21 @@ function populateHistoricalTransferSquad(squad) {
 }
 
 async function loadHistoricalTransferPool() {
-  if (!histState.sessionId) return;
+  if (!histState.sessionId) {
+    histState.playerPool = [];
+    populateAvailablePlayersDatalist();
+    return;
+  }
+  const reqSeq = ++state.playerPoolRequestSeq;
+  const reqSid = histState.sessionId;
   try {
-    const data = await api(`/api/historical/simulations/${histState.sessionId}/players`);
+    const data = await api(`/api/historical/simulations/${encodeURIComponent(reqSid)}/players`);
+    if (reqSeq !== state.playerPoolRequestSeq || histState.sessionId !== reqSid) return;
     histState.playerPool = data.players || [];
     populateHistoricalTransferDatalist();
-    populateAvailablePlayersDatalist();
+    if (state.appMode === "historical") {
+      populateAvailablePlayersDatalist();
+    }
   } catch (err) {
     console.error("Failed to load historical transfer pool:", err);
   }
