@@ -94,6 +94,35 @@ def _evaluate_lineup_for_gameweek(
     return total_xp, round(starters_floor, 2), round(starters_ceiling, 2), best_formation, captain, vice_captain, best_starters
 
 
+def _extract_starting_and_bench_ids(
+    player_ids: set[int],
+    starters: list[Any],
+    gw_projections: dict[int, Any],
+    risk_profile: str = "neutral",
+) -> tuple[list[int], list[int]]:
+    """Return (starting_ids, bench_ids) with reserve GK first on the bench followed by 3 outfield bench players."""
+    from .optimizer import get_player_profile_value
+
+    starting_ids = [int(getattr(p, "player_id", getattr(p, "id", 0))) for p in starters]
+    starter_set = set(starting_ids)
+    bench_Ids_raw = [int(pid) for pid in player_ids if int(pid) not in starter_set]
+
+    bench_gk: list[int] = []
+    bench_outfield: list[tuple[float, float, int]] = []
+    for pid in bench_Ids_raw:
+        p = gw_projections.get(pid)
+        if p is not None and getattr(p, "position", None) == Position.GOALKEEPER:
+            bench_gk.append(pid)
+        else:
+            val = get_player_profile_value(p, risk_profile) if p is not None else 0.0
+            base_val = float(getattr(p, "base_xp_per_match", val)) if p is not None else 0.0
+            bench_outfield.append((val, base_val, pid))
+
+    bench_outfield.sort(key=lambda x: (x[0], x[1], -x[2]), reverse=True)
+    bench_ids = bench_gk + [pid for _, _, pid in bench_outfield]
+    return starting_ids, bench_ids
+
+
 def generate_multi_gameweek_plan(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
@@ -110,8 +139,10 @@ def generate_multi_gameweek_plan(
     """Generate an optimal multi-gameweek transfer roadmap using beam search."""
     from .optimizer import validate_risk_profile
 
-    if horizon < 1 or horizon > 6:
-        raise ValueError(f"Invalid horizon={horizon}. Must be between 1 and 6 gameweeks.")
+    if horizon < 1 or horizon > 8:
+        raise ValueError(f"Invalid horizon={horizon}. Must be between 1 and 8 gameweeks.")
+    if str(risk_profile or "").strip().lower() in ("balanced", "default"):
+        risk_profile = "neutral"
     risk_profile = validate_risk_profile(risk_profile)
 
     store = SnapshotStore(database_path)
@@ -174,8 +205,11 @@ def generate_multi_gameweek_plan(
             cand_pool = [p for p in candidate_pool_all if p.id not in s_pids]
 
             # --- Action 1: ROLL TRANSFER (0 transfers) ---
-            l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
+            l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
                 s_pids, gw_projections[gw], risk_profile=risk_profile
+            )
+            starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
             )
             ft_after = min(5, ft + 1)
             roll_step = {
@@ -183,6 +217,8 @@ def generate_multi_gameweek_plan(
                 "action": "ROLL",
                 "transfers": [],
                 "formation": form,
+                "starting_ids": starting_ids,
+                "bench_ids": bench_ids,
                 "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
                 "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
                 "lineup_xp": l_xp,
@@ -233,8 +269,11 @@ def generate_multi_gameweek_plan(
                     new_bank = tx["bank_after_tenths"]
                     ft_after = min(5, max(0, ft - 1) + 1)
 
-                    l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
+                    l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                        new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
                     net_xp = round(l_xp - (hits * 4), 2)
                     action_label = "1_TRANSFER" if hits == 0 else "1_TRANSFER_HIT"
@@ -247,6 +286,8 @@ def generate_multi_gameweek_plan(
                             "in": {"id": in_p["id"], "name": in_p["name"], "team": in_p["team"]},
                         }],
                         "formation": form,
+                        "starting_ids": starting_ids,
+                        "bench_ids": bench_ids,
                         "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
                         "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
                         "lineup_xp": l_xp,
@@ -298,8 +339,11 @@ def generate_multi_gameweek_plan(
                     new_bank = tx["bank_after_tenths"]
                     ft_after = min(5, max(0, ft - 2) + 1)
 
-                    l_xp, l_floor, l_ceil, form, cap, vc, _ = _evaluate_lineup_for_gameweek(
+                    l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                        new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
                     net_xp = round(l_xp - (hits * 4), 2)
                     action_label = "2_TRANSFERS" if hits == 0 else "2_TRANSFERS_HIT"
@@ -315,6 +359,8 @@ def generate_multi_gameweek_plan(
                             for i in range(2)
                         ],
                         "formation": form,
+                        "starting_ids": starting_ids,
+                        "bench_ids": bench_ids,
                         "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
                         "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
                         "lineup_xp": l_xp,
@@ -396,6 +442,435 @@ def generate_multi_gameweek_plan(
         report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return report
+
+
+@dataclass(frozen=True, slots=True)
+class _HistGwProj:
+    player_id: int
+    id: int
+    web_name: str
+    team_short: str
+    position: Position
+    expected_points: float
+    xp_floor: float
+    xp_ceiling: float
+    base_xp_per_match: float
+    standard_deviation: float = 0.0
+    selected_by_percent: float = 10.0
+
+
+def generate_historical_multi_gameweek_plan(
+    sim: Any,
+    horizon: int = 3,
+    risk_profile: str = "neutral",
+    allow_hits: bool = True,
+    beam_width: int = 5,
+) -> dict[str, Any]:
+    """Generate a point-in-time historical multi-gameweek transfer roadmap using beam search.
+
+    Strictly operates on `sim.get_current_snapshot()` and forward fixture difficulty projections
+    without ever querying future gameweek snapshots or post-deadline match outcomes (V146-05, V146-08).
+    """
+    from .historical.snapshots import analyze_historical_fixtures, load_historical_players_meta
+    from .optimizer import validate_risk_profile
+    from .suggest_transfers import PlayerInfo
+
+    if horizon < 1 or horizon > 8:
+        raise ValueError(f"Invalid horizon={horizon}. Must be between 1 and 8 gameweeks.")
+    if str(risk_profile or "").strip().lower() in ("balanced", "default"):
+        risk_profile = "neutral"
+    risk_profile = validate_risk_profile(risk_profile)
+
+    start_gw = int(sim.current_gw)
+    eff_horizon = max(1, min(int(horizon), 38 - start_gw + 1))
+    target_gws = list(range(start_gw, start_gw + eff_horizon))
+
+    snapshot = sim.get_current_snapshot()
+    season_dir = getattr(sim, "season_dir", None) or (sim.historical_dir / sim.season)
+    players_map, _ = load_historical_players_meta(snapshot, season_dir, horizon=eff_horizon)
+    fdr_map, ticker_map = analyze_historical_fixtures(season_dir, num_gameweeks=eff_horizon, start_gw=start_gw)
+
+    # Precompute single-GW projection views for each target GW using strictly point-in-time forward projections
+    gw_projections: dict[int, dict[int, _HistGwProj]] = {}
+    for gw in target_gws:
+        gw_map: dict[int, _HistGwProj] = {}
+        for pid, p in players_map.items():
+            gw_xp = round(float(p.gw_breakdown_xp.get(gw, 0.0)), 2)
+            base_ref = float(p.gw_xp) if float(p.gw_xp) > 0 else float(p.expected_points)
+            if gw_xp <= 0.0:
+                gw_fl = 0.0
+                gw_cl = 0.0
+            elif base_ref > 0.0:
+                ratio = gw_xp / base_ref
+                gw_fl = round(float(p.xp_floor) * ratio, 2)
+                gw_cl = round(float(p.xp_ceiling) * ratio, 2)
+            else:
+                gw_fl = round(gw_xp * 0.75, 2)
+                gw_cl = round(gw_xp * 1.35, 2)
+            gw_map[pid] = _HistGwProj(
+                player_id=pid,
+                id=pid,
+                web_name=p.name,
+                team_short=p.team_short,
+                position=p.position,
+                expected_points=gw_xp,
+                xp_floor=gw_fl,
+                xp_ceiling=gw_cl,
+                base_xp_per_match=float(p.expected_points),
+                standard_deviation=float(p.standard_deviation),
+                selected_by_percent=float(getattr(p, "selected_by_percent", 10.0)),
+            )
+        gw_projections[gw] = gw_map
+
+    # Precompute remaining-horizon PlayerInfo pools for each step index so solve_transfers optimizes over remaining GWs
+    step_players_maps: list[dict[int, PlayerInfo]] = []
+    for step_idx, gw in enumerate(target_gws):
+        rem_gws = target_gws[step_idx:]
+        n_rem = max(1, len(rem_gws))
+        step_map: dict[int, PlayerInfo] = {}
+        for pid, p in players_map.items():
+            rem_xp_sum = sum(float(p.gw_breakdown_xp.get(g, 0.0)) for g in rem_gws)
+            rem_avg_xp = round(rem_xp_sum / n_rem, 2)
+            rem_fl_sum = sum(gw_projections[g][pid].xp_floor for g in rem_gws)
+            rem_cl_sum = sum(gw_projections[g][pid].xp_ceiling for g in rem_gws)
+            step_map[pid] = PlayerInfo(
+                id=p.id,
+                name=p.name,
+                position=p.position,
+                team_id=p.team_id,
+                team_short=p.team_short,
+                price_tenths=p.price_tenths,
+                status=p.status,
+                total_points=p.total_points,
+                expected_points=rem_avg_xp,
+                expected_minutes=p.expected_minutes,
+                xp_floor=round(rem_fl_sum / n_rem, 2),
+                xp_ceiling=round(rem_cl_sum / n_rem, 2),
+                standard_deviation=p.standard_deviation,
+                gw_xp=gw_projections[gw][pid].expected_points,
+                horizon_xp=round(rem_xp_sum, 2),
+                horizon_floor=round(rem_fl_sum, 2),
+                horizon_ceiling=round(rem_cl_sum, 2),
+                is_long_term_unavailable=p.is_long_term_unavailable,
+                gw_breakdown_xp=p.gw_breakdown_xp,
+            )
+        step_players_maps.append(step_map)
+
+    # Resolve current effective squad state accounting for any already-staged transfers in sim
+    already_staged = list(getattr(sim, "transfers_staged", []) or [])
+    eff_pids = set(int(pid) for pid in sim.squad_ids)
+    eff_bank = int(sim.bank_tenths)
+    eff_prices = {int(k): int(v) for k, v in sim.purchase_prices_tenths.items()}
+
+    for st in already_staged:
+        if not st.get("already_applied"):
+            out_id = int(st["out_id"])
+            in_id = int(st["in_id"])
+            eff_pids = (eff_pids - {out_id}) | {in_id}
+            sell_p = int(st.get("out_selling_price_tenths", st.get("sell_price_tenths", st.get("out_price_tenths", 0))))
+            buy_p = int(st.get("in_price_tenths", st.get("buy_price_tenths", 0)))
+            if "cost_tenths" in st:
+                eff_bank -= int(st["cost_tenths"])
+            else:
+                eff_bank = eff_bank + sell_p - buy_p
+            eff_prices.pop(out_id, None)
+            eff_prices[in_id] = buy_p or (players_map[in_id].price_tenths if in_id in players_map else 0)
+
+    pre_staged_step_txs = [
+        {
+            "out": {
+                "id": int(st["out_id"]),
+                "name": st.get("out_name") or (players_map[int(st["out_id"])].name if int(st["out_id"]) in players_map else f"#{st['out_id']}"),
+                "team": players_map[int(st["out_id"])].team_short if int(st["out_id"]) in players_map else "",
+            },
+            "in": {
+                "id": int(st["in_id"]),
+                "name": st.get("in_name") or (players_map[int(st["in_id"])].name if int(st["in_id"]) in players_map else f"#{st['in_id']}"),
+                "team": players_map[int(st["in_id"])].team_short if int(st["in_id"]) in players_map else "",
+            },
+            "already_staged": True,
+        }
+        for st in already_staged
+    ]
+    staged_count = len(already_staged)
+    init_ft = int(sim.free_transfers)
+    max_ft = int(getattr(sim, "max_free_transfers", 5))
+    is_step0_free_chip = getattr(sim, "active_chip", None) in ("wildcard_1", "wildcard_2", "free_hit")
+
+    def _next_gw_ft(curr_gw: int, ft_before: int, tx_count: int, chip_active: bool) -> int:
+        if curr_gw == 1 or chip_active:
+            return 1
+        return min(max_ft, max(0, ft_before - tx_count) + 1)
+
+    def _format_action_label(tx_count: int, hits_count: int) -> str:
+        if tx_count <= 0:
+            return "ROLL"
+        base = "1_TRANSFER" if tx_count == 1 else f"{tx_count}_TRANSFERS"
+        return f"{base}_HIT" if hits_count > 0 else base
+
+    beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]]]] = [
+        (0.0, 0.0, 0.0, set(eff_pids), eff_bank, init_ft, dict(eff_prices), [])
+    ]
+
+    for step_idx, gw in enumerate(target_gws):
+        next_beam_candidates = []
+        step_p_map = step_players_maps[step_idx]
+        candidate_pool_all = [
+            p
+            for p in step_p_map.values()
+            if p.status in ("a", "d")
+            and not is_departed_from_premier_league(p)
+            and not is_long_term_unavailable(p)
+        ]
+        chip_free = is_step0_free_chip and step_idx == 0
+        base_tx_count = staged_count if step_idx == 0 else 0
+        base_tx_list = list(pre_staged_step_txs) if step_idx == 0 else []
+
+        for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history in beam:
+            squad_players = [step_p_map[pid] for pid in s_pids if pid in step_p_map]
+            s_prices = {
+                p.id: selling_price(p_prices.get(p.id, p.price_tenths), p.price_tenths)
+                for p in squad_players
+            }
+            cand_pool = [p for p in candidate_pool_all if p.id not in s_pids]
+            eff_ft_for_add = 99 if chip_free else max(0, ft - base_tx_count)
+
+            # --- Action 1: 0 additional transfers (ROLL or keep already-staged) ---
+            l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
+                s_pids, gw_projections[gw], risk_profile=risk_profile
+            )
+            starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
+            )
+            tot_tx0 = base_tx_count
+            hits0 = 0 if chip_free else max(0, tot_tx0 - ft)
+            net_xp0 = round(l_xp - (hits0 * 4), 2)
+            ft_after0 = _next_gw_ft(gw, ft, tot_tx0, chip_free)
+            roll_step = {
+                "gameweek": gw,
+                "action": _format_action_label(tot_tx0, hits0),
+                "transfers": base_tx_list,
+                "formation": form,
+                "starting_ids": starting_ids,
+                "bench_ids": bench_ids,
+                "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
+                "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
+                "lineup_xp": l_xp,
+                "lineup_floor": l_floor,
+                "lineup_ceiling": l_ceil,
+                "transfer_hits": hits0,
+                "net_xp": net_xp0,
+                "bank_after_tenths": bank,
+                "bank_after_fmt": f"£{bank / 10:.1f}m",
+                "free_transfers_after": ft_after0,
+            }
+            next_beam_candidates.append((
+                round(cum_score + net_xp0, 2),
+                round(cum_floor + l_floor, 2),
+                round(cum_ceil + l_ceil, 2),
+                s_pids,
+                bank,
+                ft_after0,
+                p_prices,
+                history + [roll_step],
+            ))
+
+            # --- Action 2: 1 additional transfer ---
+            if eff_ft_for_add >= 1 or allow_hits:
+                tx1_results, _ = solve_transfers(
+                    num_transfers=1,
+                    squad_players=squad_players,
+                    candidate_pool=cand_pool,
+                    bank_tenths=bank,
+                    free_transfers=eff_ft_for_add,
+                    selling_prices=s_prices,
+                    fdr_map=fdr_map,
+                    ticker_map=ticker_map,
+                    risk_profile=risk_profile,
+                    max_results=3,
+                )
+                for tx in tx1_results:
+                    tot_tx1 = base_tx_count + 1
+                    hits1 = 0 if chip_free else max(0, tot_tx1 - ft)
+                    if not allow_hits and hits1 > 0:
+                        continue
+                    out_p = tx["outgoing"][0]
+                    in_p = tx["incoming"][0]
+
+                    new_pids = (s_pids - {out_p["id"]}) | {in_p["id"]}
+                    new_prices = dict(p_prices)
+                    new_prices.pop(out_p["id"], None)
+                    new_prices[in_p["id"]] = in_p["price_tenths"]
+                    new_bank = tx["bank_after_tenths"]
+                    ft_after1 = _next_gw_ft(gw, ft, tot_tx1, chip_free)
+
+                    l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
+                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                        new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    net_xp1 = round(l_xp - (hits1 * 4), 2)
+
+                    tx_step = {
+                        "gameweek": gw,
+                        "action": _format_action_label(tot_tx1, hits1),
+                        "transfers": base_tx_list + [{
+                            "out": {"id": out_p["id"], "name": out_p["name"], "team": out_p["team"]},
+                            "in": {"id": in_p["id"], "name": in_p["name"], "team": in_p["team"]},
+                        }],
+                        "formation": form,
+                        "starting_ids": starting_ids,
+                        "bench_ids": bench_ids,
+                        "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
+                        "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
+                        "lineup_xp": l_xp,
+                        "lineup_floor": l_floor,
+                        "lineup_ceiling": l_ceil,
+                        "transfer_hits": hits1,
+                        "net_xp": net_xp1,
+                        "bank_after_tenths": new_bank,
+                        "bank_after_fmt": f"£{new_bank / 10:.1f}m",
+                        "free_transfers_after": ft_after1,
+                    }
+                    next_beam_candidates.append((
+                        round(cum_score + net_xp1, 2),
+                        round(cum_floor + l_floor, 2),
+                        round(cum_ceil + l_ceil, 2),
+                        new_pids,
+                        new_bank,
+                        ft_after1,
+                        new_prices,
+                        history + [tx_step],
+                    ))
+
+            # --- Action 3: 2 additional transfers ---
+            if eff_ft_for_add >= 2 or (allow_hits and (eff_ft_for_add >= 1 or step_idx == 0)):
+                tx2_results, _ = solve_transfers(
+                    num_transfers=2,
+                    squad_players=squad_players,
+                    candidate_pool=cand_pool,
+                    bank_tenths=bank,
+                    free_transfers=eff_ft_for_add,
+                    selling_prices=s_prices,
+                    fdr_map=fdr_map,
+                    ticker_map=ticker_map,
+                    risk_profile=risk_profile,
+                    max_results=2,
+                )
+                for tx in tx2_results:
+                    tot_tx2 = base_tx_count + 2
+                    hits2 = 0 if chip_free else max(0, tot_tx2 - ft)
+                    if not allow_hits and hits2 > 0:
+                        continue
+                    out_ids = {p["id"] for p in tx["outgoing"]}
+                    in_ids = {p["id"] for p in tx["incoming"]}
+
+                    new_pids = (s_pids - out_ids) | in_ids
+                    new_prices = dict(p_prices)
+                    for out_id in out_ids:
+                        new_prices.pop(out_id, None)
+                    for in_p in tx["incoming"]:
+                        new_prices[in_p["id"]] = in_p["price_tenths"]
+
+                    new_bank = tx["bank_after_tenths"]
+                    ft_after2 = _next_gw_ft(gw, ft, tot_tx2, chip_free)
+
+                    l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
+                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    starting_ids, bench_ids = _extract_starting_and_bench_ids(
+                        new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
+                    )
+                    net_xp2 = round(l_xp - (hits2 * 4), 2)
+
+                    tx_step = {
+                        "gameweek": gw,
+                        "action": _format_action_label(tot_tx2, hits2),
+                        "transfers": base_tx_list + [
+                            {
+                                "out": {"id": tx["outgoing"][i]["id"], "name": tx["outgoing"][i]["name"], "team": tx["outgoing"][i]["team"]},
+                                "in": {"id": tx["incoming"][i]["id"], "name": tx["incoming"][i]["name"], "team": tx["incoming"][i]["team"]},
+                            }
+                            for i in range(2)
+                        ],
+                        "formation": form,
+                        "starting_ids": starting_ids,
+                        "bench_ids": bench_ids,
+                        "captain": {"id": cap.player_id, "name": cap.web_name, "team": cap.team_short, "xp": cap.expected_points},
+                        "vice_captain": {"id": vc.player_id, "name": vc.web_name, "team": vc.team_short, "xp": vc.expected_points},
+                        "lineup_xp": l_xp,
+                        "lineup_floor": l_floor,
+                        "lineup_ceiling": l_ceil,
+                        "transfer_hits": hits2,
+                        "net_xp": net_xp2,
+                        "bank_after_tenths": new_bank,
+                        "bank_after_fmt": f"£{new_bank / 10:.1f}m",
+                        "free_transfers_after": ft_after2,
+                    }
+                    next_beam_candidates.append((
+                        round(cum_score + net_xp2, 2),
+                        round(cum_floor + l_floor, 2),
+                        round(cum_ceil + l_ceil, 2),
+                        new_pids,
+                        new_bank,
+                        ft_after2,
+                        new_prices,
+                        history + [tx_step],
+                    ))
+
+        if risk_profile == "floor":
+            sort_key = lambda x: (x[1], x[0])
+        elif risk_profile == "ceiling":
+            sort_key = lambda x: (x[2], x[0])
+        else:
+            sort_key = lambda x: x[0]
+
+        next_beam_candidates.sort(key=sort_key, reverse=True)
+        seen_states: set[tuple[tuple[int, ...], float]] = set()
+        filtered_beam = []
+        for cand in next_beam_candidates:
+            key = (tuple(sorted(cand[3])), cand[0])
+            if key not in seen_states:
+                seen_states.add(key)
+                filtered_beam.append(cand)
+                if len(filtered_beam) == beam_width:
+                    break
+
+        beam = filtered_beam
+
+    plans = []
+    for rank, (cum_score, cum_floor, cum_ceil, _, _, _, _, history) in enumerate(beam, 1):
+        tot_hits = sum(step["transfer_hits"] for step in history)
+        plans.append({
+            "rank": rank,
+            "total_net_xp": cum_score,
+            "cumulative_net_xp": cum_score,
+            "total_floor_xp": cum_floor,
+            "total_ceiling_xp": cum_ceil,
+            "total_hits": tot_hits,
+            "gameweek_steps": history,
+            "steps": history,
+        })
+
+    return {
+        "session_id": sim.session_id,
+        "season": sim.season,
+        "planning_horizon": eff_horizon,
+        "target_gameweeks": target_gws,
+        "risk_profile": risk_profile,
+        "allow_hits": allow_hits,
+        "free_transfers_initial": init_ft,
+        "bank_initial_fmt": f"£{eff_bank / 10:.1f}m",
+        "optimization_metadata": {
+            "algorithm": "beam_search_multi_gw",
+            "is_exact_global_optimum": False,
+            "optimality_guarantee": "heuristic_beam_search",
+            "beam_width": beam_width,
+        },
+        "best_plan": plans[0] if plans else None,
+        "alternative_plans": plans[1:] if len(plans) > 1 else [],
+    }
 
 
 MAX_MULTI_GW_REFERENCE_STATES = 25_000

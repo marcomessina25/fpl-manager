@@ -43,7 +43,7 @@ from ..lineup import build_logged_lineup, select_starting_lineup
 from ..live_matchday import get_live_gameweek_matchday_summary
 from ..llm_advisor import generate_llm_advisory
 from ..models import Position
-from ..planner import generate_multi_gameweek_plan
+from ..planner import generate_historical_multi_gameweek_plan, generate_multi_gameweek_plan
 from ..scores import update_gameweek_scores
 from ..simulation import HistoricalSimulationSession
 from ..squad_report import generate_squad_report
@@ -625,91 +625,12 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             "message": "The season is ended. All 38 gameweeks have been completed.",
                         })
                         return
-                    recs = sim.get_recommendations()
-                    target_gw = sim.current_gw
-                    step0_transfers = [
-                        {
-                            "out": {"id": t["out_id"], "name": t["out_name"]},
-                            "in": {"id": t["in_id"], "name": t["in_name"]},
-                        }
-                        for t in recs.get("recommended_transfers", [])
-                    ]
-                    squad_details = sim.get_squad_player_details()
-                    cap_id = recs.get("recommended_captain")
-                    vc_id = recs.get("recommended_vice_captain")
-                    cap_name = next((p["name"] for p in squad_details if p.get("player_id", p.get("id")) == cap_id), "Captain")
-                    vc_name = next((p["name"] for p in squad_details if p.get("player_id", p.get("id")) == vc_id), "Vice Captain")
-
-                    step0_hits = max(0, len(step0_transfers) - sim.free_transfers)
-                    step0_net_xp = recs.get("predicted_lineup_xp", 0.0) - (step0_hits * 4)
-                    ft_after = 1 if len(step0_transfers) > 0 else min(5, sim.free_transfers + 1)
-
-                    steps = [
-                        {
-                            "gameweek": target_gw,
-                            "action": f"{len(step0_transfers)}_TRANSFER" if step0_transfers else "ROLL",
-                            "transfers": step0_transfers,
-                            "formation": "3-4-3",
-                            "captain": {"id": cap_id, "name": cap_name},
-                            "vice_captain": {"id": vc_id, "name": vc_name},
-                            "lineup_xp": recs.get("predicted_lineup_xp", 0.0),
-                            "transfer_hits": step0_hits,
-                            "net_xp": step0_net_xp,
-                            "bank_after_tenths": sim.bank_tenths,
-                            "bank_after_fmt": f"£{sim.bank_tenths / 10:.1f}m",
-                            "free_transfers_after": ft_after,
-                        }
-                    ]
-
-                    # Roll forward subsequent steps up to horizon (max GW 38)
-                    curr_ft = ft_after
-                    for step_idx in range(1, min(horizon, 38 - target_gw + 1)):
-                        fut_gw = target_gw + step_idx
-                        # Projections for fut_gw if available
-                        fut_snap = None
-                        fut_cap_name = cap_name
-                        fut_cap_id = cap_id
-                        fut_lineup_xp = recs.get("predicted_lineup_xp", 0.0)
-                        try:
-                            season_dir = sim.historical_dir / sim.season
-                            fut_snap = build_historical_snapshot(season_dir, fut_gw)
-                            fut_projs = reconstruct_features_and_project(fut_snap)
-                            p_map = {p.player_id: p for p in fut_projs}
-                            # Best captain
-                            squad_projs = [(pid, p_map[pid].expected_points) for pid in sim.squad_ids if pid in p_map]
-                            if squad_projs:
-                                squad_projs.sort(key=lambda x: x[1], reverse=True)
-                                fut_cap_id = squad_projs[0][0]
-                                snap_players = {p.player_id: p.web_name for p in fut_snap.players}
-                                fut_cap_name = snap_players.get(fut_cap_id, "Captain")
-                                fut_lineup_xp = round(sum(xp for _, xp in squad_projs[:11]) + squad_projs[0][1], 1)
-                        except Exception:
-                            pass
-
-                        curr_ft = min(5, curr_ft + 1)
-                        steps.append({
-                            "gameweek": fut_gw,
-                            "action": "ROLL",
-                            "transfers": [],
-                            "formation": "3-4-3",
-                            "captain": {"id": fut_cap_id, "name": fut_cap_name},
-                            "vice_captain": {"id": vc_id, "name": vc_name},
-                            "lineup_xp": fut_lineup_xp,
-                            "transfer_hits": 0,
-                            "net_xp": fut_lineup_xp,
-                            "bank_after_tenths": sim.bank_tenths,
-                            "bank_after_fmt": f"£{sim.bank_tenths / 10:.1f}m",
-                            "free_transfers_after": curr_ft,
-                        })
-
-                    rep = {
-                        "session_id": session_id,
-                        "best_plan": {
-                            "gameweek_steps": steps,
-                            "total_net_xp": round(sum(s["net_xp"] for s in steps), 1),
-                            "total_hits": sum(s["transfer_hits"] for s in steps),
-                        }
-                    }
+                    rep = generate_historical_multi_gameweek_plan(
+                        sim=sim,
+                        horizon=horizon,
+                        risk_profile=risk,
+                        allow_hits=not no_hits,
+                    )
                 else:
                     squad_path = get_team_squad_path(tid, self.config_dir)
                     rep = generate_multi_gameweek_plan(
@@ -2265,6 +2186,72 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     vc = int(body.get("vice_captain_id"))
                     sim.set_lineup(starters, bench, cap, vc)
                     self._send_json({"success": True, "squad": sim.get_squad_player_details()})
+                elif action == "apply-plan-step":
+                    req_gw = body.get("gameweek")
+                    if req_gw is not None and int(req_gw) != sim.current_gw:
+                        raise ValueError(
+                            f"Plan step gameweek GW{req_gw} does not match session current GW{sim.current_gw}."
+                        )
+                    old_squad_ids = list(sim.squad_ids)
+                    old_starting_ids = list(sim.starting_ids)
+                    old_bench_ids = list(sim.bench_ids)
+                    old_cap = sim.captain_id
+                    old_vc = sim.vice_captain_id
+                    old_bank = sim.bank_tenths
+                    old_prices = dict(sim.purchase_prices_tenths)
+                    old_staged = [dict(st) for st in sim.transfers_staged]
+
+                    try:
+                        raw_txs = body.get("transfers") or []
+                        existing_pairs = {(int(st["out_id"]), int(st["in_id"])) for st in sim.transfers_staged}
+                        new_batch = []
+                        for t in raw_txs:
+                            if t.get("already_staged"):
+                                continue
+                            out_id = int(t.get("out_id", t.get("outgoing_id")))
+                            in_id = int(t.get("in_id", t.get("incoming_id")))
+                            if (out_id, in_id) not in existing_pairs:
+                                new_batch.append({"out_id": out_id, "in_id": in_id})
+
+                        if new_batch:
+                            sim.stage_transfers_batch(new_batch)
+
+                        starters = (
+                            [int(x) for x in body["starting_ids"]]
+                            if body.get("starting_ids")
+                            else list(sim.starting_ids)
+                        )
+                        bench = (
+                            [int(x) for x in body["bench_ids"]]
+                            if body.get("bench_ids")
+                            else list(sim.bench_ids)
+                        )
+                        cap_id = int(body["captain_id"]) if body.get("captain_id") is not None else sim.captain_id
+                        vc_id = int(body["vice_captain_id"]) if body.get("vice_captain_id") is not None else sim.vice_captain_id
+                        sim.set_lineup(starters, bench, cap_id, vc_id)
+                        sim.save()
+                    except Exception:
+                        sim.squad_ids = old_squad_ids
+                        sim.starting_ids = old_starting_ids
+                        sim.bench_ids = old_bench_ids
+                        sim.captain_id = old_cap
+                        sim.vice_captain_id = old_vc
+                        sim.bank_tenths = old_bank
+                        sim.purchase_prices_tenths = old_prices
+                        sim.transfers_staged = old_staged
+                        sim.save()
+                        raise
+
+                    self._send_json({
+                        "success": True,
+                        "session_id": sim.session_id,
+                        "gameweek": sim.current_gw,
+                        "transfers_staged": sim.transfers_staged,
+                        "bank_tenths": sim.bank_tenths,
+                        "bank_fmt": f"£{sim.bank_tenths / 10:.1f}m",
+                        "free_transfers": max(0, sim.free_transfers - len(sim.transfers_staged)),
+                        "squad": sim.get_squad_player_details(),
+                    })
                 elif action == "chip":
                     chip_name = body.get("chip")
                     if chip_name:
@@ -2294,6 +2281,78 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     })
                 else:
                     self._send_error_json(f"Unknown simulation action '{action}'", status=404)
+            elif path == "/api/plan/apply-step":
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                squad_path = get_team_squad_path(tid, self.config_dir)
+                gw = int(body.get("gameweek") or get_current_gameweek(SnapshotStore(self.database_path)))
+                raw_txs = body.get("transfers") or []
+                tx_list = [
+                    {
+                        "outgoing_id": int(t.get("outgoing_id", t.get("out_id"))),
+                        "incoming_id": int(t.get("incoming_id", t.get("in_id"))),
+                    }
+                    for t in raw_txs
+                ]
+                starting_ids = [int(x) for x in body["starting_ids"]] if body.get("starting_ids") else None
+                bench_ids = [int(x) for x in body["bench_ids"]] if body.get("bench_ids") else None
+                cap_id = int(body["captain_id"]) if body.get("captain_id") is not None else None
+                vc_id = int(body["vice_captain_id"]) if body.get("vice_captain_id") is not None else None
+                cap_name = body.get("captain")
+                vc_name = body.get("vice_captain")
+
+                old_squad_bytes = squad_path.read_bytes() if squad_path.exists() else None
+                prev_dec = get_gameweek_decision(gw, database_path=self.database_path, team_id=tid)
+                try:
+                    if starting_ids is not None and len(starting_ids) != 11:
+                        raise ValueError(f"Expected 11 starters, got {len(starting_ids)}.")
+                    if bench_ids is not None and len(bench_ids) != 4:
+                        raise ValueError(f"Expected 4 bench players, got {len(bench_ids)}.")
+                    if cap_id is not None and vc_id is not None and cap_id == vc_id:
+                        raise ValueError("Captain and Vice-Captain must be distinct players.")
+                    if starting_ids is not None and cap_id is not None and cap_id not in starting_ids:
+                        raise ValueError(f"Captain ID {cap_id} must be in starting XI.")
+                    if starting_ids is not None and vc_id is not None and vc_id not in starting_ids:
+                        raise ValueError(f"Vice-Captain ID {vc_id} must be in starting XI.")
+
+                    tx_res = None
+                    if tx_list:
+                        tx_res = execute_transfers(
+                            squad_path=squad_path,
+                            transfers=tx_list,
+                            database_path=self.database_path,
+                            gameweek=gw,
+                        )
+                    dec_res = log_decision_from_current_squad(
+                        gameweek=gw,
+                        squad_path=squad_path,
+                        database_path=self.database_path,
+                        captain=cap_name or (str(cap_id) if cap_id is not None else None),
+                        vice_captain=vc_name or (str(vc_id) if vc_id is not None else None),
+                        transfers=tx_res.get("transfers", []) if tx_res else [],
+                        transfer_hits=int(body.get("hits") or (tx_res.get("transfer_hits", 0) if tx_res else 0)),
+                        notes=body.get("notes") or f"Applied from Multi-GW Planner (Step 0, GW{gw})",
+                        starting_player_ids=starting_ids,
+                        bench_player_ids=bench_ids,
+                        team_id=tid,
+                    )
+                except Exception:
+                    if old_squad_bytes is not None:
+                        squad_path.write_bytes(old_squad_bytes)
+                    if prev_dec is None:
+                        from contextlib import closing
+                        store = SnapshotStore(self.database_path)
+                        with closing(store._connect()) as conn:
+                            conn.execute("DELETE FROM manager_decisions WHERE gameweek = ? AND team_id = ?", (gw, tid))
+                            conn.commit()
+                    raise
+
+                self._send_json({
+                    "success": True,
+                    "team_id": tid,
+                    "gameweek": gw,
+                    "transfers": tx_res.get("transfers", []) if tx_res else [],
+                    "decision": dec_res,
+                })
             else:
                 self._send_error_json("Unknown endpoint", status=404)
         except ValueError as err:
