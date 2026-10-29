@@ -20,6 +20,8 @@ const state = {
   activePlanContext: null,
   decisionsRequestSeq: 0,
   playerPoolRequestSeq: 0,
+  contextEpoch: 0,
+  transferRequestSeq: 0,
 };
 
 // Toast notification helper
@@ -106,12 +108,18 @@ function initModality() {
 
   const setMode = async (mode) => {
     state.appMode = mode;
+    state.contextEpoch = (state.contextEpoch || 0) + 1;
+    state.transferRequestSeq = (state.transferRequestSeq || 0) + 1;
     invalidatePlannerState();
     resetDecisionLoggerUI();
+    const txCont = document.getElementById("tx-results-container");
+    if (txCont) txCont.innerHTML = "";
+    resetStrategicStudioState(getStrategicStudioContext());
 
     if (mode === "live") {
       histState.txResultsSessionId = null;
       histState.txResultsGameweek = null;
+      updateDecisionLoggerChipOptions(state.dashboardData?.state?.chips_remaining || ["wildcard", "free_hit", "bench_boost", "triple_captain"], null);
       if (btnLive) btnLive.classList.add("active");
       if (btnHist) btnHist.classList.remove("active");
 
@@ -143,6 +151,7 @@ function initModality() {
     } else {
       state.txResultsTeamId = null;
       state.txResultsGameweek = null;
+      updateDecisionLoggerChipOptions(histState.sessionData?.chips_remaining || [], histState.sessionData?.active_chip);
       if (btnHist) btnHist.classList.add("active");
       if (btnLive) btnLive.classList.remove("active");
 
@@ -628,8 +637,7 @@ function initTabs() {
             loadHistoricalTransferPool();
             const gwInput = document.getElementById("dec-gw");
             if (gwInput && histState.gameweek) gwInput.value = histState.gameweek;
-            const chipSelect = document.getElementById("dec-chip");
-            if (chipSelect) chipSelect.value = histState.sessionData.active_chip || "";
+            updateDecisionLoggerChipOptions(histState.sessionData.chips_remaining || [], histState.sessionData.active_chip);
           } else {
             loadDecisions();
           }
@@ -639,6 +647,7 @@ function initTabs() {
           if (state.currentSquad && state.currentSquad.players) {
             populateDecisionLoggerSquad(state.currentSquad.players);
           }
+          updateDecisionLoggerChipOptions(state.dashboardData?.state?.chips_remaining || ["wildcard", "free_hit", "bench_boost", "triple_captain"], null);
         }
       }
       if (target === "strategic") loadStrategicStudio();
@@ -802,6 +811,7 @@ async function loadSquadHUD() {
     if (data.players) {
       populateDecisionLoggerSquad(data.players);
     }
+    updateDecisionLoggerChipOptions(rawChips, null);
 
     // Prefill Gameweek in decision logger, lineup, chips, and evaluation
     const decGw = document.getElementById("dec-gw");
@@ -1632,6 +1642,29 @@ function toLoggerChipOptionValue(chip) {
   return "";
 }
 
+function updateDecisionLoggerChipOptions(remainingChipsList, activeChip) {
+  const decChipSelect = document.getElementById("dec-chip");
+  if (!decChipSelect) return;
+  const currentGw = (state.appMode === "historical")
+    ? (histState.gameweek || 1)
+    : (state.selectedGameweek || state.activeGameweek || 1);
+  const rawRemaining = remainingChipsList || [];
+  const remainingChips = rawRemaining.filter(c => {
+    if (c === "wildcard_1" && currentGw >= 20) return false;
+    if (c === "wildcard_2" && currentGw < 20) return false;
+    return true;
+  }).map(c => c.toLowerCase().replace(/_\d+$/, "").replace(/_/g, ""));
+
+  Array.from(decChipSelect.options).forEach(opt => {
+    if (!opt.value) return;
+    const normOpt = opt.value.toLowerCase().replace(/_/g, "");
+    const isAvail = remainingChips.includes(normOpt) ||
+      (activeChip && activeChip.toLowerCase().replace(/_/g, "").includes(normOpt));
+    opt.disabled = !isAvail;
+  });
+  decChipSelect.value = toLoggerChipOptionValue(activeChip);
+}
+
 // Decision Logger
 async function handleDecisionSubmit(e) {
   e.preventDefault();
@@ -2159,12 +2192,29 @@ async function runSuggestTransfers() {
     container.innerHTML = '<p class="text-muted">Please select or create a historical simulation session in the top header first.</p>';
     return;
   }
-  const sidParam = isHist && histState.sessionId ? `&session_id=${encodeURIComponent(histState.sessionId)}` : "";
+  const thisReqSeq = ++state.transferRequestSeq;
   const targetGw = isHist ? histState.gameweek : (state.selectedGameweek || state.activeGameweek || 1);
+  const reqProvenance = {
+    mode: state.appMode,
+    teamId: state.activeTeamId,
+    sessionId: isHist ? histState.sessionId : null,
+    gameweek: targetGw,
+    epoch: state.contextEpoch,
+    seq: thisReqSeq,
+  };
+  const sidParam = isHist && histState.sessionId ? `&session_id=${encodeURIComponent(histState.sessionId)}` : "";
   const gwParam = !isHist && targetGw ? `&gameweek=${targetGw}` : "";
 
   try {
     const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}${sidParam}${gwParam}`);
+    if (
+      thisReqSeq !== state.transferRequestSeq ||
+      state.appMode !== reqProvenance.mode ||
+      (isHist ? histState.sessionId !== reqProvenance.sessionId : state.activeTeamId !== reqProvenance.teamId)
+    ) {
+      console.log("Discarding superseded transfer suggestions response");
+      return;
+    }
     if (isHist && (histState.isCompleted || data.season_ended)) {
       container.innerHTML = `
         <div class="panel card" style="margin-top: 1rem; padding: 1.5rem; text-align: center; border-left: 4px solid var(--accent-color);">
@@ -2299,6 +2349,26 @@ async function runSuggestTransfers() {
       if (btnApply) {
         btnApply.addEventListener("click", async (e) => {
           e.stopPropagation();
+          if (state.appMode !== reqProvenance.mode) {
+            alert("Cannot apply move: application mode changed since suggestions were generated. Please re-run transfer suggestions.");
+            return;
+          }
+          if (reqProvenance.mode === "historical") {
+            if (!histState.sessionId || histState.sessionId !== reqProvenance.sessionId) {
+              alert("Cannot apply move: historical session changed since suggestions were generated. Please re-run transfer suggestions.");
+              return;
+            }
+            if (histState.gameweek !== reqProvenance.gameweek) {
+              alert("Cannot apply move: simulation gameweek changed since suggestions were generated. Please re-run transfer suggestions.");
+              return;
+            }
+          } else {
+            if (state.activeTeamId !== reqProvenance.teamId) {
+              alert("Cannot apply move: active team changed since suggestions were generated. Please re-run transfer suggestions.");
+              return;
+            }
+          }
+
           const movesSummary = opt.outgoing.map((o, i) => `${o.name} ➔ ${opt.incoming[i].name}`).join(", ");
           const targetGw = isHist ? histState.gameweek : (state.selectedGameweek || state.activeGameweek || 1);
           const confirmed = confirm(
@@ -3119,9 +3189,17 @@ function initEventListeners() {
       if (gw) {
         try {
           const isHist = state.appMode === "historical";
-          const endpoint = isHist && histState.sessionId
-            ? `/api/decisions?session_id=${histState.sessionId}`
-            : `/api/decisions?team=${state.activeTeamId}`;
+          if (isHist && !histState.sessionId) {
+            renderExecutedTransfersBox([]);
+            const chipSelect = document.getElementById("dec-chip");
+            if (chipSelect) chipSelect.value = "";
+            const notesInput = document.getElementById("dec-notes");
+            if (notesInput) notesInput.value = "";
+            return;
+          }
+          const endpoint = isHist
+            ? `/api/decisions?session_id=${encodeURIComponent(histState.sessionId)}`
+            : `/api/decisions?team=${encodeURIComponent(state.activeTeamId)}`;
           const decData = await api(endpoint);
           const list = decData.decisions || [];
           const dec = list.find(d => d.gameweek === gw);
@@ -3135,7 +3213,7 @@ function initEventListeners() {
           if (dec) {
             if (capSelect && dec.captain_name) capSelect.value = dec.captain_name;
             if (vcSelect && dec.vice_captain_name) vcSelect.value = dec.vice_captain_name;
-            if (chipSelect) chipSelect.value = dec.chip_played || "";
+            if (chipSelect) chipSelect.value = toLoggerChipOptionValue(dec.chip_played);
             if (hitsInput) {
               hitsInput.value = "";
               const isFree = dec.chip_played && ["wildcard", "wc", "freehit", "free_hit", "fh"].some(c => dec.chip_played.toLowerCase().includes(c));
@@ -3957,6 +4035,7 @@ function resetStrategicStudioState(newCtx) {
   strategicState.requestSeq++;
   strategicState.contextKey = newCtx ? newCtx.key : null;
   strategicState.contextObj = newCtx || null;
+  strategicState.allPlayers = [];
   strategicState.candidates = {};
   strategicState.previousCandidate = null;
   strategicState.selectedCandidateKey = "maximum_ev";
@@ -3964,14 +4043,30 @@ function resetStrategicStudioState(newCtx) {
   strategicState.excludedPlayerIds.clear();
   strategicState.preferredPlayerIds.clear();
 
+  const datalist = document.getElementById("strategic-players-datalist");
+  if (datalist) datalist.innerHTML = "";
   const resPanel = document.getElementById("strategic-results-panel");
   if (resPanel) resPanel.classList.add("hidden");
   const impactBanner = document.getElementById("constraint-impact-banner");
   if (impactBanner) impactBanner.classList.add("hidden");
   const searchInp = document.getElementById("strategic-player-search");
-  if (searchInp) searchInp.value = "";
+  if (searchInp) {
+    searchInp.value = "";
+    searchInp.disabled = true;
+    searchInp.placeholder = "Loading player pool...";
+  }
   const reoptBtn = document.getElementById("btn-reoptimize-strategic");
   if (reoptBtn) reoptBtn.disabled = true;
+  const genBtn = document.getElementById("btn-generate-strategic");
+  if (genBtn) genBtn.disabled = true;
+  const addLockBtn = document.getElementById("btn-add-lock");
+  if (addLockBtn) addLockBtn.disabled = true;
+  const addExclBtn = document.getElementById("btn-add-exclude");
+  if (addExclBtn) addExclBtn.disabled = true;
+  const addPrefBtn = document.getElementById("btn-add-prefer");
+  if (addPrefBtn) addPrefBtn.disabled = true;
+  const clearBtn = document.getElementById("btn-clear-constraints");
+  if (clearBtn) clearBtn.disabled = true;
 
   renderActiveConstraintPills();
 }
@@ -4038,6 +4133,26 @@ async function loadStrategicStudio() {
     if (config && config.players) {
       strategicState.allPlayers = config.players;
       populateStrategicPlayersDatalist(config.players);
+    }
+    const searchInp = document.getElementById("strategic-player-search");
+    if (searchInp) {
+      searchInp.disabled = false;
+      searchInp.placeholder = "Search player name...";
+    }
+    const addLockBtn = document.getElementById("btn-add-lock");
+    if (addLockBtn) addLockBtn.disabled = false;
+    const addExclBtn = document.getElementById("btn-add-exclude");
+    if (addExclBtn) addExclBtn.disabled = false;
+    const addPrefBtn = document.getElementById("btn-add-prefer");
+    if (addPrefBtn) addPrefBtn.disabled = false;
+    const clearBtn = document.getElementById("btn-clear-constraints");
+    if (clearBtn) clearBtn.disabled = false;
+
+    const genBtn = document.getElementById("btn-generate-strategic");
+    if (genBtn) {
+      const isOver = state.appMode === "historical" && histState.isCompleted;
+      genBtn.disabled = isOver;
+      genBtn.title = isOver ? "The season is ended. All 38 gameweeks have been completed." : "";
     }
     const statusBadge = document.getElementById("strategic-status-badge");
     const horizonBadge = document.getElementById("strategic-horizon-badge");
