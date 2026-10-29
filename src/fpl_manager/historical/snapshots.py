@@ -1,5 +1,6 @@
 """Point-in-time snapshot generator ensuring zero future leakage for FPL Manager (V1.0.1)."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -163,9 +164,10 @@ def build_historical_snapshot(
     # unavailability_registry.json into pre-V1.2 measurement paths. Pass True
     # explicitly to reproduce V1.2 behavior.
     apply_unavailability: bool = False,
+    include_prior_players: bool = False,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
-    
+
     Zero future-leakage invariant:
     For Gameweek N, the snapshot contains strictly:
     - Players, teams, and fixture schedules known before GW N deadline.
@@ -270,16 +272,6 @@ def build_historical_snapshot(
                 )
             )
 
-    # Load current GW raw data for point-in-time player status/price/ownership
-    raw_players = load_gameweek_raw_data(season_dir, gameweek)
-    if not raw_players and gameweek > 1:
-        for prev_g in range(gameweek - 1, 0, -1):
-            prior_raw = load_gameweek_raw_data(season_dir, prev_g)
-            if prior_raw:
-                raw_players = prior_raw
-                break
-    current_gw_players = {p["player_id"]: p for p in raw_players}
-
     # Accumulate prior historical statistics strictly from GW 1 to GW (N-1)
     cum_minutes: dict[int, int] = {}
     cum_starts: dict[int, int] = {}
@@ -294,11 +286,13 @@ def build_historical_snapshot(
     recent_pts: dict[int, list[int]] = {}
     recent_starts_hist: dict[int, list[int]] = {}
     recent_mins_hist: dict[int, list[int]] = {}
+    latest_prior_player_records: dict[int, dict[str, Any]] = {}
 
     for prev_gw in range(1, gameweek):
         prev_data = load_gameweek_raw_data(season_dir, prev_gw)
         for p in prev_data:
             pid = p["player_id"]
+            latest_prior_player_records[pid] = p
             p_mins = p.get("minutes", 0)
             p_starts = p.get("starts", 1 if p_mins >= 60 else 0)
 
@@ -320,6 +314,22 @@ def build_historical_snapshot(
             recent_pts[pid].append(p.get("total_points", 0))
             recent_starts_hist[pid].append(p_starts)
             recent_mins_hist[pid].append(p_mins)
+
+    # Load current GW raw data for point-in-time player status/price/ownership
+    raw_players = load_gameweek_raw_data(season_dir, gameweek)
+    if not raw_players and gameweek > 1:
+        for prev_g in range(gameweek - 1, 0, -1):
+            prior_raw = load_gameweek_raw_data(season_dir, prev_g)
+            if prior_raw:
+                raw_players = prior_raw
+                break
+    if include_prior_players:
+        # Base active players on latest known records, overlaid with current GW updates
+        current_gw_players = dict(latest_prior_player_records)
+        for p in raw_players:
+            current_gw_players[p["player_id"]] = p
+    else:
+        current_gw_players = {p["player_id"]: p for p in raw_players}
 
     players_list: list[HistoricalPlayerState] = []
     finished_gws = gameweek - 1
@@ -460,7 +470,7 @@ def load_gameweek_outcomes(
     gameweek: int,
 ) -> dict[int, GameweekOutcome]:
     """Extract authoritative revealed ground truth outcomes for Gameweek N.
-    
+
     MUST be used ONLY during post-gameweek evaluation and scoring.
     """
     manifest_path = season_dir / "season_manifest.json"
@@ -489,3 +499,148 @@ def load_gameweek_outcomes(
             opponent_team_id=p.get("opponent_team_id", 0),
         )
     return outcomes
+
+
+def load_historical_players_meta(
+    snapshot: HistoricalGameweekSnapshot,
+    season_dir: Path,
+    horizon: int = 5,
+    needed_pids: set[int] | None = None,
+) -> tuple[dict[int, Any], dict[int, str]]:
+    """Build PlayerInfo candidates and team map for a historical snapshot and forward horizon.
+
+    Loads forward multi-gameweek fixture-aware xP projections up to `horizon` gameweeks.
+    Strictly preserves point-in-time isolation without accessing future ground-truth outcomes.
+    """
+    from ..backtest.decision_engine import _get_forward_projections, get_historical_fixtures_for_gw
+    from .reconstruction import reconstruct_features_and_project
+    from ..suggest_transfers import PlayerInfo
+
+    team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in snapshot.teams}
+    projections = reconstruct_features_and_project(snapshot)
+    fwd_projections = _get_forward_projections(
+        snapshot=snapshot,
+        projections=projections,
+        horizon=horizon,
+        season_dir=season_dir,
+        needed_pids=needed_pids,
+    )
+    proj_map = {p.player_id: p for p in projections}
+
+    blank_ids = {
+        p.player_id for p in projections
+        if p.expected_points <= 0.0 and (needed_pids is None or p.player_id in needed_pids)
+    }
+    blank_horizon_bounds: dict[int, tuple[float, float]] = {}
+    for gw, gw_means in sorted(fwd_projections.items()):
+        future_ids = sorted(pid for pid in blank_ids if gw_means.get(pid, 0.0) > 0.0)
+        if gw <= snapshot.gameweek or not future_ids:
+            continue
+        future_fixtures = tuple(
+            HistoricalFixture(
+                fixture_id=f.get("id", 0), event=gw, team_h=f["team_h"], team_a=f["team_a"],
+                team_h_difficulty=f.get("team_h_difficulty", 3),
+                team_a_difficulty=f.get("team_a_difficulty", 3),
+                kickoff_time=f.get("kickoff_time"),
+            )
+            for f in get_historical_fixtures_for_gw(season_dir, gw)
+        )
+        # Move only the known schedule forward; player features and observation cutoff stay frozen.
+        future_snapshot = replace(snapshot, gameweek=gw, fixtures=future_fixtures)
+        for projected in reconstruct_features_and_project(future_snapshot, player_ids=future_ids):
+            floor, ceiling = blank_horizon_bounds.get(projected.player_id, (0.0, 0.0))
+            blank_horizon_bounds[projected.player_id] = (
+                round(floor + projected.xp_floor, 2), round(ceiling + projected.xp_ceiling, 2),
+            )
+
+    players_map: dict[int, PlayerInfo] = {}
+    for p in snapshot.players:
+        if needed_pids is not None and p.player_id not in needed_pids:
+            continue
+        p_proj = proj_map.get(p.player_id)
+        gw1_xp = p_proj.expected_points if p_proj else 0.0
+        gw1_xm = p_proj.expected_minutes if p_proj else 0.0
+        gw1_floor = p_proj.xp_floor if p_proj and p_proj.xp_floor > 0 else gw1_xp
+        gw1_ceil = p_proj.xp_ceiling if p_proj and p_proj.xp_ceiling > 0 else gw1_xp
+
+        p_fwd = [fwd_projections[gw].get(p.player_id, 0.0) for gw in sorted(fwd_projections.keys())]
+        horizon_xp = sum(p_fwd) if p_fwd else gw1_xp * horizon
+        avg_xp = round(horizon_xp / max(1, len(p_fwd)), 2)
+
+        import statistics
+        p_std = round(statistics.pstdev(p_fwd), 2) if len(p_fwd) > 1 else 0.0
+        target_gws = list(range(snapshot.gameweek, min(39, snapshot.gameweek + max(1, horizon))))
+        p_gw_breakdown = {gw: float(fwd_projections.get(gw, {}).get(p.player_id, 0.0)) for gw in target_gws}
+        horizon_floor, horizon_ceiling = blank_horizon_bounds.get(
+            p.player_id,
+            (gw1_floor * max(1, len(p_fwd)), gw1_ceil * max(1, len(p_fwd))),
+        )
+
+        p_info = PlayerInfo(
+            id=p.player_id,
+            name=p.web_name,
+            position=p.position,
+            team_id=p.team_id,
+            team_short=team_map.get(p.team_id, f"T{p.team_id}"),
+            price_tenths=p.price_tenths,
+            status=p.status,
+            total_points=p.total_points,
+            expected_points=avg_xp,
+            expected_minutes=gw1_xm,
+            xp_floor=gw1_floor,
+            xp_ceiling=gw1_ceil,
+            standard_deviation=p_std,
+            gw_xp=gw1_xp,
+            horizon_xp=horizon_xp,
+            horizon_floor=horizon_floor,
+            horizon_ceiling=horizon_ceiling,
+            is_long_term_unavailable=p.is_long_term_unavailable,
+            gw_breakdown_xp=p_gw_breakdown,
+        )
+        players_map[p.player_id] = p_info
+
+    return players_map, team_map
+
+
+def analyze_historical_fixtures(
+    season_dir: Path,
+    num_gameweeks: int = 5,
+    start_gw: int = 1,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Compute average fixture difficulty (FDR) and next fixture ticker for historical season.
+
+    Respects strict point-in-time isolation by reading only the pre-scheduled fixtures list.
+    """
+    fixtures_data = json.loads((season_dir / "fixtures.json").read_text(encoding="utf-8"))
+    teams_data = json.loads((season_dir / "teams.json").read_text(encoding="utf-8"))
+    team_map = {t["team_id"]: t.get("short_name", f"T{t['team_id']}") for t in teams_data}
+
+    target_gws = set(range(start_gw, start_gw + num_gameweeks))
+    difficulties: dict[int, list[float]] = {t["team_id"]: [] for t in teams_data}
+    first_ticker: dict[int, str] = {}
+
+    for f in fixtures_data:
+        ev = f.get("event")
+        if ev in target_gws:
+            th = f.get("team_h")
+            ta = f.get("team_a")
+            th_diff = float(f.get("team_h_difficulty", 3))
+            ta_diff = float(f.get("team_a_difficulty", 3))
+
+            if th in difficulties:
+                difficulties[th].append(th_diff)
+                if th not in first_ticker:
+                    first_ticker[th] = f"{team_map.get(ta, f'T{ta}')} (H)"
+            if ta in difficulties:
+                difficulties[ta].append(ta_diff)
+                if ta not in first_ticker:
+                    first_ticker[ta] = f"{team_map.get(th, f'T{th}')} (A)"
+
+    fdr_map: dict[str, float] = {}
+    ticker_map: dict[str, str] = {}
+    for tid, s_name in team_map.items():
+        diffs = difficulties.get(tid, [])
+        fdr_map[s_name] = round(sum(diffs) / len(diffs), 2) if diffs else 3.0
+        ticker_map[s_name] = first_ticker.get(tid, "None")
+
+    return fdr_map, ticker_map

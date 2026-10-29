@@ -38,10 +38,23 @@ class GameweekResolution:
     squad_ids_after: list[int]
     bank_tenths_after: int
     squad_value_tenths_after: int
+    # State snapshots before gameweek execution for 1:1 undo / reset
+    squad_ids_before: list[int] | None = None
+    purchase_prices_before: dict[str, int] | None = None
+    bank_tenths_before: int | None = None
+    free_transfers_before: int | None = None
+    starting_ids_before: list[int] | None = None
+    bench_ids_before: list[int] | None = None
+    captain_id_before: int | None = None
+    vice_captain_id_before: int | None = None
+    chips_remaining_before: list[str] | None = None
+    chips_used_before: dict[str, int] | None = None
+    decision_logged: dict[str, Any] | None = None
     # Comparison against frozen baseline engine
     engine_recommendation: dict[str, Any] | None = None
     engine_net_points: int | None = None
     human_engine_divergence: dict[str, Any] | None = None
+    purchase_basis_unverified: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

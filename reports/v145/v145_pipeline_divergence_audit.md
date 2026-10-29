@@ -37,3 +37,18 @@ To eliminate this divergence, V1.4.5 unifies all chip evaluations behind a singl
 - Both `/api/chips` and `/api/historical/simulations/<id>/chips` query this optimizer.
 - `SeasonalChipPolicy` in historical simulations is updated to wrap or delegate to `ChipOpportunityOptimizer`.
 - Recommendations output full mathematical audit metadata (`immediate_ev`, `future_max_ev`, `net_utility`, `confidence`, `reasoning`).
+
+---
+
+## 5. Verification & Parity Resolution
+
+With PR #21 (commits `4a90395` and following), full mathematical and schema alignment has been achieved:
+1. **Engine Integration**: Live candidate scoring in `recommend_chip_strategy` uses `optimizer_chip_candidates`, which queries `ChipOpportunityOptimizer` directly.
+2. **Deterministic Parity Test Suite**: `tests/test_chip_parity_and_regression.py` explicitly tests:
+   - `test_parity_optimizer_candidate_ranking_in_live_and_simulation`: Identical EV and utility rankings across live and historical callers.
+   - `test_parity_live_api_and_simulation_session_schema`: Full key parity (`immediate_ev`, `future_opportunity`, `net_utility`, `confidence`) across endpoints.
+   - `test_regression_c0_vs_c1_resolves_wildcard_hoarding`: Proves C1 deploys Wildcard under squad deterioration where legacy C0 hoarded indefinitely.
+3. **Operational Distinctions**:
+   - Live `/api/chips` generates a **multi-gameweek prospective roadmap** across the entire remaining segment calendar.
+   - Historical simulation `/api/historical/simulations/<id>/chips` provides **point-in-time single-gameweek deployment decisions** with autosub resolution.
+   - Both pathways share the exact same underlying opportunity cost calculations and tactical guardrails.

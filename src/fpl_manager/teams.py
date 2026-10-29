@@ -225,6 +225,10 @@ def sync_squad_with_current_gameweek(
     database_path: Path | None = None,
 ) -> CurrentSquadState:
     """Check and synchronize squad state gameweek and free transfers with the database."""
+    if (not team_id or team_id == "default") and squad_file.name == "squad.json" and squad_file.parent.parent.name == "teams":
+        team_id = squad_file.parent.name
+        if config_dir is None:
+            config_dir = squad_file.parent.parent.parent
     config_dir = config_dir or CONFIG_DIR
     state = load_current_squad(squad_file)
     db_path = database_path or (config_dir.parent / "data" / "fpl.sqlite3")

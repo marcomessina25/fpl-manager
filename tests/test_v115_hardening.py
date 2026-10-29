@@ -195,12 +195,13 @@ class TestDeadCapitalOffloadAndBuyFiltering:
         # Other squad members
         for pid in range(3, 16):
             pos = Position.GOALKEEPER if pid <= 4 else (Position.DEFENDER if pid <= 9 else (Position.MIDFIELDER if pid <= 14 else Position.FORWARD))
+            t_id = (pid % 7) + 2
             players.append(PlayerOptInfo(
                 id=pid,
                 name=f"Squad Player {pid}",
                 position=pos,
-                team_id=pid % 5 + 1,
-                team_short=f"T{pid % 5 + 1}",
+                team_id=t_id,
+                team_short=f"T{t_id}",
                 price_tenths=50,
                 status="a",
                 total_points=20,
@@ -309,6 +310,7 @@ class TestDeadCapitalOffloadAndBuyFiltering:
             dead_capital_weight=3.0,
         )
 
+        assert len(options) > 0
         for opt in options:
             for p_in in opt["incoming"]:
                 assert p_in["id"] != 201

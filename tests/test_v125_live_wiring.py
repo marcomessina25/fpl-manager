@@ -21,7 +21,254 @@ from fpl_manager.backtest.decision_engine import (
 from fpl_manager.briefing import _build_briefing_markdown
 from fpl_manager.cli import format_suggest_transfers_concise
 from fpl_manager.storage import SnapshotStore, utc_timestamp
-from fpl_manager.suggest_transfers import suggest_transfers
+from fpl_manager.suggest_transfers import PlayerInfo, rescore_transfer_candidates, suggest_transfers
+from fpl_manager.models import Position
+from fpl_manager.optimizer import solve_transfers
+
+
+@pytest.mark.parametrize(
+    ("risk_profile", "expected_incoming"),
+    [("neutral", 102), ("floor", 101), ("ceiling", 102), ("chase", 102), ("defend_lead", 101)],
+)
+@pytest.mark.parametrize("free_transfers", [0, 1])
+def test_lineup_rescoring_preserves_requested_risk_objective(
+    risk_profile: str, expected_incoming: int, free_transfers: int
+) -> None:
+    squad = [
+        PlayerInfo(
+            id=pid,
+            name=f"Player {pid}",
+            position=Position(1 if pid <= 2 else 2 if pid <= 7 else 3 if pid <= 12 else 4),
+            team_id=pid,
+            team_short=f"T{pid}",
+            price_tenths=50,
+            status="a",
+            total_points=0,
+            expected_points=4.0,
+            xp_floor=3.0,
+            xp_ceiling=5.0,
+        )
+        for pid in range(1, 16)
+    ]
+    candidates = [
+        PlayerInfo(101, "Safe", Position.FORWARD, 16, "SAFE", 50, "a", 0,
+                   expected_points=4.5, xp_floor=4.0, xp_ceiling=5.0),
+        PlayerInfo(102, "Volatile", Position.FORWARD, 17, "VOL", 50, "a", 0,
+                   expected_points=10.0, xp_floor=1.0, xp_ceiling=20.0),
+    ]
+    players = {p.id: p for p in squad + candidates}
+    raw_results, _ = solve_transfers(
+        num_transfers=1, squad_players=squad, candidate_pool=candidates,
+        bank_tenths=0, free_transfers=free_transfers,
+        selling_prices={p.id: 50 for p in squad}, fdr_map={}, ticker_map={},
+        risk_profile=risk_profile, max_results=30,
+    )
+    results = rescore_transfer_candidates(
+        raw_results, squad, players, {2: {pid: p.expected_points for pid, p in players.items()}},
+        risk_profile=risk_profile,
+    )
+
+    top = results[0]
+    assert top["incoming"][0]["id"] == expected_incoming
+    hits = 4 * (1 - free_transfers)
+    assert top["net_lineup_xp_delta"] == pytest.approx(top["lineup_xp_delta"] - hits)
+    assert top["net_lineup_profile_delta"] == pytest.approx(top["lineup_profile_delta"] - hits)
+    assert top["score"] == top["profile_net_gain"]
+    assert top["hurdle_passed"] == (top["profile_net_gain"] >= top["hurdle"])
+    assert top["v125_net_gain"] == pytest.approx(top["net_lineup_xp_delta"])
+    if risk_profile in ("floor", "defend_lead"):
+        assert top["lineup_profile_delta"] == pytest.approx(2.0)
+        assert top["lineup_xp_delta"] == pytest.approx(1.0)
+    if risk_profile == "neutral":
+        default_results = rescore_transfer_candidates(
+            raw_results, squad, players, {2: {pid: p.expected_points for pid, p in players.items()}},
+        )
+        assert default_results == results
+
+
+def test_lineup_rescoring_rejects_unknown_risk_profile() -> None:
+    with pytest.raises(ValueError, match="Invalid risk_profile"):
+        rescore_transfer_candidates([], [], {}, {}, risk_profile="unknown")
+
+
+def test_lineup_profile_projection_uses_shared_objective_and_zeroes_blanks() -> None:
+    from fpl_manager.optimizer import get_player_profile_value
+    from fpl_manager.suggest_transfers import _gameweek_profile_value
+
+    player = PlayerInfo(
+        1, "Target", Position.FORWARD, 1, "T1", 50, "a", 0,
+        expected_points=4.0, xp_floor=3.0, xp_ceiling=5.0, standard_deviation=2.0,
+    )
+    doubled = PlayerInfo(
+        1, "Target", Position.FORWARD, 1, "T1", 50, "a", 0,
+        expected_points=8.0, xp_floor=6.0, xp_ceiling=10.0, standard_deviation=4.0,
+    )
+    for risk_profile in ("neutral", "floor", "ceiling", "chase", "defend_lead"):
+        assert _gameweek_profile_value(player, 8.0, risk_profile) == get_player_profile_value(
+            doubled, risk_profile,
+        )
+        assert _gameweek_profile_value(player, 0.0, risk_profile) == 0.0
+
+
+@pytest.mark.parametrize("risk_profile", ["neutral", "floor", "ceiling", "chase", "defend_lead"])
+@pytest.mark.parametrize("mean_reference", [0.0, 4.0])
+def test_blank_current_gw_uses_frozen_horizon_distribution_for_future_utility(
+    risk_profile: str, mean_reference: float,
+) -> None:
+    from fpl_manager.optimizer import get_player_profile_value
+    from fpl_manager.suggest_transfers import _gameweek_profile_value
+
+    blank_now = PlayerInfo(
+        101, "Future target", Position.FORWARD, 16, "TARGET", 50, "a", 0,
+        expected_points=mean_reference, gw_xp=0.0, xp_floor=0.0, xp_ceiling=0.0,
+        horizon_xp=8.0, horizon_floor=6.0, horizon_ceiling=10.0,
+        gw_breakdown_xp={2: 0.0, 3: 8.0},
+    )
+    frozen_future = PlayerInfo(
+        101, "Future target", Position.FORWARD, 16, "TARGET", 50, "a", 0,
+        expected_points=4.0, xp_floor=3.0, xp_ceiling=5.0,
+    )
+
+    assert _gameweek_profile_value(blank_now, 0.0, risk_profile) == 0.0
+    assert _gameweek_profile_value(blank_now, 4.0, risk_profile) == pytest.approx(
+        get_player_profile_value(frozen_future, risk_profile),
+    )
+
+
+@pytest.mark.parametrize(("risk_profile", "expected_gain"), [("floor", 2.55), ("ceiling", 4.25)])
+def test_lineup_rescoring_retains_future_bounds_after_current_blank(
+    risk_profile: str, expected_gain: float,
+) -> None:
+    squad = [
+        PlayerInfo(
+            pid, f"Player {pid}",
+            Position(1 if pid <= 2 else 2 if pid <= 7 else 3 if pid <= 12 else 4),
+            pid, f"T{pid}", 50, "a", 0, expected_points=4.0,
+            xp_floor=3.0, xp_ceiling=5.0, gw_xp=4.0,
+            gw_breakdown_xp={2: 4.0, 3: 4.0},
+        )
+        for pid in range(1, 16)
+    ]
+    incoming = PlayerInfo(
+        101, "Future target", Position.FORWARD, 16, "TARGET", 50, "a", 0,
+        expected_points=0.0, gw_xp=0.0, xp_floor=0.0, xp_ceiling=0.0,
+        horizon_xp=8.0, horizon_floor=6.0, horizon_ceiling=10.0,
+        gw_breakdown_xp={2: 0.0, 3: 8.0},
+    )
+    players = {p.id: p for p in squad + [incoming]}
+    results = rescore_transfer_candidates(
+        [{"outgoing": [{"id": 13}], "incoming": [{"id": 101}], "transfer_hits": 0}],
+        squad, players,
+        {gw: {pid: p.gw_breakdown_xp[gw] for pid, p in players.items()} for gw in (2, 3)},
+        eff_horizon=2, eff_gamma=0.5, risk_profile=risk_profile,
+    )
+
+    assert results[0]["lineup_profile_delta"] == pytest.approx(expected_gain)
+    assert results[0]["profile_net_gain"] == pytest.approx(expected_gain)
+    assert results[0]["lineup_xp_delta"] == pytest.approx(3.4)
+    assert results[0]["gw1_lineup_xp_delta"] == pytest.approx(-0.6)
+    assert results[0]["hurdle_passed"] is True
+
+
+@pytest.mark.parametrize("horizon", [2, 3])
+def test_historical_loader_projects_future_bounds_from_frozen_blank_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, horizon: int,
+) -> None:
+    from dataclasses import replace
+    from typing import Any
+    import fpl_manager.backtest.decision_engine as decision_engine
+    import fpl_manager.expected_points as expected_points
+    import fpl_manager.historical.reconstruction as reconstruction
+    import fpl_manager.historical.snapshots as snapshots
+    import fpl_manager.learned_participation as learned_participation
+    from fpl_manager.historical.models import HistoricalGameweekSnapshot, HistoricalPlayerState
+    from fpl_manager.optimizer import get_player_profile_value
+    from fpl_manager.participation import ParticipationPrediction
+    from fpl_manager.suggest_transfers import _gameweek_profile_value
+
+    player = HistoricalPlayerState(
+        player_id=101, web_name="Blank now", position=Position.FORWARD, team_id=1,
+        price_tenths=80, status="a", chance_of_playing_next_round=100,
+        chance_of_playing_this_round=100, total_points=6, minutes=90, starts=1,
+        expected_goals=0.5, expected_assists=0.2, expected_goal_involvements=0.7,
+        expected_goals_conceded=1.0, expected_goals_per_90=0.5,
+        expected_assists_per_90=0.2, expected_goals_conceded_per_90=1.0,
+        clean_sheets_per_90=0.0, bps=20, ict_index=5.0, form=6.0,
+        points_per_game=6.0, selected_by_percent=10.0, news="",
+        starts_last_3=1, starts_last_5=1, minutes_last_3=90, minutes_last_5=90,
+    )
+    snapshot = HistoricalGameweekSnapshot(
+        season="2023-24", gameweek=2, deadline_time="2023-08-18T17:15:00Z",
+        finished_gameweeks=1, players=(player,),
+        teams=(
+            {"team_id": 1, "short_name": "T1", "strength": 3},
+            {"team_id": 2, "short_name": "T2", "strength": 3},
+        ),
+        fixtures=(),
+    )
+    known_fixture = {
+        "id": 10, "event": 3, "team_h": 1, "team_a": 2,
+        "team_h_difficulty": 2, "team_a_difficulty": 4,
+        "kickoff_time": "2023-08-26T14:00:00Z",
+    }
+    fixture_requests: list[int] = []
+
+    def known_fixtures(season_dir: Path, gameweek: int) -> list[dict[str, Any]]:
+        assert season_dir == tmp_path
+        fixture_requests.append(gameweek)
+        return [known_fixture] if gameweek == 3 else []
+
+    actual_project = expected_points.project_player_gameweek
+    future_distributions: list[expected_points.ExpectedPointsProjection] = []
+
+    def project_frozen_features(**kwargs: Any) -> expected_points.ExpectedPointsProjection:
+        assert kwargs["minutes"] == 90
+        assert kwargs["starts"] == 1
+        assert kwargs["total_points"] == 6
+        assert kwargs["finished_matches"] == 1
+        assert kwargs["expected_goals"] == 0.5
+        assert kwargs["is_long_term_unavailable"] is False
+        projected = actual_project(**kwargs)
+        # Control only the mean; uncertainty still comes from the production model.
+        if kwargs["team_fixtures_in_gw"]:
+            future_distributions.append(projected)
+            return replace(projected, expected_points=8.0)
+        return projected
+
+    def reject_future_snapshot_or_outcomes(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("Forward bounds must not load a later snapshot or match outcomes")
+
+    monkeypatch.setattr(decision_engine, "get_historical_fixtures_for_gw", known_fixtures)
+    monkeypatch.setattr(expected_points, "project_player_gameweek", project_frozen_features)
+    monkeypatch.setattr(reconstruction, "project_player_gameweek", project_frozen_features)
+    monkeypatch.setattr(
+        learned_participation, "predict_player_participation_v09",
+        lambda **kwargs: ParticipationPrediction(0.9, 0.05, 0.95, 0.85, 90.0, 20.0, 82.0, "nailed_starter", 1.0, 1.0),
+    )
+    monkeypatch.setattr(snapshots, "build_historical_snapshot", reject_future_snapshot_or_outcomes)
+    monkeypatch.setattr(snapshots, "load_gameweek_outcomes", reject_future_snapshot_or_outcomes)
+    players, _ = snapshots.load_historical_players_meta(snapshot, tmp_path, horizon=horizon)
+    loaded = players[101]
+
+    assert loaded.gw_xp == loaded.xp_floor == loaded.xp_ceiling == 0.0
+    assert loaded.horizon_xp == 8.0
+    assert loaded.gw_breakdown_xp == ({2: 0.0, 3: 8.0} if horizon == 2 else {2: 0.0, 3: 8.0, 4: 0.0})
+    assert loaded.horizon_floor == pytest.approx(future_distributions[0].xp_floor)
+    assert loaded.horizon_ceiling == pytest.approx(future_distributions[0].xp_ceiling)
+    assert 0.0 < loaded.horizon_floor < loaded.horizon_ceiling
+    future_reference = replace(
+        loaded, expected_points=8.0, xp_floor=loaded.horizon_floor,
+        xp_ceiling=loaded.horizon_ceiling,
+    )
+    for risk_profile in ("neutral", "floor", "ceiling", "chase", "defend_lead"):
+        assert _gameweek_profile_value(loaded, 0.0, risk_profile) == 0.0
+        assert _gameweek_profile_value(loaded, 8.0, risk_profile) == pytest.approx(
+            get_player_profile_value(future_reference, risk_profile),
+        )
+    assert set(fixture_requests) <= {3, 4}
+    assert snapshot.gameweek == 2
+    assert snapshot.finished_gameweeks == 1
+    assert snapshot.fixtures == ()
 
 
 @pytest.fixture

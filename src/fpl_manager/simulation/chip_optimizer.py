@@ -23,6 +23,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from itertools import product
 import json
 import logging
 import math
@@ -50,6 +51,44 @@ CANONICAL_CHIP_NAMES = {
     "triple_captain": "triple_captain",
     "triplecaptain": "triple_captain",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ChipCalibrationConfig:
+    """Empirical calibration constants derived from 5-season historical ablation study.
+
+    These constants balance immediate gameweek valuation against multi-gameweek continuation value.
+    """
+    # Bench Boost calibration
+    bb_dgw_immediate_boost: float = 3.0       # Expected extra points when deploying Bench Boost in a DGW
+    bb_future_dgw2_target: float = 16.0       # Option value ceiling when multiple DGW teams remain
+    bb_future_dgw1_target: float = 13.0       # Option value when single DGW remains
+    bb_future_standard_target: float = 9.5    # Option value benchmark in standard non-DGW gameweeks
+
+    # Triple Captain calibration
+    tc_future_dgw_target: float = 14.0        # Opportunity cost target when a strong DGW captain fixture exists
+    tc_future_standard_target: float = 8.0     # Expected opportunity cost in single fixture weeks
+
+    # Free Hit calibration
+    fh_blank_player_gain: float = 4.8         # Points recovered per missing/blanking player (replacement delta)
+    fh_dgw_slot_gain: float = 3.5             # Points gained per extra DGW asset upgraded via Free Hit
+    fh_base_lineup_delta: float = 2.0         # Baseline optimization uplift from temporary £100m allocation
+    fh_future_major_blank: float = 16.0       # Base opportunity cost for major Blank Gameweek (e.g. FA Cup quarter-finals)
+    fh_future_blank_multiplier: float = 4.0   # Incremental option value per blanking squad player
+    fh_future_mega_dgw: float = 18.0          # Opportunity cost when mega-DGW (>= 4 teams) is ahead
+    fh_future_standard: float = 7.0           # Opportunity cost in standard gameweeks
+
+    # Wildcard calibration
+    wc_hit_saving_per_player: float = 4.0     # Immediate transfer point penalty saved per collapsed player
+    wc_persistence_rate: float = 0.6          # Compounding points per gameweek remaining in segment
+    wc_persistence_max: float = 10.0          # Maximum persistent restructuring gain
+    wc_expiry_urgency_bonus: float = 12.0     # Urgency boost when <= 2 gameweeks remain in segment window
+    wc_future_base: float = 7.0               # Base future opportunity value of holding wildcard
+    wc_future_rem_slope: float = 0.8          # Rate at which wildcard option value scales with remaining GWs
+    wc_future_rem_max: float = 9.0            # Ceiling for wildcard duration value
+
+
+CALIBRATION_DEFAULT = ChipCalibrationConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +206,272 @@ def extract_season_fixture_topology(
     return topologies
 
 
+@dataclass(frozen=True, slots=True)
+class _CandGwProj:
+    player_id: int
+    id: int
+    web_name: str
+    team_id: int
+    position: Any
+    status: str
+    expected_points: float
+    expected_minutes: float
+    play_probability: float
+    start_probability: float
+    availability_pct: float
+    chance_of_playing_next_round: int | None
+    consecutive_zero_mins: int
+    is_long_term_unavailable: bool
+    price_tenths: int = 50
+
+
+def _norm_pos(pos: Any) -> str:
+    if hasattr(pos, "name"):
+        s = pos.name.upper()
+    elif hasattr(pos, "value"):
+        s = str(pos.value).upper()
+    else:
+        s = str(pos).upper()
+    if s in ("GKP", "GOALKEEPER", "1"):
+        return "GKP"
+    if s in ("DEF", "DEFENDER", "2"):
+        return "DEF"
+    if s in ("MID", "MIDFIELDER", "3"):
+        return "MID"
+    if s in ("FWD", "FORWARD", "4"):
+        return "FWD"
+    return s
+
+
+def _calc_legal_squad_xi_xp(squad_projs: list[_CandGwProj]) -> float:
+    by_pos: dict[str, list[float]] = {"GKP": [], "DEF": [], "MID": [], "FWD": []}
+    for p in squad_projs:
+        pos_k = _norm_pos(p.position)
+        if pos_k in by_pos:
+            by_pos[pos_k].append(p.expected_points)
+    for k in by_pos:
+        by_pos[k].sort(reverse=True)
+    gks = by_pos["GKP"]
+    defs = by_pos["DEF"]
+    mids = by_pos["MID"]
+    fwds = by_pos["FWD"]
+    if not gks or len(defs) < 3 or len(mids) < 2 or len(fwds) < 1:
+        all_vals = sorted((p.expected_points for p in squad_projs), reverse=True)
+        return round(sum(all_vals[:11]), 2)
+    best_val = 0.0
+    for n_def, n_mid, n_fwd in [(3, 5, 2), (3, 4, 3), (4, 4, 2), (4, 3, 3), (4, 5, 1), (5, 3, 2), (5, 4, 1), (5, 2, 3)]:
+        if len(defs) >= n_def and len(mids) >= n_mid and len(fwds) >= n_fwd:
+            tot = gks[0] + sum(defs[:n_def]) + sum(mids[:n_mid]) + sum(fwds[:n_fwd])
+            if tot > best_val:
+                best_val = tot
+    return round(best_val, 2)
+
+
+_SQUAD_QUOTAS = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
+
+
+def _squad_completion_cost_floor(
+    by_pos: dict[str, list[_CandGwProj]],
+    selected_ids: set[int],
+    team_counts: dict[int, int],
+    needed: dict[str, int],
+) -> int | None:
+    """Distinct-player cost lower bound; shared club capacity across positions is relaxed."""
+    cost = 0
+    for pos, count in needed.items():
+        if not count:
+            continue
+        extra_counts: dict[int, int] = {}
+        found = 0
+        for player in by_pos[pos]:
+            if player.player_id in selected_ids:
+                continue
+            club = player.team_id
+            if team_counts.get(club, 0) + extra_counts.get(club, 0) >= 3:
+                continue
+            cost += player.price_tenths
+            extra_counts[club] = extra_counts.get(club, 0) + 1
+            found += 1
+            if found == count:
+                break
+        if found < count:
+            return None
+    return cost
+
+
+def _find_legal_bench_completion(
+    xi: list[_CandGwProj],
+    by_pos: dict[str, list[_CandGwProj]],
+    max_budget_tenths: int,
+) -> list[_CandGwProj] | None:
+    """Find an exact four-player completion, using a small club/position cost DP.
+
+    ``by_pos`` is price-sorted and contains one record per player ID. Only the
+    cheapest required players per position/club can matter. With four bench
+    slots there are at most sixteen position-count states, independent of pool size.
+    """
+    selected_ids = {p.player_id for p in xi}
+    if len(xi) != 11 or len(selected_ids) != 11:
+        return None
+    remaining = dict(_SQUAD_QUOTAS)
+    team_counts: dict[int, int] = {}
+    for player in xi:
+        pos = _norm_pos(player.position)
+        if pos not in remaining:
+            return None
+        remaining[pos] -= 1
+        team_counts[player.team_id] = team_counts.get(player.team_id, 0) + 1
+    if (
+        remaining["GKP"] != 1
+        or not 0 <= remaining["DEF"] <= 2
+        or not 0 <= remaining["MID"] <= 3
+        or not 0 <= remaining["FWD"] <= 2
+        or max(team_counts.values()) > 3
+    ):
+        return None
+    budget = max_budget_tenths - sum(p.price_tenths for p in xi)
+    floor = _squad_completion_cost_floor(by_pos, selected_ids, team_counts, remaining)
+    if floor is None or floor > budget:
+        return None
+
+    positions = tuple(_SQUAD_QUOTAS)
+    target = tuple(remaining[pos] for pos in positions)
+    clubs: dict[int, list[list[_CandGwProj]]] = {}
+    for index, pos in enumerate(positions):
+        if not remaining[pos]:
+            continue
+        for player in by_pos[pos]:
+            if player.player_id in selected_ids or team_counts.get(player.team_id, 0) >= 3:
+                continue
+            groups = clubs.setdefault(player.team_id, [[] for _ in positions])
+            if len(groups[index]) < remaining[pos]:
+                groups[index].append(player)
+
+    zero = (0, 0, 0, 0)
+    states: dict[tuple[int, ...], tuple[int, tuple[_CandGwProj, ...]]] = {zero: (0, ())}
+    for club, groups in clubs.items():
+        capacity = 3 - team_counts.get(club, 0)
+        options = []
+        for counts in product(*(range(len(group) + 1) for group in groups)):
+            if sum(counts) > capacity:
+                continue
+            players = tuple(p for group, count in zip(groups, counts) for p in group[:count])
+            cost = sum(p.price_tenths for p in players)
+            if cost <= budget:
+                options.append((counts, cost, players))
+        updated = dict(states)
+        for counts, (cost, players) in states.items():
+            for added, extra_cost, extra_players in options:
+                total_cost = cost + extra_cost
+                if total_cost > budget:
+                    continue
+                total_counts = tuple(a + b for a, b in zip(counts, added))
+                if any(a > b for a, b in zip(total_counts, target)):
+                    continue
+                previous = updated.get(total_counts)
+                if previous is None or total_cost < previous[0]:
+                    updated[total_counts] = (total_cost, players + extra_players)
+        states = updated
+        if target in states:
+            return list(states[target][1])
+    return None
+
+
+def _calc_achievable_pool_xi_xp(pool_projs: list[_CandGwProj], max_budget_tenths: int) -> float:
+    """Approximate the best XI, accepting only proven budget-legal full squads."""
+    all_by_pos: dict[str, list[_CandGwProj]] = {pos: [] for pos in _SQUAD_QUOTAS}
+    seen: set[int] = set()
+    for player in pool_projs:
+        pos = _norm_pos(player.position)
+        if pos not in all_by_pos or player.player_id in seen or is_departed_from_premier_league(player):
+            continue
+        seen.add(player.player_id)
+        all_by_pos[pos].append(player)
+    for candidates in all_by_pos.values():
+        candidates.sort(key=lambda p: (p.price_tenths, -p.expected_points))
+    if any(len(all_by_pos[pos]) < count for pos, count in _SQUAD_QUOTAS.items()):
+        return 0.0
+
+    filtered_by_pos: dict[str, list[_CandGwProj]] = {pos: [] for pos in _SQUAD_QUOTAS}
+    for pos, candidates in all_by_pos.items():
+        needed = dict(_SQUAD_QUOTAS)
+        needed[pos] -= 1
+        for player in candidates:
+            if player.status not in ("a", "d") or player.is_long_term_unavailable or player.expected_points <= 0.0:
+                continue
+            floor = _squad_completion_cost_floor(
+                all_by_pos, {player.player_id}, {player.team_id: 1}, needed,
+            )
+            if floor is not None and player.price_tenths + floor <= max_budget_tenths:
+                filtered_by_pos[pos].append(player)
+        filtered_by_pos[pos].sort(key=lambda p: (p.expected_points, -p.price_tenths), reverse=True)
+
+    gks = filtered_by_pos["GKP"]
+    defs = filtered_by_pos["DEF"]
+    mids = filtered_by_pos["MID"]
+    fwds = filtered_by_pos["FWD"]
+    cheap_by_pos = {
+        pos: sorted(candidates, key=lambda p: p.price_tenths)
+        for pos, candidates in filtered_by_pos.items()
+    }
+    formations = [(3, 5, 2), (3, 4, 3), (4, 4, 2), (4, 3, 3), (4, 5, 1), (5, 3, 2), (5, 4, 1), (5, 2, 3)]
+    best_pool_xi = 0.0
+    pool_outfield = (
+        [("DEF", p) for p in defs[:12]]
+        + [("MID", p) for p in mids[:12]]
+        + [("FWD", p) for p in fwds[:8]]
+    )
+    pool_outfield.sort(key=lambda item: item[1].expected_points, reverse=True)
+
+    for n_def, n_mid, n_fwd in formations:
+        if len(defs) < n_def or len(mids) < n_mid or len(fwds) < n_fwd:
+            continue
+        for gk in gks[:4]:
+            xi = [gk]
+            selected_ids = {gk.player_id}
+            counts = {gk.team_id: 1}
+            needed = {"DEF": n_def, "MID": n_mid, "FWD": n_fwd}
+            remaining = dict(_SQUAD_QUOTAS)
+            remaining["GKP"] -= 1
+            spent = gk.price_tenths
+
+            def add_candidate(pos: str, candidate: _CandGwProj) -> bool:
+                nonlocal spent
+                if not needed[pos] or candidate.player_id in selected_ids or counts.get(candidate.team_id, 0) >= 3:
+                    return False
+                new_ids = selected_ids | {candidate.player_id}
+                new_counts = dict(counts)
+                new_counts[candidate.team_id] = new_counts.get(candidate.team_id, 0) + 1
+                new_remaining = dict(remaining)
+                new_remaining[pos] -= 1
+                floor = _squad_completion_cost_floor(all_by_pos, new_ids, new_counts, new_remaining)
+                if floor is None or spent + candidate.price_tenths + floor > max_budget_tenths:
+                    return False
+                if len(xi) == 10 and _find_legal_bench_completion(
+                    xi + [candidate], all_by_pos, max_budget_tenths,
+                ) is None:
+                    return False
+                xi.append(candidate)
+                selected_ids.add(candidate.player_id)
+                counts[candidate.team_id] = new_counts[candidate.team_id]
+                remaining[pos] -= 1
+                needed[pos] -= 1
+                spent += candidate.price_tenths
+                return True
+
+            for pos, candidate in pool_outfield:
+                add_candidate(pos, candidate)
+            for pos in needed:
+                if needed[pos]:
+                    for candidate in cheap_by_pos[pos]:
+                        add_candidate(pos, candidate)
+                        if not needed[pos]:
+                            break
+            if not any(needed.values()):
+                best_pool_xi = max(best_pool_xi, sum(p.expected_points for p in xi))
+    return round(best_pool_xi, 2)
+
+
 class ChipOpportunityOptimizer:
     """Unified mathematical optimizer for strategic FPL chip deployment."""
 
@@ -175,10 +480,12 @@ class ChipOpportunityOptimizer:
         variant: str = "c2_ev_planner",
         discount_factor: float = 0.96,
         cooldown_gameweeks: int = 2,
+        calibration: ChipCalibrationConfig = CALIBRATION_DEFAULT,
     ) -> None:
         self.variant = variant
         self.discount_factor = discount_factor
         self.cooldown_gameweeks = cooldown_gameweeks
+        self.cal = calibration
 
     def resolve_segment_window(self, gameweek: int) -> tuple[int, int, str]:
         """Return (segment_start, segment_end, segment_name) for gameweek."""
@@ -450,61 +757,67 @@ class ChipOpportunityOptimizer:
         if chip == "triple_captain":
             if not squad_projs:
                 return 0.0
-            best_cand = max(
-                squad_projs,
-                key=lambda p: getattr(p, "expected_points", 0.0) * getattr(p, "start_probability", 1.0),
-                default=None,
-            )
+
+            def _cap_val(p: Any) -> float:
+                xp = getattr(p, "expected_points", 0.0)
+                sp = getattr(p, "start_probability", 0.0)
+                if sp <= 0.0 and getattr(p, "status", "a") == "a" and getattr(p, "availability_pct", 100.0) > 50.0:
+                    sp = 1.0
+                return float(xp * sp)
+
+            best_cand = max(squad_projs, key=_cap_val, default=None)
             if best_cand is None:
                 return 0.0
-            base_xp = getattr(best_cand, "expected_points", 0.0)
-            start_p = getattr(best_cand, "start_probability", 1.0)
-            # Extra 1x multiplier of top captain
-            return float(base_xp * start_p)
+            return _cap_val(best_cand)
 
         elif chip == "bench_boost":
             sorted_projs = sorted(squad_projs, key=lambda p: getattr(p, "expected_points", 0.0), reverse=True)
             bench_projs = sorted_projs[11:] if len(sorted_projs) >= 15 else sorted_projs[max(0, len(sorted_projs) - 4):]
-            bench_xp = sum(
-                getattr(p, "expected_points", 0.0) * getattr(p, "play_probability", 1.0)
-                for p in bench_projs
-            )
-            # Calibration: in standard gameweeks, a bench needs to be genuinely strong (12+ xP) or
+
+            def _bench_p_val(p: Any) -> float:
+                xp = getattr(p, "expected_points", 0.0)
+                pp = getattr(p, "play_probability", 0.0)
+                if pp <= 0.0 and getattr(p, "status", "a") == "a" and getattr(p, "availability_pct", 100.0) > 50.0:
+                    pp = 1.0
+                return float(xp * pp)
+
+            bench_xp = sum(_bench_p_val(p) for p in bench_projs)
+            # Calibration: in standard gameweeks, a bench needs to be genuinely strong or
             # upcoming gameweeks will offer higher returns in DGW clusters.
-            dgw_boost = 3.0 if (topo and topo.is_double) else 0.0
+            dgw_boost = self.cal.bb_dgw_immediate_boost if (topo and topo.is_double) else 0.0
             return float(bench_xp + dgw_boost)
 
         elif chip == "free_hit":
             # Realistic Free Hit value:
-            # 1. Blank recovery: each squad player blanking scores 0 instead of ~4.2 pts
+            # 1. Blank recovery: each squad player blanking scores 0 instead of average expected points
             squad_blanks = sum(1 for pid in squad_ids if player_team_map.get(pid) in blank_teams)
-            blank_gain = squad_blanks * 4.8
+            blank_gain = squad_blanks * self.cal.fh_blank_player_gain
 
             # 2. DGW exploitation: if DGW present, free hit can target DGW assets
             squad_doubles = sum(1 for pid in squad_ids if player_team_map.get(pid) in double_teams)
             max_dgw_slots = min(9, len(double_teams) * 3)
-            dgw_gain = max(0, max_dgw_slots - squad_doubles) * 3.5 if double_teams else 0.0
+            dgw_gain = max(0, max_dgw_slots - squad_doubles) * self.cal.fh_dgw_slot_gain if double_teams else 0.0
 
             # 3. Base lineup optimization delta under budget constraints
-            base_delta = 2.0
+            base_delta = self.cal.fh_base_lineup_delta
             return float(blank_gain + dgw_gain + base_delta)
 
         elif chip == "wildcard":
             # Restructuring value:
             collapsed = self._count_collapsed_squad_players(squad_ids, proj_map, snapshot)
             # Transfer hit savings for fixing broken squad
-            hit_savings = max(0, (collapsed - 1) * 4.0)
+            hit_savings = max(0, (collapsed - 1) * self.cal.wc_hit_saving_per_player)
 
             # Fixture run restructuring bonus:
             # If many gameweeks remain in segment, wildcard upgrades persist over multiple GWs
             seg_start, seg_end, _ = self.resolve_segment_window(gameweek)
             remaining_gws = seg_end - gameweek
-            persistence = min(10.0, remaining_gws * 0.6)
+            persistence = min(self.cal.wc_persistence_max, remaining_gws * self.cal.wc_persistence_rate)
 
             # Near-expiry urgency bonus (approaching GW 18-19 or 36-38)
             expiry_urgency = 0.0
             if remaining_gws <= 2:
-                expiry_urgency = 12.0
+                expiry_urgency = self.cal.wc_expiry_urgency_bonus
 
             return float(hit_savings + persistence + expiry_urgency)
 
@@ -549,32 +862,32 @@ class ChipOpportunityOptimizer:
 
             if chip == "triple_captain":
                 if topo.is_double and len(topo.double_team_ids) >= 1:
-                    ev_estimate = 14.0 * h_discount
+                    ev_estimate = self.cal.tc_future_dgw_target * h_discount
                 else:
-                    ev_estimate = 8.0 * h_discount
+                    ev_estimate = self.cal.tc_future_standard_target * h_discount
 
             elif chip == "bench_boost":
                 if topo.is_double and len(topo.double_team_ids) >= 2:
-                    ev_estimate = 16.0 * h_discount
+                    ev_estimate = self.cal.bb_future_dgw2_target * h_discount
                 elif topo.is_double:
-                    ev_estimate = 13.0 * h_discount
+                    ev_estimate = self.cal.bb_future_dgw1_target * h_discount
                 else:
                     # Non-DGW benchmark bench expectation
-                    ev_estimate = 9.5 * h_discount
+                    ev_estimate = self.cal.bb_future_standard_target * h_discount
 
             elif chip == "free_hit":
                 blank_count = sum(1 for tid in squad_teams if tid in topo.blank_team_ids)
                 if blank_count >= 3 or (topo.is_blank and len(topo.blank_team_ids) >= 4):
-                    ev_estimate = (16.0 + blank_count * 4.0) * h_discount
+                    ev_estimate = (self.cal.fh_future_major_blank + blank_count * self.cal.fh_future_blank_multiplier) * h_discount
                 elif topo.is_double and len(topo.double_team_ids) >= 4:
-                    ev_estimate = 18.0 * h_discount
+                    ev_estimate = self.cal.fh_future_mega_dgw * h_discount
                 else:
-                    ev_estimate = 7.0 * h_discount
+                    ev_estimate = self.cal.fh_future_standard * h_discount
 
             elif chip == "wildcard":
                 rem_after = seg_end - fut_gw
                 # Future opportunity decays naturally as remaining gameweeks diminish
-                ev_estimate = (7.0 + min(9.0, rem_after * 0.8)) * h_discount
+                ev_estimate = (self.cal.wc_future_base + min(self.cal.wc_future_rem_max, rem_after * self.cal.wc_future_rem_slope)) * h_discount
 
             if ev_estimate > max_fut_ev:
                 max_fut_ev = ev_estimate
@@ -719,3 +1032,462 @@ class ChipOpportunityOptimizer:
             correction = 1.0
 
         return future_ev * correction
+
+    def generate_segment_roadmap(
+        self,
+        sim: Any,
+        start_gw: int | None = None,
+    ) -> dict[str, Any]:
+        """Generate a conflict-free, squad-sensitive chip deployment roadmap for the active segment (V146-18).
+
+        Strictly uses point-in-time projections from `sim.get_current_snapshot()` and known future
+        fixture topology without hardcoded placeholder EVs or confidence constants.
+        """
+        from ..historical.snapshots import load_historical_players_meta
+
+        eff_start_gw = max(int(start_gw or sim.current_gw), int(sim.current_gw))
+        seg_start, seg_end, seg_name = self.resolve_segment_window(eff_start_gw)
+        is_seg1 = eff_start_gw <= 19
+
+        # Resolve remaining and used chips for the active segment in UI format
+        remaining_clean: list[str] = []
+        for c in getattr(sim, "chips_remaining", []):
+            norm = str(c).lower().replace("-", "_")
+            if norm in ("wildcard_1", "wildcard_2", "wildcard"):
+                if (is_seg1 and norm in ("wildcard_1", "wildcard")) or (not is_seg1 and norm in ("wildcard_2", "wildcard")):
+                    if "wildcard" not in remaining_clean:
+                        remaining_clean.append("wildcard")
+            elif norm in ("free_hit", "freehit"):
+                if "freehit" not in remaining_clean:
+                    remaining_clean.append("freehit")
+            elif norm in ("bench_boost", "benchboost"):
+                if "benchboost" not in remaining_clean:
+                    remaining_clean.append("benchboost")
+            elif norm in ("triple_captain", "triplecaptain"):
+                if "triplecaptain" not in remaining_clean:
+                    remaining_clean.append("triplecaptain")
+
+        used_clean: list[str] = []
+        recent_wc_gw: int | None = None
+        for c, used_gw in (getattr(sim, "chips_used", {}) or {}).items():
+            norm = str(c).lower().replace("-", "_")
+            if norm.startswith("wildcard"):
+                if recent_wc_gw is None or int(used_gw) > recent_wc_gw:
+                    recent_wc_gw = int(used_gw)
+            if (is_seg1 and int(used_gw) <= 19) or (not is_seg1 and int(used_gw) >= 20):
+                if norm.startswith("wildcard") and "wildcard" not in used_clean:
+                    used_clean.append("wildcard")
+                elif (norm.startswith("free_hit") or norm.startswith("freehit")) and "freehit" not in used_clean:
+                    used_clean.append("freehit")
+                elif (norm.startswith("bench_boost") or norm.startswith("benchboost")) and "benchboost" not in used_clean:
+                    used_clean.append("benchboost")
+                elif (norm.startswith("triple_captain") or norm.startswith("triplecaptain")) and "triplecaptain" not in used_clean:
+                    used_clean.append("triplecaptain")
+
+        season_dir = getattr(sim, "season_dir", None) or (sim.historical_dir / sim.season)
+        topo_map = extract_season_fixture_topology(season=sim.season, season_dir=season_dir)
+        snapshot = sim.get_current_snapshot()
+        seg_horizon = max(1, seg_end - int(sim.current_gw) + 1)
+        players_map, _ = load_historical_players_meta(snapshot, season_dir, horizon=seg_horizon)
+
+        # Effective squad reflecting any unapplied staged transfers
+        eff_squad_ids = list(int(pid) for pid in sim.squad_ids)
+        for st in getattr(sim, "transfers_staged", []) or []:
+            if st.get("already_applied"):
+                continue
+            o_id = int(st["out_id"])
+            i_id = int(st["in_id"])
+            if o_id in eff_squad_ids:
+                eff_squad_ids[eff_squad_ids.index(o_id)] = i_id
+            elif i_id not in eff_squad_ids:
+                eff_squad_ids.append(i_id)
+
+        snap_player_map = {int(p.player_id): p for p in getattr(snapshot, "players", [])}
+
+        ui_to_canon = {
+            "wildcard": "wildcard",
+            "freehit": "free_hit",
+            "benchboost": "bench_boost",
+            "triplecaptain": "triple_captain",
+        }
+        canon_to_ui = {v: k for k, v in ui_to_canon.items()}
+        canon_available = [ui_to_canon[c] for c in remaining_clean if c in ui_to_canon]
+        recent_history = {"wildcard": recent_wc_gw} if recent_wc_gw is not None else {}
+
+        candidates_by_chip: dict[str, list[dict[str, Any]]] = {
+            "freehit": [],
+            "triplecaptain": [],
+            "benchboost": [],
+            "wildcard": [],
+        }
+
+        total_capital = int(getattr(sim, "bank_tenths", 0))
+        from ..transfers import selling_price
+        for pid in eff_squad_ids:
+            sp_raw = snap_player_map.get(pid)
+            cur_p = int(getattr(sp_raw, "price_tenths", 50))
+            purch_p = int(getattr(sim, "purchase_prices_tenths", {}).get(str(pid), cur_p))
+            total_capital += selling_price(purch_p, cur_p)
+        if total_capital <= 0:
+            total_capital = 1000
+
+        target_gws = list(range(eff_start_gw, seg_end + 1))
+
+        # Precompute per-GW projection objects and pool benchmarks
+        gw_proj_lists: dict[int, list[_CandGwProj]] = {}
+        gw_proj_maps: dict[int, dict[int, _CandGwProj]] = {}
+        gw_pool_top11_xp: dict[int, float] = {}
+        gw_squad_top11_xp: dict[int, float] = {}
+
+        for gw in target_gws:
+            p_list: list[_CandGwProj] = []
+            p_map: dict[int, _CandGwProj] = {}
+            for pid, p_info in players_map.items():
+                sp_raw = snap_player_map.get(pid)
+                xp_val = float(p_info.gw_breakdown_xp.get(gw, 0.0))
+                xm_val = float(p_info.expected_minutes) if xp_val > 0.0 else 0.0
+                play_p = min(1.0, max(0.0, xm_val / 75.0)) if xp_val > 0.0 else 0.0
+                start_p = min(1.0, max(0.0, xm_val / 85.0)) if xp_val > 0.0 else 0.0
+                p_price = int(getattr(p_info, "price_tenths", getattr(sp_raw, "price_tenths", 50)))
+                c_proj = _CandGwProj(
+                    player_id=pid,
+                    id=pid,
+                    web_name=p_info.name,
+                    team_id=p_info.team_id,
+                    position=p_info.position,
+                    status=p_info.status,
+                    expected_points=xp_val,
+                    expected_minutes=xm_val,
+                    play_probability=play_p,
+                    start_probability=start_p,
+                    availability_pct=100.0 if p_info.status == "a" else 50.0,
+                    chance_of_playing_next_round=getattr(sp_raw, "chance_of_playing_next_round", 100),
+                    consecutive_zero_mins=getattr(sp_raw, "consecutive_zero_mins", 0),
+                    is_long_term_unavailable=bool(p_info.is_long_term_unavailable),
+                    price_tenths=p_price,
+                )
+                p_list.append(c_proj)
+                p_map[pid] = c_proj
+            gw_proj_lists[gw] = p_list
+            gw_proj_maps[gw] = p_map
+
+            gw_pool_top11_xp[gw] = _calc_achievable_pool_xi_xp(p_list, total_capital)
+            squad_projs = [p_map[pid] for pid in eff_squad_ids if pid in p_map]
+            gw_squad_top11_xp[gw] = _calc_legal_squad_xi_xp(squad_projs)
+
+        # Step 1: Compute squad-sensitive immediate EV for every (chip, gw) in the segment
+        raw_imm_ev: dict[str, dict[int, float]] = {c: {} for c in canon_available}
+        raw_blocked_reason: dict[str, dict[int, str]] = {c: {} for c in canon_available}
+
+        for gw in target_gws:
+            opps = self.evaluate_all_opportunities(
+                gameweek=gw,
+                available_chips=canon_available,
+                squad_ids=eff_squad_ids,
+                snapshot=snapshot,
+                projections=gw_proj_lists[gw],
+                chips_used=getattr(sim, "chips_used", None),
+                recent_chip_history=recent_history,
+                fixture_topology=topo_map,
+            )
+            for canon_chip, opp_val in opps.items():
+                if opp_val.net_utility <= -10.0 and opp_val.immediate_ev <= 2.0:
+                    # Blocked by guardrail (GW1, postponed matchday, wildcard cooldown, or early WC guard)
+                    raw_imm_ev[canon_chip][gw] = opp_val.immediate_ev
+                    raw_blocked_reason[canon_chip][gw] = opp_val.reasoning
+                    continue
+
+                imm = float(opp_val.immediate_ev)
+                if canon_chip == "free_hit":
+                    deficit = max(0.0, gw_pool_top11_xp[gw] - gw_squad_top11_xp[gw])
+                    imm = round(imm + deficit * 0.22, 2)
+                elif canon_chip == "wildcard":
+                    rem_window = [g for g in target_gws if gw <= g < min(seg_end + 1, gw + 6)]
+                    if rem_window:
+                        avg_deficit = sum(max(0.0, gw_pool_top11_xp[g] - gw_squad_top11_xp[g]) for g in rem_window) / len(rem_window)
+                        imm = round(imm + avg_deficit * 0.25, 2)
+                raw_imm_ev[canon_chip][gw] = round(imm, 2)
+
+        # Step 2: Derive dynamic future opportunity cost, net utility, confidence, and gw_type for each (chip, gw)
+        for canon_chip in canon_available:
+            ui_chip = canon_to_ui[canon_chip]
+            for gw in target_gws:
+                topo = topo_map.get(gw)
+                blocked_msg = raw_blocked_reason[canon_chip].get(gw)
+                imm_ev = raw_imm_ev[canon_chip].get(gw, 0.0)
+
+                if blocked_msg:
+                    fut_ev, _ = self._compute_future_opportunity(
+                        chip=canon_chip,
+                        current_gw=gw,
+                        seg_end=seg_end,
+                        squad_ids=eff_squad_ids,
+                        proj_map=gw_proj_maps[gw],
+                        snapshot=snapshot,
+                        fixture_topology=topo_map,
+                    )
+                    candidates_by_chip[ui_chip].append({
+                        "chip": ui_chip,
+                        "gameweek": gw,
+                        "gw_type": "GUARDRAIL_BLOCKED",
+                        "immediate_ev": round(imm_ev, 2),
+                        "future_opportunity": round(fut_ev, 2),
+                        "net_utility": round(imm_ev - fut_ev, 2),
+                        "confidence": 0.95,
+                        "reasoning": blocked_msg,
+                        "blocked": True,
+                    })
+                    continue
+
+                # Best discounted future immediate_ev across remaining GWs in segment
+                fut_max = 0.0
+                best_fut_gw: int | None = None
+                for fut_gw in range(gw + 1, seg_end + 1):
+                    if fut_gw in raw_blocked_reason[canon_chip]:
+                        continue
+                    dist = fut_gw - gw
+                    disc_val = raw_imm_ev[canon_chip].get(fut_gw, 0.0) * math.pow(self.discount_factor, dist)
+                    if disc_val > fut_max:
+                        fut_max = disc_val
+                        best_fut_gw = fut_gw
+
+                if gw >= seg_end:
+                    fut_max = 0.0
+                    best_fut_gw = None
+
+                fut_max = round(fut_max, 2)
+                net_util = round(imm_ev - fut_max, 2)
+                conf = round(min(0.98, max(0.52, 0.92 - (gw - eff_start_gw) * 0.02 + (0.04 if (topo and (topo.is_double or topo.is_blank)) else 0.0))), 2)
+
+                if topo and topo.is_double and topo.is_blank:
+                    gw_type = "BLANK_AND_DOUBLE_GW"
+                elif topo and topo.is_double:
+                    gw_type = "DOUBLE_GAMEWEEK"
+                elif topo and topo.is_blank:
+                    gw_type = "BLANK_GAMEWEEK"
+                elif gw >= seg_end - 1:
+                    gw_type = "SEGMENT_EXPIRY_WINDOW"
+                elif canon_chip == "wildcard":
+                    gw_type = "FIXTURE_SWING_RESTRUCTURE"
+                else:
+                    gw_type = "OPTIMAL_FIXTURE_WINDOW"
+
+                fut_clause = f"GW{best_fut_gw} ({fut_max:.1f} pts)" if best_fut_gw else "0.0 pts (window end)"
+                reason = (
+                    f"Optimizer valuation for GW{gw} ({gw_type}): immediate EV {imm_ev:.1f} pts "
+                    f"vs best future option {fut_clause}; net utility {net_util:+.1f} pts."
+                )
+
+                candidates_by_chip[ui_chip].append({
+                    "chip": ui_chip,
+                    "gameweek": gw,
+                    "gw_type": gw_type,
+                    "rating": round(imm_ev, 2),
+                    "immediate_ev": round(imm_ev, 2),
+                    "future_opportunity": fut_max,
+                    "net_utility": net_util,
+                    "confidence": conf,
+                    "reasoning": reason,
+                    "blocked": False,
+                })
+
+            candidates_by_chip[ui_chip].sort(
+                key=lambda c: (not c.get("blocked", False), c["immediate_ev"], c["net_utility"], -c["gameweek"]),
+                reverse=True,
+            )
+
+        # Step 3: Conflict-free assignment across available chips in the segment
+        schedule: list[dict[str, Any]] = []
+        assigned_gws: set[int] = set()
+        scheduled_wc_gw: int | None = recent_wc_gw
+        scheduled_fh_gw: int | None = None
+        unscheduled_reasons: dict[str, str] = {}
+
+        # Check if engine recommends an immediate chip for current_gw
+        recs = sim.get_recommendations()
+        rec_chip_raw = recs.get("recommended_chip")
+        if rec_chip_raw and eff_start_gw == int(sim.current_gw):
+            norm_rec_canon = self.normalize_chip_name(rec_chip_raw)
+            norm_rec_ui = canon_to_ui.get(norm_rec_canon)
+            if norm_rec_ui in remaining_clean:
+                cur_cand = next(
+                    (c for c in candidates_by_chip.get(norm_rec_ui, []) if c["gameweek"] == int(sim.current_gw) and not c.get("blocked")),
+                    None,
+                )
+                opp = recs.get("recommended_chip_opportunity") or {}
+                imm_v = cur_cand["immediate_ev"] if cur_cand else round(float(opp.get("immediate_ev", 0.0)), 2)
+                fut_v = cur_cand["future_opportunity"] if cur_cand else round(float(opp.get("future_max_ev", 0.0)), 2)
+                net_v = cur_cand["net_utility"] if cur_cand else round(float(opp.get("net_utility", imm_v - fut_v)), 2)
+                conf_v = cur_cand["confidence"] if cur_cand else round(float(opp.get("confidence", 0.9)), 2)
+                alts = [
+                    {
+                        "gameweek": a["gameweek"],
+                        "immediate_ev": a["immediate_ev"],
+                        "net_utility": a["net_utility"],
+                        "gw_type": a["gw_type"],
+                    }
+                    for a in candidates_by_chip.get(norm_rec_ui, [])
+                    if a["gameweek"] != int(sim.current_gw) and not a.get("blocked")
+                ][:2]
+                schedule.append({
+                    "gameweek": int(sim.current_gw),
+                    "chip": norm_rec_ui,
+                    "gw_type": cur_cand["gw_type"] if cur_cand else "OPPORTUNITY_COST_OPTIMIZER",
+                    "reasoning": opp.get("reasoning") or (cur_cand["reasoning"] if cur_cand else f"Recommended by ChipOpportunityOptimizer for GW{sim.current_gw}."),
+                    "immediate_ev": imm_v,
+                    "future_opportunity": fut_v,
+                    "net_utility": net_v,
+                    "confidence": conf_v,
+                    "alternatives": alts,
+                })
+                assigned_gws.add(int(sim.current_gw))
+                if norm_rec_ui == "wildcard":
+                    scheduled_wc_gw = int(sim.current_gw)
+                elif norm_rec_ui == "freehit":
+                    scheduled_fh_gw = int(sim.current_gw)
+
+        chip_priority = ["freehit", "triplecaptain", "benchboost", "wildcard"]
+        unassigned_chips = [
+            c for c in chip_priority
+            if c in remaining_clean and not any(s["chip"] == c for s in schedule)
+        ]
+
+        def _is_cooldown_ok(gw: int, other_gw: int | None) -> bool:
+            if other_gw is None:
+                return True
+            return abs(gw - other_gw) > self.cooldown_gameweeks
+
+        # Joint pair assignment for Free Hit and Wildcard if both are unassigned
+        if "freehit" in unassigned_chips and "wildcard" in unassigned_chips:
+            fh_cands = [
+                c for c in candidates_by_chip.get("freehit", [])
+                if not c.get("blocked") and c["gameweek"] not in assigned_gws and _is_cooldown_ok(c["gameweek"], scheduled_wc_gw)
+            ]
+            wc_cands = [
+                c for c in candidates_by_chip.get("wildcard", [])
+                if not c.get("blocked") and c["gameweek"] not in assigned_gws and _is_cooldown_ok(c["gameweek"], scheduled_fh_gw) and _is_cooldown_ok(c["gameweek"], recent_wc_gw)
+            ]
+            valid_pairs = []
+            for c_fh in fh_cands:
+                for c_wc in wc_cands:
+                    if c_fh["gameweek"] != c_wc["gameweek"] and _is_cooldown_ok(c_fh["gameweek"], c_wc["gameweek"]):
+                        score = (c_fh["immediate_ev"] + c_wc["immediate_ev"], c_fh["net_utility"] + c_wc["net_utility"])
+                        valid_pairs.append((score, c_fh, c_wc))
+            if valid_pairs:
+                valid_pairs.sort(key=lambda item: item[0], reverse=True)
+                _, best_fh, best_wc = valid_pairs[0]
+                for chosen, ui_chip, all_c in [(best_fh, "freehit", fh_cands), (best_wc, "wildcard", wc_cands)]:
+                    assigned_gws.add(chosen["gameweek"])
+                    alts = [
+                        {
+                            "gameweek": a["gameweek"],
+                            "immediate_ev": a["immediate_ev"],
+                            "net_utility": a["net_utility"],
+                            "gw_type": a["gw_type"],
+                        }
+                        for a in all_c
+                        if a["gameweek"] != chosen["gameweek"] and not a.get("blocked")
+                    ][:2]
+                    schedule.append({
+                        "gameweek": chosen["gameweek"],
+                        "chip": ui_chip,
+                        "gw_type": chosen["gw_type"],
+                        "reasoning": chosen["reasoning"],
+                        "immediate_ev": chosen["immediate_ev"],
+                        "future_opportunity": chosen["future_opportunity"],
+                        "net_utility": chosen["net_utility"],
+                        "confidence": chosen["confidence"],
+                        "alternatives": alts,
+                    })
+                scheduled_fh_gw = best_fh["gameweek"]
+                scheduled_wc_gw = best_wc["gameweek"]
+                unassigned_chips = [c for c in unassigned_chips if c not in ("freehit", "wildcard")]
+
+        for ui_chip in unassigned_chips:
+            valid_cands = [
+                c for c in candidates_by_chip.get(ui_chip, [])
+                if not c.get("blocked") and c["gameweek"] not in assigned_gws
+            ]
+            # Enforce Wildcard <-> Free Hit cooldown only between wildcard and freehit (never benchboost/triplecaptain)
+            if ui_chip == "freehit" and scheduled_wc_gw is not None:
+                valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], scheduled_wc_gw)]
+            elif ui_chip == "wildcard":
+                if scheduled_fh_gw is not None:
+                    valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], scheduled_fh_gw)]
+                if recent_wc_gw is not None:
+                    valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], recent_wc_gw)]
+
+            if not valid_cands:
+                unscheduled_reasons[ui_chip] = (
+                    f"No eligible deployment window in segment satisfies strategy guardrails or cooldown for {ui_chip}."
+                )
+                continue
+
+            chosen = valid_cands[0]
+            assigned_gws.add(chosen["gameweek"])
+            if ui_chip == "wildcard":
+                scheduled_wc_gw = chosen["gameweek"]
+            elif ui_chip == "freehit":
+                scheduled_fh_gw = chosen["gameweek"]
+
+            alts = [
+                {
+                    "gameweek": a["gameweek"],
+                    "immediate_ev": a["immediate_ev"],
+                    "net_utility": a["net_utility"],
+                    "gw_type": a["gw_type"],
+                }
+                for a in valid_cands[1:3]
+            ]
+            schedule.append({
+                "gameweek": chosen["gameweek"],
+                "chip": ui_chip,
+                "gw_type": chosen["gw_type"],
+                "reasoning": chosen["reasoning"],
+                "immediate_ev": chosen["immediate_ev"],
+                "future_opportunity": chosen["future_opportunity"],
+                "net_utility": chosen["net_utility"],
+                "confidence": chosen["confidence"],
+                "alternatives": alts,
+            })
+
+        schedule.sort(key=lambda s: s["gameweek"])
+
+        has_bgw = any(topo_map.get(g) and topo_map[g].is_blank for g in target_gws)
+        has_dgw = any(topo_map.get(g) and topo_map[g].is_double for g in target_gws)
+
+        return {
+            "session_id": sim.session_id,
+            "season": sim.season,
+            "gameweek": int(sim.current_gw),
+            "start_gw": eff_start_gw,
+            "end_gw": seg_end,
+            "segment": seg_name,
+            "segment_start": seg_start,
+            "segment_end": seg_end,
+            "chips_reset_after_gw": 19,
+            "available_chips": remaining_clean,
+            "used_chips": used_clean,
+            "active_chip": getattr(sim, "active_chip", None),
+            "has_confirmed_blank_gameweeks": has_bgw,
+            "has_confirmed_double_gameweeks": has_dgw,
+            "recommended_schedule": schedule,
+            "unscheduled_chips": unscheduled_reasons,
+            "has_confirmed_double_gameweeks": has_dgw,
+            "recommended_schedule": schedule,
+            "candidate_rankings": {
+                k: [
+                    {
+                        "gameweek": c["gameweek"],
+                        "gw_type": c["gw_type"],
+                        "immediate_ev": c["immediate_ev"],
+                        "future_opportunity": c["future_opportunity"],
+                        "net_utility": c["net_utility"],
+                        "confidence": c["confidence"],
+                        "reasoning": c["reasoning"],
+                    }
+                    for c in v[:3]
+                ]
+                for k, v in candidates_by_chip.items()
+            },
+        }

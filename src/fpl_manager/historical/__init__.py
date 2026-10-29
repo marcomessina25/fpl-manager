@@ -6,6 +6,10 @@ from .models import (
     HistoricalPlayerState,
     SeasonManifest,
 )
+from .snapshots import (
+    build_historical_snapshot,
+    load_historical_players_meta,
+)
 from .standings import (
     HistoricalFixtureResult,
     HistoricalUpcomingFixture,
@@ -25,10 +29,12 @@ __all__ = [
     "HistoricalUpcomingFixture",
     "SeasonManifest",
     "TeamStanding",
+    "build_historical_snapshot",
     "compute_historical_standings",
     "get_historical_matchday_overview",
     "get_historical_past_results",
     "get_historical_upcoming_fixtures",
     "get_live_matchday_overview",
+    "load_historical_players_meta",
 ]
 

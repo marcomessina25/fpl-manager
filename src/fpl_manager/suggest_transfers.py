@@ -5,7 +5,8 @@ and squad selling-price rules with the combinatorial optimizers in `fpl_manager.
 """
 
 import json
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ from .models import (
     is_departed_from_premier_league,
     is_long_term_unavailable,
 )
-from .optimizer import solve_transfers, solve_wildcard, validate_risk_profile
+from .optimizer import get_player_profile_value, solve_transfers, solve_wildcard, validate_risk_profile
 from .squad_state import load_current_squad
 from .storage import SnapshotStore
 from .strategic_squad import (
@@ -62,6 +63,7 @@ class PlayerInfo:
     horizon_floor: float = 0.0
     horizon_ceiling: float = 0.0
     is_long_term_unavailable: bool = False
+    gw_breakdown_xp: dict[int, float] = field(default_factory=dict)
 
 
 def load_all_players_meta(
@@ -95,7 +97,8 @@ def load_all_players_meta(
     players_map: dict[int, PlayerInfo] = {}
     for p_id, web_name, pos_id, t_id, price, status, pts, news, chance_next, chance_this in players_rows:
         t_short = team_map.get(t_id, f"T{t_id}")
-        prof = profiles_map.get(p_id) if profiles_map else None
+        prof = (profiles_map or {}).get(p_id)
+        p_gw_breakdown = {}
         if isinstance(prof, MultiGameweekProfile):
             p_horizon_xp = float(prof.expected_points)
             f_count = max(1, prof.fixtures_count)
@@ -107,6 +110,7 @@ def load_all_players_meta(
             p_std = prof.standard_deviation
             p_horizon_floor = float(prof.xp_floor)
             p_horizon_ceil = float(prof.xp_ceiling)
+            p_gw_breakdown = dict(prof.gw_breakdown_xp)
         elif isinstance(prof, (int, float)):
             p_xp = float(prof)
             p_gw_xp = p_xp
@@ -149,17 +153,204 @@ def load_all_players_meta(
             is_long_term_unavailable=evaluate_long_term_unavailable(
                 status, news, chance_this, chance_next, datetime.now(timezone.utc)
             ),
+            gw_breakdown_xp=p_gw_breakdown,
         )
 
     return players_map, team_map
 
+
+@dataclass(frozen=True, slots=True)
+class _GameweekRiskProjection:
+    expected_points: float
+    xp_floor: float
+    xp_ceiling: float
+    standard_deviation: float
+    selected_by_percent: float
+
+
+def _gameweek_profile_value(player: Any, mean_xp: float, risk_profile: str) -> float:
+    """Scale the player's distribution to the forward GW, then use the shared objective."""
+    if mean_xp <= 0.0:
+        return 0.0
+    base_xp = float(getattr(player, "gw_xp", 0.0) or player.expected_points)
+    floor_xp = float(getattr(player, "xp_floor", base_xp))
+    ceiling_xp = float(getattr(player, "xp_ceiling", base_xp))
+    horizon_xp = float(getattr(player, "horizon_xp", 0.0))
+    horizon_floor = float(getattr(player, "horizon_floor", 0.0))
+    horizon_ceiling = float(getattr(player, "horizon_ceiling", 0.0))
+    if (
+        (base_xp <= 0.0 or (floor_xp <= 0.0 and ceiling_xp <= 0.0))
+        and horizon_xp > 0.0
+        and (horizon_floor > 0.0 or horizon_ceiling > 0.0)
+    ):
+        # A current blank's zero bounds are not a distribution for its future fixtures.
+        base_xp, floor_xp, ceiling_xp = horizon_xp, horizon_floor, horizon_ceiling
+    ratio = mean_xp / base_xp if base_xp > 0.0 else 1.0
+    projection = _GameweekRiskProjection(
+        expected_points=mean_xp,
+        xp_floor=floor_xp * ratio,
+        xp_ceiling=ceiling_xp * ratio,
+        standard_deviation=float(getattr(player, "standard_deviation", 1.0)) * ratio,
+        selected_by_percent=float(getattr(player, "selected_by_percent", 10.0)),
+    )
+    return get_player_profile_value(projection, risk_profile)
+
+
+def rescore_transfer_candidates(
+    raw_results: list[dict[str, Any]],
+    squad_players: list[Any],
+    players_map: dict[int, Any],
+    projections_by_gw: dict[int, dict[int, float]],
+    eff_horizon: int = 1,
+    eff_gamma: float = 1.0,
+    max_results: int = 30,
+    risk_profile: str = "neutral",
+) -> list[dict[str, Any]]:
+    """Rank by risk-aware lineup utility while reporting mean lineup xP separately."""
+    from .backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
+
+    risk_profile = validate_risk_profile(risk_profile)
+    profile_projections = projections_by_gw
+    if risk_profile != "neutral":
+        all_players = {p.id: p for p in squad_players} | players_map
+        profile_projections = {
+            gw: {
+                pid: _gameweek_profile_value(
+                    p, gw_map.get(pid, p.expected_points), risk_profile,
+                )
+                for pid, p in all_players.items()
+            }
+            for gw, gw_map in projections_by_gw.items()
+        } or {0: {pid: get_player_profile_value(p, risk_profile) for pid, p in all_players.items()}}
+
+    curr_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+        squad_players, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+    )
+    curr_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+        squad_players, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
+    )
+    curr_lineup_utility = curr_lineup_xp if risk_profile == "neutral" else _evaluate_squad_multi_horizon_lineup_xp(
+        squad_players, profile_projections, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+    )
+
+    rescored_results: list[dict[str, Any]] = []
+    for idx, rec in enumerate(raw_results):
+        out_ids = [p["id"] for p in rec.get("outgoing", [])]
+        in_ids = [p["id"] for p in rec.get("incoming", [])]
+        out_set = set(out_ids)
+
+        if len(squad_players) == 15:
+            new_squad = [p for p in squad_players if p.id not in out_set] + [
+                players_map[pid] for pid in in_ids if pid in players_map
+            ]
+            new_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+                new_squad, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+            )
+            lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
+            new_lineup_utility = new_lineup_xp if risk_profile == "neutral" else _evaluate_squad_multi_horizon_lineup_xp(
+                new_squad, profile_projections, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+            )
+            profile_delta = round(new_lineup_utility - curr_lineup_utility, 2)
+
+            if eff_horizon > 1:
+                new_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
+                    new_squad, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
+                )
+                single_delta = round(new_single_lineup_xp - curr_single_lineup_xp, 2)
+                multi_horizon_gain = round(lineup_delta - single_delta, 2)
+            else:
+                single_delta = lineup_delta
+                multi_horizon_gain = 0.0
+
+            hits = rec.get("transfer_hits", 0)
+            hit_pts = hits * 4
+            fdr_gain = rec.get("fdr_improvement", 0.0)
+            dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
+            v125_net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
+            profile_net_gain = round(profile_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
+        else:
+            lineup_delta = rec.get("xp_delta", 0.0)
+            single_delta = lineup_delta
+            hit_pts = rec.get("transfer_hits", 0) * 4
+            v125_net_gain = rec.get("score", 0.0)
+            profile_net_gain = rec.get("score", 0.0)
+            profile_delta = round(profile_net_gain + hit_pts - 0.1 * rec.get("fdr_improvement", 0.0) - rec.get("dead_capital_bonus", 0.0), 2)
+            if risk_profile != "neutral":
+                v125_net_gain = round(lineup_delta - hit_pts + 0.1 * rec.get("fdr_improvement", 0.0) + rec.get("dead_capital_bonus", 0.0), 2)
+            multi_horizon_gain = 0.0
+
+        # Role-Specific Transfer Hurdle & GK Playing Security Invariant (Pillar 2)
+        has_gk = any(
+            p.get("position") in ("GKP", 1, Position.GOALKEEPER)
+            or getattr(players_map.get(p["id"]), "position", None) == Position.GOALKEEPER
+            for p in rec.get("outgoing", [])
+        )
+        if has_gk:
+            incumbent_insecure = False
+            for p in rec.get("outgoing", []):
+                p_meta = players_map.get(p["id"])
+                if p_meta and getattr(p_meta, "position", None) == Position.GOALKEEPER:
+                    if getattr(p_meta, "status", "a") != "a" or getattr(p_meta, "play_probability", 1.0) < 0.50:
+                        incumbent_insecure = True
+                        break
+            if incumbent_insecure:
+                hurdle = 0.50
+                gk_status = "approved_incumbent_insecure"
+            else:
+                hurdle = 3.00 if eff_horizon >= 3 else 1.50
+                gk_status = "approved_hurdle_met" if profile_net_gain >= hurdle else "suppressed_high_hurdle"
+        else:
+            hurdle = 0.50
+            gk_status = "n/a"
+
+        hurdle_passed = bool(profile_net_gain >= hurdle)
+        pool_expansion_surfaced = bool(idx >= 5)
+
+        if has_gk and gk_status == "suppressed_high_hurdle":
+            score_label = "xP" if risk_profile == "neutral" else f"{risk_profile} utility"
+            summary = f"GK swap (+{profile_net_gain:.2f} {score_label}) suppressed below {hurdle:.2f} hurdle"
+        elif pool_expansion_surfaced:
+            summary = f"Pool expansion surfaced Starting XI upgrade (+{lineup_delta:.2f} xP)"
+        elif multi_horizon_gain > 0.5:
+            summary = f"Multi-GW fixture horizon elevated asset (+{multi_horizon_gain:.2f} xP over 1-GW)"
+        else:
+            summary = f"Lineup-optimized Starting XI move (+{lineup_delta:.2f} xP)"
+
+        rec_copy = dict(rec)
+        rec_copy["lineup_xp_delta"] = lineup_delta
+        rec_copy["gw1_lineup_xp_delta"] = single_delta if len(squad_players) == 15 else lineup_delta
+        rec_copy["net_lineup_xp_delta"] = round(lineup_delta - hit_pts, 2) if len(squad_players) == 15 else round(lineup_delta - (rec.get("transfer_hits", 0) * 4), 2)
+        rec_copy["v125_net_gain"] = v125_net_gain
+        rec_copy["risk_profile"] = risk_profile
+        rec_copy["lineup_profile_delta"] = profile_delta
+        rec_copy["net_lineup_profile_delta"] = round(profile_delta - hit_pts, 2)
+        rec_copy["profile_net_gain"] = profile_net_gain
+        rec_copy["hurdle"] = hurdle
+        rec_copy["hurdle_passed"] = hurdle_passed
+        rec_copy["score"] = profile_net_gain
+        rec_copy["net_xp_gain"] = v125_net_gain
+        rec_copy["reason_breakdown"] = {
+            "pool_expansion_surfaced": pool_expansion_surfaced,
+            "gk_suppression": gk_status,
+            "multi_horizon_gain": multi_horizon_gain,
+            "hurdle": hurdle,
+            "hurdle_passed": hurdle_passed,
+            "summary": summary,
+        }
+        rescored_results.append(rec_copy)
+
+    rescored_results.sort(
+        key=lambda r: (r.get("hurdle_passed", True), r["profile_net_gain"]),
+        reverse=True,
+    )
+    return rescored_results[:max_results]
 
 
 def suggest_transfers(
     num_transfers: int = 1,
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
-    max_results: int = 15,
+    max_results: int = 30,
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
     report_path: Path = TRANSFERS_REPORT_PATH,
@@ -168,6 +359,8 @@ def suggest_transfers(
     engine: str = "v1.3.5",
     gamma: float = 0.75,
     horizon: int = 3,
+    team_id: str | None = None,
+    config_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad.
 
@@ -188,14 +381,34 @@ def suggest_transfers(
     is_v135 = clean_engine in ("v1.3.5", "v1.4", "v135", "v14", "default") or (not is_legacy and not is_v12 and not is_v125)
     engine_name = "v1.3.5" if is_v135 else ("v1.2.5" if is_v125 else ("v1.2" if is_v12 else "legacy"))
 
-    state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
+    curr_gw = get_current_gameweek(store)
+    if squad_path.exists():
+        from .teams import sync_squad_with_current_gameweek
+        resolved_team_id = team_id
+        resolved_config_dir = config_dir
+        if not resolved_team_id:
+            if squad_path.name == "squad.json" and squad_path.parent.parent.name == "teams":
+                resolved_team_id = squad_path.parent.name
+                if resolved_config_dir is None:
+                    resolved_config_dir = squad_path.parent.parent.parent
+            else:
+                resolved_team_id = "default"
+        state = sync_squad_with_current_gameweek(
+            squad_path,
+            team_id=resolved_team_id,
+            config_dir=resolved_config_dir,
+            database_path=database_path,
+        )
+    else:
+        state = load_current_squad(squad_path)
+
     if gameweek is not None:
         start_gw = gameweek
-    elif state.gameweek is not None:
+    elif state.gameweek is not None and state.gameweek >= curr_gw:
         start_gw = state.gameweek
     else:
-        start_gw = get_current_gameweek(store)
+        start_gw = curr_gw
     target_gws = list(range(start_gw, start_gw + num_gameweeks))
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)
@@ -256,8 +469,6 @@ def suggest_transfers(
             "top_suggestions": top_results,
         }
     else:
-        from .backtest.decision_engine import _evaluate_squad_multi_horizon_lineup_xp
-
         eff_horizon = 1 if is_v12 else min(num_gameweeks, horizon)
         eff_gamma = 1.0 if is_v12 else gamma
 
@@ -265,113 +476,38 @@ def suggest_transfers(
         projections_by_gw: dict[int, dict[int, float]] = {}
         for gw_idx, gw in enumerate(target_gws[:eff_horizon]):
             if gw_idx == 0:
-                projections_by_gw[gw] = {p.id: p.expected_points for p in players_map.values()}
+                projections_by_gw[gw] = {
+                    p.id: (
+                        p.gw_breakdown_xp.get(gw, 0.0)
+                        if getattr(p, "gw_breakdown_xp", None)
+                        else p.expected_points
+                    )
+                    for p in players_map.values()
+                }
             else:
                 try:
                     projs = project_gameweek(gw, database_path=database_path)
                     projections_by_gw[gw] = {p.player_id: p.expected_points for p in projs}
                 except Exception:
-                    projections_by_gw[gw] = {p.id: p.expected_points for p in players_map.values()}
+                    projections_by_gw[gw] = {
+                        p.id: (
+                            p.gw_breakdown_xp.get(gw, 0.0)
+                            if getattr(p, "gw_breakdown_xp", None)
+                            else p.expected_points
+                        )
+                        for p in players_map.values()
+                    }
 
-        curr_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-            squad_players, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
+        top_results = rescore_transfer_candidates(
+            raw_results=raw_results,
+            squad_players=squad_players,
+            players_map=players_map,
+            projections_by_gw=projections_by_gw,
+            eff_horizon=eff_horizon,
+            eff_gamma=eff_gamma,
+            max_results=max_results,
+            risk_profile=risk_profile,
         )
-        curr_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-            squad_players, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
-        )
-
-        rescored_results: list[dict[str, Any]] = []
-        for idx, rec in enumerate(raw_results):
-            out_ids = [p["id"] for p in rec.get("outgoing", [])]
-            in_ids = [p["id"] for p in rec.get("incoming", [])]
-            out_set = set(out_ids)
-
-            if len(squad_players) == 15:
-                new_squad = [p for p in squad_players if p.id not in out_set] + [
-                    players_map[pid] for pid in in_ids if pid in players_map
-                ]
-                new_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-                    new_squad, projections_by_gw, horizon=eff_horizon, gamma=eff_gamma, bench_w=0.15
-                )
-                lineup_delta = round(new_lineup_xp - curr_lineup_xp, 2)
-
-                if eff_horizon > 1:
-                    new_single_lineup_xp = _evaluate_squad_multi_horizon_lineup_xp(
-                        new_squad, projections_by_gw, horizon=1, gamma=1.0, bench_w=0.15
-                    )
-                    single_delta = round(new_single_lineup_xp - curr_single_lineup_xp, 2)
-                    multi_horizon_gain = round(lineup_delta - single_delta, 2)
-                else:
-                    multi_horizon_gain = 0.0
-
-                hits = rec.get("transfer_hits", 0)
-                hit_pts = hits * 4
-                fdr_gain = rec.get("fdr_improvement", 0.0)
-                dead_cap_gain = rec.get("dead_capital_bonus", 0.0)
-                v125_net_gain = round(lineup_delta - hit_pts + 0.1 * fdr_gain + dead_cap_gain, 2)
-            else:
-                lineup_delta = rec.get("xp_delta", 0.0)
-                v125_net_gain = rec.get("score", 0.0)
-                multi_horizon_gain = 0.0
-
-            # Role-Specific Transfer Hurdle & GK Playing Security Invariant (Pillar 2)
-            has_gk = any(
-                p.get("position") in ("GKP", 1, Position.GOALKEEPER)
-                or getattr(players_map.get(p["id"]), "position", None) == Position.GOALKEEPER
-                for p in rec.get("outgoing", [])
-            )
-            if has_gk:
-                incumbent_insecure = False
-                for p in rec.get("outgoing", []):
-                    p_meta = players_map.get(p["id"])
-                    if p_meta and getattr(p_meta, "position", None) == Position.GOALKEEPER:
-                        if getattr(p_meta, "status", "a") != "a" or getattr(p_meta, "play_probability", 1.0) < 0.50:
-                            incumbent_insecure = True
-                            break
-                if incumbent_insecure:
-                    hurdle = 0.50
-                    gk_status = "approved_incumbent_insecure"
-                else:
-                    hurdle = 3.00 if eff_horizon >= 3 else 1.50
-                    gk_status = "approved_hurdle_met" if v125_net_gain >= hurdle else "suppressed_high_hurdle"
-            else:
-                hurdle = 0.50
-                gk_status = "n/a"
-
-            hurdle_passed = bool(v125_net_gain >= hurdle)
-            pool_expansion_surfaced = bool(idx >= 5)
-
-            if has_gk and gk_status == "suppressed_high_hurdle":
-                summary = f"GK swap (+{v125_net_gain:.2f} xP) suppressed below {hurdle:.2f} hurdle"
-            elif pool_expansion_surfaced:
-                summary = f"Pool expansion surfaced Starting XI upgrade (+{lineup_delta:.2f} xP)"
-            elif multi_horizon_gain > 0.5:
-                summary = f"Multi-GW fixture horizon elevated asset (+{multi_horizon_gain:.2f} xP over 1-GW)"
-            else:
-                summary = f"Lineup-optimized Starting XI move (+{lineup_delta:.2f} xP)"
-
-            rec_copy = dict(rec)
-            rec_copy["lineup_xp_delta"] = lineup_delta
-            rec_copy["v125_net_gain"] = v125_net_gain
-            rec_copy["hurdle"] = hurdle
-            rec_copy["hurdle_passed"] = hurdle_passed
-            rec_copy["score"] = v125_net_gain
-            rec_copy["net_xp_gain"] = v125_net_gain
-            rec_copy["reason_breakdown"] = {
-                "pool_expansion_surfaced": pool_expansion_surfaced,
-                "gk_suppression": gk_status,
-                "multi_horizon_gain": multi_horizon_gain,
-                "hurdle": hurdle,
-                "hurdle_passed": hurdle_passed,
-                "summary": summary,
-            }
-            rescored_results.append(rec_copy)
-
-        rescored_results.sort(
-            key=lambda r: (r.get("hurdle_passed", True), r.get("v125_net_gain", r.get("score", 0.0))),
-            reverse=True,
-        )
-        top_results = rescored_results[:max_results]
 
         report = {
             "num_transfers": num_transfers,
@@ -393,6 +529,22 @@ def suggest_transfers(
                     for r in top_results
                 ),
             },
+        }
+
+    team_counts = Counter(getattr(p, "team_short", getattr(p, "team_id", "")) for p in squad_players)
+    excess_teams = {t: c for t, c in team_counts.items() if c > 3}
+    if excess_teams:
+        max_excess = max(excess_teams.values())
+        min_tx_needed = max_excess - 3
+        report["team_quota_warning"] = {
+            "excess_teams": excess_teams,
+            "min_transfers_needed": min_tx_needed,
+            "message": (
+                f"Squad currently has {', '.join(f'{c} players from {t}' for t, c in excess_teams.items())} "
+                f"due to mid-season real-life transfers. Official FPL rules require that any transfer move "
+                f"must restore your squad to at most 3 players per club. A minimum of {min_tx_needed} transfer(s) "
+                f"selling players from these club(s) is required to produce a legal squad."
+            ),
         }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -498,6 +650,7 @@ def suggest_strategic_squad(
     players_map, team_map = load_all_players_meta(store, profiles_map)
 
     # Calculate budget
+    eff_prices_tenths: dict[int, int] = dict(constraints.effective_prices_tenths) if constraints is not None else {}
     if budget_millions is not None:
         budget_tenths = int(round(budget_millions * 10))
     elif constraints is not None and constraints.budget_tenths:
@@ -507,26 +660,26 @@ def suggest_strategic_squad(
     else:
         try:
             state = load_current_squad(squad_path)
-            squad_selling_value = sum(
-                selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+            squad_effective_prices = {
+                p_id: selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
                 for p_id in state.player_ids
                 if p_id in players_map
-            )
+            }
+            squad_selling_value = sum(squad_effective_prices.values())
+            eff_prices_tenths = squad_effective_prices | eff_prices_tenths
             budget_tenths = state.bank_tenths + squad_selling_value
         except Exception:
             budget_tenths = 1000
 
     if constraints is not None:
-        effective_constraints = StrategicConstraints(
+        effective_constraints = replace(
+            constraints,
             budget_tenths=budget_tenths,
             locked_player_ids=set(constraints.locked_player_ids) | set(locked_player_ids or ()),
             excluded_player_ids=set(constraints.excluded_player_ids) | set(excluded_player_ids or ()),
             preferred_player_ids=set(constraints.preferred_player_ids) | set(preferred_player_ids or ()),
-            max_players_per_club=constraints.max_players_per_club,
-            position_quotas=constraints.position_quotas,
-            min_bank_tenths=constraints.min_bank_tenths,
-            soft_preference_weight=constraints.soft_preference_weight,
             target_gameweeks=tuple(target_gws),
+            effective_prices_tenths=eff_prices_tenths,
         )
     else:
         effective_constraints = StrategicConstraints(
@@ -535,6 +688,7 @@ def suggest_strategic_squad(
             excluded_player_ids=set(excluded_player_ids or ()),
             preferred_player_ids=set(preferred_player_ids or ()),
             target_gameweeks=tuple(target_gws),
+            effective_prices_tenths=eff_prices_tenths,
         )
 
     candidate_pool = list(players_map.values())
@@ -647,7 +801,6 @@ def suggest_free_hit(
         generate_all_candidates=True,
         report_path=report_path,
     )
-
 
 
 

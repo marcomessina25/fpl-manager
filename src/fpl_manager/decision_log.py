@@ -97,12 +97,12 @@ def record_gameweek_decision(
         for row in rows
     }
 
-    # Verify rule validity
+    # Verify rule validity (formation, 15 players, club limits; budget is None because price appreciation naturally increases squad value over time)
     squad_objs = [players_by_id[pid] for pid in squad_player_ids if pid in players_by_id]
     if len(squad_objs) != 15:
         raise ValueError(f"Not all squad player IDs could be resolved in snapshot #{snapshot_id}.")
 
-    squad_val = validate_squad(squad_objs)
+    squad_val = validate_squad(squad_objs, budget_tenths=None)
     if not squad_val.is_valid:
         raise ValueError(f"Squad legality check failed: {'; '.join(squad_val.errors)}")
 
@@ -859,8 +859,11 @@ def log_decision_from_current_squad(
                     tx["selling_price_tenths"] = selling_price
                     tx["purchase_price_tenths"] = in_current_cost
                     tx["outgoing_purchase_price_tenths"] = out_purchase
-
-        new_chips = list(state.chips_remaining)
+        # Crossing into second segment (GW20–38) resets chips to Window 2 inventory
+        if gameweek >= 20 and (state.gameweek or 1) <= 19:
+            new_chips = ["wildcard_2", "free_hit", "bench_boost", "triple_captain"]
+        else:
+            new_chips = list(state.chips_remaining)
         if chip_played:
             cp_norm = str(chip_played).lower().strip()
             to_remove = None
@@ -1165,10 +1168,11 @@ def apply_wildcard_or_freehit(
     with closing(store._connect()) as conn:
         snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
         snap_id = snap[0] if snap else 1
-        placeholders = ",".join("?" for _ in squad_ids)
+        all_need_ids = sorted(set(squad_ids) | set(state.player_ids))
+        placeholders = ",".join("?" for _ in all_need_ids)
         p_rows = conn.execute(
             f"SELECT player_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({placeholders})",
-            (snap_id, *squad_ids),
+            (snap_id, *all_need_ids),
         ).fetchall()
         costs = {r[0]: r[1] for r in p_rows}
 
@@ -1187,8 +1191,28 @@ def apply_wildcard_or_freehit(
     else:
         chip_norm = "freehit"
 
+    if chip_norm in ("wildcard", "freehit") and state.player_ids:
+        from .transfers import selling_price as _calc_sell
+        old_set = set(state.player_ids)
+        avail_budget = state.bank_tenths + sum(
+            _calc_sell(state.purchase_price(pid), costs.get(pid, state.purchase_price(pid)))
+            for pid in state.player_ids
+        )
+        req_cost = sum(
+            _calc_sell(state.purchase_price(pid), costs.get(pid, state.purchase_price(pid)))
+            if pid in old_set
+            else costs.get(pid, 50)
+            for pid in squad_ids
+        )
+        if req_cost > avail_budget:
+            raise ValueError(f"Strategic squad cost ({req_cost} tenths) exceeds available budget ({avail_budget} tenths).")
+        bank_tenths = avail_budget - req_cost
+
     # Deduct chip from chips_remaining if a chip was used
-    rem_chips = list(state.chips_remaining)
+    if gameweek >= 20 and (state.gameweek or 1) <= 19:
+        rem_chips = ["wildcard_2", "free_hit", "bench_boost", "triple_captain"]
+    else:
+        rem_chips = list(state.chips_remaining)
     to_remove = None
     if chip_norm:
         for c in rem_chips:

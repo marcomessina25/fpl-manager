@@ -1118,6 +1118,49 @@ def test_wildcard_reconciles_and_preserves_all_transfers_with_zero_hits(decision
         assert "purchase_price_tenths" in r
 
 
+def test_record_gameweek_decision_allows_squad_value_exceeding_100m(decision_test_env: tuple[Path, Path]) -> None:
+    """Ensure squad value appreciation (> £100.0m) does not block saving a lineup."""
+    from contextlib import closing
+    db_path, squad_path = decision_test_env
+    store = SnapshotStore(db_path)
+
+    # Inflate player prices in snapshot so the 15-man squad costs 15 * 70 = 1050 tenths (£105.0m)
+    with closing(store._connect()) as conn, conn:
+        conn.execute("UPDATE players SET price_tenths = 70 WHERE player_id IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)")
+
+    squad_ids = list(range(1, 16))
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 15]
+
+    # Saving lineup must succeed without raising "Squad legality check failed: Squad costs £105.0m, exceeding the £100.0m budget."
+    res = record_gameweek_decision(
+        gameweek=2,
+        squad_player_ids=squad_ids,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        database_path=db_path,
+        overwrite=True,
+    )
+    assert res is not None
+    assert res["gameweek"] == 2
+
+    # Also verify log_decision_from_current_squad (called by GUI Save Lineup) succeeds
+    res_squad = log_decision_from_current_squad(
+        gameweek=2,
+        squad_path=squad_path,
+        database_path=db_path,
+        starting_player_ids=starters,
+        bench_player_ids=bench,
+        captain_id=13,
+        vice_captain_id=8,
+        overwrite=True,
+    )
+    assert res_squad is not None
+    assert res_squad["gameweek"] == 2
+
+
 
 
 

@@ -172,7 +172,7 @@ def test_suggest_transfers_with_risk_profiles(tmp_path: Path, mock_suggest_db: t
     db_path, squad_path = mock_suggest_db
     report_file = tmp_path / "transfer_suggestions.json"
 
-    for risk in ("neutral", "floor", "ceiling"):
+    for risk in ("neutral", "floor", "ceiling", "chase", "defend_lead"):
         res = suggest_transfers(
             num_transfers=1,
             squad_path=squad_path,
@@ -188,6 +188,8 @@ def test_suggest_transfers_with_risk_profiles(tmp_path: Path, mock_suggest_db: t
         assert "floor_delta" in top
         assert "ceiling_delta" in top
         assert "xp_delta" in top
+        assert top["risk_profile"] == risk
+        assert top["score"] == top["profile_net_gain"]
 
     with pytest.raises(ValueError, match="Invalid risk_profile"):
         suggest_transfers(
@@ -198,3 +200,54 @@ def test_suggest_transfers_with_risk_profiles(tmp_path: Path, mock_suggest_db: t
             report_path=report_file,
         )
 
+
+@pytest.mark.parametrize("budget_millions", [None, 77.5])
+def test_strategic_service_preserves_retained_prices_and_constraints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budget_millions: float | None
+) -> None:
+    import importlib
+    from fpl_manager.models import Position
+    from fpl_manager.strategic_squad import StrategicConstraints
+    from fpl_manager.suggest_transfers import PlayerInfo
+
+    service = importlib.import_module("fpl_manager.suggest_transfers")
+    players = {
+        pid: PlayerInfo(
+            pid, f"Player {pid}",
+            Position(1 if pid <= 2 else 2 if pid <= 7 else 3 if pid <= 12 else 4),
+            pid, f"T{pid}", 50, "a", 0, expected_points=4.0,
+            xp_floor=3.0, xp_ceiling=5.0, gw_breakdown_xp={2: 4.0},
+        )
+        for pid in range(1, 16)
+    }
+    constraints = StrategicConstraints(
+        budget_tenths=775, locked_player_ids=set(players), bench_weight=0.15,
+        effective_prices_tenths={pid: 45 for pid in players},
+        min_bank_tenths=10, preferred_player_ids={13}, soft_preference_weight=2.0,
+    )
+    monkeypatch.setattr(service, "get_current_gameweek", lambda store: 2)
+    monkeypatch.setattr(service, "project_multi_gameweek_profiles", lambda *args, **kwargs: {})
+    monkeypatch.setattr(service, "load_all_players_meta", lambda *args: (players, {}))
+    actual_solve = service.solve_strategic_squad
+    received_constraints = []
+
+    def solve_with_actual_optimizer(**kwargs):
+        received_constraints.append(kwargs["constraints"])
+        return actual_solve(**kwargs)
+
+    monkeypatch.setattr(service, "solve_strategic_squad", solve_with_actual_optimizer)
+    result = service.suggest_strategic_squad(
+        mode="wildcard", budget_millions=budget_millions, constraints=constraints,
+        database_path=tmp_path / "unused.sqlite3", num_gameweeks=1,
+        generate_all_candidates=False, report_path=tmp_path / "strategic.json",
+    )
+
+    assert result["total_cost_tenths"] == 675
+    assert result["bank_remaining_tenths"] == 100
+    effective = received_constraints[0]
+    assert effective.effective_prices_tenths == constraints.effective_prices_tenths
+    assert effective.bench_weight == 0.15
+    assert effective.min_bank_tenths == 10
+    assert effective.soft_preference_weight == 2.0
+    assert effective.preferred_player_ids == {13}
+    assert constraints.target_gameweeks == ()

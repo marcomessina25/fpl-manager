@@ -53,7 +53,7 @@ class ValidationResult:
         return not self.errors
 
 
-def validate_squad(players: Iterable[Player], budget_tenths: int | None = MAX_BUDGET_TENTHS) -> ValidationResult:
+def validate_squad(players: Iterable[Player], budget_tenths: int | None = None) -> ValidationResult:
     """Validate a complete 15-player squad against fixed FPL constraints."""
     squad = tuple(players)
     errors: list[str] = []

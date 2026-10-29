@@ -549,3 +549,180 @@ def test_cli_v6_help(capsys: pytest.CaptureFixture[str]) -> None:
         assert exc.value.code == 0
         out, _ = capsys.readouterr()
         assert "--help" in out
+
+
+def test_api_plan_apply_step_success_with_transfers(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step applies step 0 transfers and lineup cleanly."""
+    body = {
+        "gameweek": 2,
+        "transfers": [{"outgoing_id": 15, "incoming_id": 16}],
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 16],
+        "captain_id": 3,
+        "vice_captain_id": 8,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["gameweek"] == 2
+        assert data["decision"]["captain_id"] == 3
+        assert data["decision"]["vice_captain_id"] == 8
+
+
+def test_api_plan_apply_step_lineup_only_no_transfers(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step applies lineup and captaincy when transfers is empty/None."""
+    body = {
+        "gameweek": 2,
+        "transfers": None,
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 15],
+        "captain_id": 8,
+        "vice_captain_id": 9,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["decision"]["captain_id"] == 8
+        assert data["decision"]["vice_captain_id"] == 9
+
+
+def test_api_plan_apply_step_rollback_on_invalid_lineup(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step rolls back squad and database when lineup validation fails."""
+    # Captain not in starting XI
+    body = {
+        "gameweek": 2,
+        "transfers": [],
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 15],
+        "captain_id": 2,  # player 2 is on bench, not starters!
+        "vice_captain_id": 8,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "Captain ID 2 must be in starting XI" in err_body["error"]
+
+
+@pytest.mark.parametrize("plan_transfers", [None, []])
+@pytest.mark.parametrize("executed_count", [1, 2])
+def test_lineup_only_plan_preserves_executed_transfers(
+    gui_test_server: str, tmp_path: Path, plan_transfers, executed_count: int
+) -> None:
+    from contextlib import closing
+    from fpl_manager.decision_log import get_gameweek_decision
+    from fpl_manager.squad_state import load_current_squad
+    from fpl_manager.teams import get_team_squad_path
+
+    database_path = tmp_path / "fpl.sqlite3"
+    store = SnapshotStore(database_path)
+    with closing(store._connect()) as connection, connection:
+        connection.execute("UPDATE players SET team_id = 3 WHERE player_id = 17")
+
+    trades = [{"outgoing_id": 15, "incoming_id": 16}]
+    if executed_count == 2:
+        trades.append({"outgoing_id": 13, "incoming_id": 17})
+    request = urllib.request.Request(
+        f"{gui_test_server}/api/transfers/execute",
+        data=json.dumps({"team_id": "default", "gameweek": 2, "transfers": trades}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request):
+        pass
+
+    squad_path = get_team_squad_path("default", tmp_path / "config")
+    before = get_gameweek_decision(2, team_id="default", database_path=database_path)
+    state_before = load_current_squad(squad_path)
+    assert before is not None
+    assert len(before["transfers"]) == executed_count
+    assert before["transfer_hits"] == executed_count - 1
+    assert state_before.free_transfers == 0
+
+    for _ in range(2):
+        request = urllib.request.Request(
+            f"{gui_test_server}/api/plan/apply-step",
+            data=json.dumps({
+                "team_id": "default",
+                "gameweek": 2,
+                "transfers": plan_transfers,
+                "starting_ids": before["starting_player_ids"],
+                "bench_ids": before["bench_player_ids"],
+                "captain_id": before["captain_id"],
+                "vice_captain_id": before["vice_captain_id"],
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 200
+        after = get_gameweek_decision(2, team_id="default", database_path=database_path)
+        state_after = load_current_squad(squad_path)
+        assert after["transfers"] == before["transfers"]
+        assert after["transfer_hits"] == before["transfer_hits"]
+        assert state_after.free_transfers == state_before.free_transfers
+        assert state_after.player_ids == state_before.player_ids
+        assert state_after.bank_tenths == state_before.bank_tenths
+        assert state_after.purchase_prices_tenths == state_before.purchase_prices_tenths
+
+
+def test_plan_apply_restores_existing_decision_after_execution_failure(
+    gui_test_server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import closing
+    from fpl_manager.teams import get_team_squad_path
+
+    def post(path: str, transfers: list[dict[str, int]]) -> None:
+        request = urllib.request.Request(
+            f"{gui_test_server}{path}",
+            data=json.dumps({"team_id": "default", "gameweek": 2, "transfers": transfers}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request):
+            pass
+
+    post("/api/transfers/execute", [{"outgoing_id": 15, "incoming_id": 16}])
+    squad_path = get_team_squad_path("default", tmp_path / "config")
+    squad_before = squad_path.read_bytes()
+    store = SnapshotStore(tmp_path / "fpl.sqlite3")
+
+    def decision_rows():
+        with closing(store._connect()) as connection:
+            decisions = connection.execute(
+                "SELECT * FROM decisions WHERE team_id = 'default' AND gameweek = 2"
+            ).fetchall()
+            recommendations = connection.execute(
+                "SELECT * FROM decision_recommendations WHERE decision_id = ?", (decisions[0][0],)
+            ).fetchall()
+        return decisions, recommendations
+
+    rows_before = decision_rows()
+
+    def fail_after_transfers(**kwargs):
+        raise RuntimeError("Injected failure after executing transfers")
+
+    monkeypatch.setattr(
+        "fpl_manager.gui.server.log_decision_from_current_squad", fail_after_transfers
+    )
+    with pytest.raises(urllib.error.HTTPError):
+        post("/api/plan/apply-step", [{"outgoing_id": 16, "incoming_id": 15}])
+    assert squad_path.read_bytes() == squad_before
+    assert decision_rows() == rows_before

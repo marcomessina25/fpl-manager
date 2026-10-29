@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-ball">⚽</span>
         <span class="logo-text">FPL <strong>MANAGER</strong></span>
-        <span class="badge-version" id="app-version-badge">v1.4.0</span>
+        <span class="badge-version" id="app-version-badge">v1.4.6</span>
       </div>
 
       <!-- App Modality Switcher -->
@@ -125,8 +125,8 @@
     <button class="tab-btn" data-tab="strategic">🧠 Strategic Studio</button>
     <button class="tab-btn mode-live-only" data-tab="live">⚡ Live Matchday</button>
     <button class="tab-btn mode-live-only" data-tab="advisor">🤖 AI Advisor & Briefing</button>
-    <button class="tab-btn mode-live-only" data-tab="decisions">📝 Decision Logger</button>
-    <button class="tab-btn mode-live-only" data-tab="planner">📅 Multi-GW Planner</button>
+    <button class="tab-btn" data-tab="decisions">📝 Decision Logger</button>
+    <button class="tab-btn" data-tab="planner">📅 Multi-GW Planner</button>
     <button class="tab-btn" data-tab="chips">🎯 Chip Strategy & Calendar</button>
     <button class="tab-btn" data-tab="evaluation">📈 Evaluation & History</button>
   </nav>
@@ -234,7 +234,26 @@
     <!-- TAB 1: PITCH & LINEUP -->
     <section id="tab-pitch" class="tab-pane">
       <!-- Live Pitch Wrapper -->
-      <div id="live-pitch-wrapper">
+      <div id="live-pitch-wrapper" class="pitch-mode-wrapper">
+        <!-- Live Gameweek Navigation Table Sidebar -->
+        <aside class="pitch-gw-table-sidebar card">
+          <div class="pitch-gw-table-header">
+            <strong>Gameweeks</strong>
+          </div>
+          <div class="pitch-gw-table-scroll">
+            <table class="pitch-gw-table">
+              <thead>
+                <tr>
+                  <th>GW</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody id="lineup-gw-table-body">
+              </tbody>
+            </table>
+          </div>
+        </aside>
+
         <div class="pitch-container-wrapper">
         <div class="pitch-header-panel">
           <div class="pitch-title-block">
@@ -258,18 +277,13 @@
         </div>
 
         <!-- Substitution Mode Active Bar -->
-        <div id="sub-mode-banner" class="sub-mode-bar hidden">
+        <div id="sub-mode-banner" class="sub-mode-bar hidden" style="display: none;">
           <div class="sub-bar-text">
             <span>🔄 Swapping <strong id="sub-source-name">-</strong>. Click any eligible player to complete substitution.</span>
           </div>
           <button id="btn-cancel-sub" class="btn btn-secondary btn-sm">Cancel</button>
         </div>
 
-        <!-- Gameweek Navigation Pills Bar -->
-        <div class="gw-pill-nav-container">
-          <div class="gw-nav-label">Gameweek:</div>
-          <div class="gw-pill-nav" id="lineup-gw-pills"></div>
-        </div>
 
         <!-- Matchday State Banner -->
         <div id="lineup-status-banner" class="matchday-banner hidden">
@@ -389,14 +403,35 @@
       </div>
 
       <!-- Historical Simulation Pitch Wrapper -->
-      <div id="hist-pitch-wrapper" style="display: none;">
+      <div id="hist-pitch-wrapper" class="pitch-mode-wrapper" style="display: none;">
+        <!-- Historical Gameweek Navigation Table Sidebar -->
+        <aside class="pitch-gw-table-sidebar card">
+          <div class="pitch-gw-table-header">
+            <strong>Gameweeks</strong>
+          </div>
+          <div class="pitch-gw-table-scroll">
+            <table class="pitch-gw-table">
+              <thead>
+                <tr>
+                  <th>GW</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody id="hist-lineup-gw-table-body">
+              </tbody>
+            </table>
+          </div>
+        </aside>
+
         <div class="pitch-container-wrapper">
           <div class="pitch-header-panel">
             <div class="pitch-title-block">
-              <h2>Historical Matchday Squad (Simulated GW <span id="hist-squad-gw">1</span>)</h2>
+              <h2 id="hist-lineup-headline">Historical Matchday Squad (Simulated GW <span id="hist-squad-gw">1</span>)</h2>
               <div id="hist-lineup-meta" class="lineup-meta-info">Point-in-Time Matchday Roster</div>
             </div>
-            <div class="pitch-controls">
+            <div class="pitch-controls" id="hist-pitch-controls">
+              <label for="hist-lineup-gw-select">GW:</label>
+              <input type="number" id="hist-lineup-gw-select" min="1" max="38" value="" class="input-sm" style="width: 55px;">
               <select id="hist-chip-select" class="input-sm" style="width: 130px;" title="Chip played for this historical gameweek">
                 <option value="">No Chip</option>
                 <option value="wildcard">Wildcard</option>
@@ -405,6 +440,26 @@
                 <option value="triple_captain">Triple Captain</option>
               </select>
               <button id="btn-hist-auto-lineup" class="btn btn-secondary btn-sm" title="Optimize starting 11 for this deadline">⚡ Auto-XI</button>
+              <button id="btn-hist-save-lineup" class="btn btn-primary btn-sm" title="Save current lineup and captaincy">💾 Save Lineup</button>
+            </div>
+          </div>
+
+          <!-- Historical Substitution Mode Active Bar -->
+          <div id="hist-sub-mode-banner" class="sub-mode-bar hidden" style="display: none;">
+            <div class="sub-bar-text">
+              <span>🔄 Swapping <strong id="hist-sub-source-name">-</strong>. Click any eligible player on the pitch or bench to complete substitution.</span>
+            </div>
+            <button id="btn-cancel-hist-sub" class="btn btn-secondary btn-sm">Cancel</button>
+          </div>
+
+          <!-- Historical Matchday State Banner -->
+          <div id="hist-lineup-status-banner" class="matchday-banner hidden" style="display: none;">
+            <div class="banner-left">
+              <span id="hist-banner-icon" class="banner-icon">🔒</span>
+              <div class="banner-text">
+                <strong id="hist-banner-title">Gameweek State</strong>
+                <span id="hist-banner-subtitle" class="banner-subtitle">-</span>
+              </div>
             </div>
           </div>
 
@@ -432,11 +487,13 @@
           <h2>Strategic Squad Studio</h2>
           <p class="text-muted">Construct, compare, and refine multi-Gameweek starting states under hard constraints and explicit strategic objectives.</p>
         </div>
-        <div class="studio-meta-badges" style="display: flex; gap: 0.5rem;">
+        <div class="studio-meta-badges" style="display: flex; gap: 0.5rem; align-items: center;">
+          <span class="badge badge-info" id="strategic-context-badge">Live Team (2026/27)</span>
           <span class="badge badge-primary" id="strategic-status-badge">Mode: Initial Squad</span>
           <span class="badge badge-secondary" id="strategic-horizon-badge">Horizon: 5 GWs</span>
         </div>
       </div>
+
 
       <!-- Controls & Constraints Toolbar -->
       <div class="panel card" style="margin-bottom: 1.5rem;">
@@ -472,18 +529,6 @@
                 <option value="v1.3">Decision Engine V1.3 (GBDT ML)</option>
                 <option value="v1.2.5">Decision Engine V1.2.5 (Lineup & Horizon)</option>
                 <option value="v1.0">Decision Engine V1.0 (Canonical Heuristic)</option>
-              </select>
-            </div>
-            <div class="tool-group">
-              <label for="strategic-strategy-select">Primary Objective Profile:</label>
-              <select id="strategic-strategy-select" class="form-control">
-                <option value="maximum_ev" selected>Maximum Expected Value (EV) — V1.3.5 Default</option>
-                <option value="balanced">Balanced (Points + Flexibility + Fixtures)</option>
-                <option value="floor">High Floor (Safe Starters, Clean Sheets)</option>
-                <option value="ceiling">High Ceiling (Explosive Differentials)</option>
-                <option value="flexibility">Future Transfer Flexibility (Price Tiers)</option>
-                <option value="defend_lead">Defend Lead (Shield Template EO)</option>
-                <option value="chase">Chase Rank (Differential Haul Leverage)</option>
               </select>
             </div>
             <div class="tool-group">
@@ -564,7 +609,7 @@
                 <thead>
                   <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
                     <th style="padding: 0.6rem;">Strategic Metric</th>
-                    <th style="padding: 0.6rem;">Maximum EV</th>
+                    <th style="padding: 0.6rem;">Maximum EV (Default)</th>
                     <th style="padding: 0.6rem;">Balanced</th>
                     <th style="padding: 0.6rem;">High Floor</th>
                     <th style="padding: 0.6rem;">High Ceiling</th>
@@ -794,41 +839,6 @@
         </div>
       </div>
       </div>
-
-      <!-- Historical Simulation Transfers Wrapper -->
-      <div id="hist-transfers-wrapper" style="display: none;">
-        <div class="card" style="padding: 1.25rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-              <h2 style="margin: 0; font-size: 1.25rem;">Historical Transfer Staging & Optimizer</h2>
-              <div class="text-muted text-sm">Stage transfers under historical budget & club constraints, or view DecisionEngineV135 recommendations.</div>
-            </div>
-            <div style="display: flex; gap: 0.5rem;">
-              <button id="btn-hist-recs" class="btn btn-secondary btn-sm">💡 View Engine Recommendations (v1.3.5)</button>
-              <button id="btn-hist-clear-tx" class="btn btn-outline btn-sm" style="color: #f87171; border-color: #f87171;">Clear Staged</button>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1.2fr); gap: 1rem;">
-            <!-- Staged Transfers List -->
-            <div class="card" style="padding: 1rem; background: rgba(0,0,0,0.2);">
-              <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Staged Transfers (<span id="hist-staged-count">0</span>)</h3>
-              <div id="hist-staged-tx-list" class="hist-staged-tx-list" style="min-height: 80px; font-size: 0.85rem;">
-                <div class="text-muted text-sm">No transfers staged. Click ⇄ on any player in Pitch & Lineup to swap.</div>
-              </div>
-            </div>
-
-            <!-- Transfer Search / Swap Helper -->
-            <div class="card" style="padding: 1rem; background: rgba(0,0,0,0.2);">
-              <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Quick Player Search & Swap</h3>
-              <p class="text-muted text-sm">To stage a transfer, click the swap button <strong>⇄</strong> on any player card in the <strong>Pitch & Lineup</strong> tab to select from the historical player pool.</p>
-              <div style="margin-top: 1rem;">
-                <button type="button" class="btn btn-primary btn-sm" onclick="document.querySelector('.tab-btn[data-tab=\'pitch\']').click()">Go to Pitch & Lineup</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- TAB 4: MULTI-GW PLANNER -->
@@ -837,10 +847,14 @@
         <div class="tool-group">
           <label>Planning Horizon:</label>
           <select id="plan-horizon" class="form-control form-control-sm">
+            <option value="1">1 Gameweek</option>
+            <option value="2">2 Gameweeks</option>
             <option value="3" selected>3 Gameweeks</option>
             <option value="4">4 Gameweeks</option>
             <option value="5">5 Gameweeks</option>
             <option value="6">6 Gameweeks</option>
+            <option value="7">7 Gameweeks</option>
+            <option value="8">8 Gameweeks</option>
           </select>
         </div>
         <div class="tool-group">

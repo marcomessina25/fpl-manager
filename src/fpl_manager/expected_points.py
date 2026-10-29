@@ -22,7 +22,7 @@ Canonical Model Pillars (V1.0.1 / V0.9.1-frozen quantitative core):
 See `docs/expected_points.md` for full mathematical documentation.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import os
@@ -100,6 +100,7 @@ class MultiGameweekProfile:
     xp_ceiling: float
     standard_deviation: float
     fixtures_count: int
+    gw_breakdown_xp: dict[int, float] = field(default_factory=dict)
 
 
 def calculate_base_xp(price_tenths: int, total_points: int = 0, finished_matches: int = 0) -> float:
@@ -872,6 +873,9 @@ def project_gameweek(
 
         t_short = team_map.get(t_id, f"T{t_id}")
         t_fixs = team_fixtures.get(t_id, [])
+        n90_live = max(0.1, (mins or 0) / 90.0)
+        eff_xg90_col = min(1.20, max(0.0, round((xg or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xg90 or 0.0)))
+        eff_xa90_col = min(1.00, max(0.0, round((xa or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xa90 or 0.0)))
 
         proj = project_player_gameweek(
             player_id=p_id,
@@ -893,8 +897,8 @@ def project_gameweek(
             expected_assists=xa or 0.0,
             expected_goal_involvements=xgi or 0.0,
             expected_goals_conceded=xgc or 0.0,
-            expected_goals_per_90=xg90 or 0.0,
-            expected_assists_per_90=xa90 or 0.0,
+            expected_goals_per_90=eff_xg90_col,
+            expected_assists_per_90=eff_xa90_col,
             expected_goals_conceded_per_90=xgc90 or 0.0,
             clean_sheets_per_90=cs90 or 0.0,
             bps=bps or 0,
@@ -1052,8 +1056,13 @@ def project_multi_gameweek_profiles(
         total_floor = 0.0
         total_ceil = 0.0
         sum_var = 0.0
+        p_gw_breakdown: dict[int, float] = {int(gw): 0.0 for gw in gameweeks}
+        n90_live = max(0.1, (mins or 0) / 90.0)
+        eff_xg90_col = min(1.20, max(0.0, round((xg or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xg90 or 0.0)))
+        eff_xa90_col = min(1.00, max(0.0, round((xa or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xa90 or 0.0)))
 
         for f in p_fixtures:
+            f_event = f.get("event")
             fdr = f["fdr"]
             is_home = f["is_home"]
             baseline_xp = calculate_fixture_xp(base_xp, avail, pos, fdr, is_home)
@@ -1065,8 +1074,8 @@ def project_multi_gameweek_profiles(
                 expected_minutes=exp_mins,
                 prob_60_plus=prob_60,
                 prob_sub=prob_sub,
-                expected_goals_per_90=xg90 or 0.0,
-                expected_assists_per_90=xa90 or 0.0,
+                expected_goals_per_90=eff_xg90_col,
+                expected_assists_per_90=eff_xa90_col,
                 expected_goals_conceded_per_90=xgc90 or 0.0,
                 clean_sheets_per_90=cs90 or 0.0,
                 finished_matches=finished_matches,
@@ -1087,6 +1096,8 @@ def project_multi_gameweek_profiles(
             total_floor += f_floor
             total_ceil += f_ceil
             sum_var += f_var
+            if f_event is not None:
+                p_gw_breakdown[f_event] = round(p_gw_breakdown.get(f_event, 0.0) + final_xp, 2)
 
         profiles[p_id] = MultiGameweekProfile(
             player_id=p_id,
@@ -1102,6 +1113,7 @@ def project_multi_gameweek_profiles(
             xp_ceiling=round(total_ceil, 2),
             standard_deviation=round(math.sqrt(sum_var), 2),
             fixtures_count=len(p_fixtures),
+            gw_breakdown_xp=p_gw_breakdown,
         )
 
     return profiles
