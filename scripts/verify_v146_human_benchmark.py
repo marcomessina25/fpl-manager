@@ -391,7 +391,10 @@ def export_sanitized_provenance(
     return artifact
 
 
-def verify_provenance(provenance_path: Path = PROVENANCE_PATH) -> dict[str, Any]:
+def verify_provenance(
+    provenance_path: Path = PROVENANCE_PATH,
+    simulations_dir: Path | None = None,
+) -> dict[str, Any]:
     """Verify arithmetic, hit reconciliation, and aggregate statistics from the committed provenance file."""
     if not provenance_path.exists():
         raise FileNotFoundError(f"Provenance file missing: {provenance_path}")
@@ -425,7 +428,8 @@ def verify_provenance(provenance_path: Path = PROVENANCE_PATH) -> dict[str, Any]
         # Check raw file hash if available locally
         for sess_season, raw_sid, anon_id in BENCHMARK_SESSIONS:
             if sess_season == season_name and s.get("experiment_session_id") == anon_id:
-                src_file = SIMULATIONS_DIR / f"{raw_sid}.json"
+                sim_dir = simulations_dir if simulations_dir is not None else SIMULATIONS_DIR
+                src_file = sim_dir / f"{raw_sid}.json"
                 if src_file.exists():
                     computed_sha = hashlib.sha256(src_file.read_bytes()).hexdigest()
                     if s.get("source_trace_sha256") != computed_sha:
@@ -676,13 +680,19 @@ def main() -> None:
         action="store_true",
         help="Export sanitized provenance JSON from local config/simulations/ before verifying.",
     )
+    parser.add_argument(
+        "--simulations-dir",
+        type=Path,
+        default=None,
+        help="Custom path to raw simulation JSON files for hash checking.",
+    )
     args = parser.parse_args()
 
     if args.export:
         export_sanitized_provenance()
         print(f"Exported sanitized provenance to {PROVENANCE_PATH}")
 
-    artifact = verify_provenance()
+    artifact = verify_provenance(simulations_dir=args.simulations_dir)
     print("V1.4.6 Human Benchmark Provenance Verification: PASSED (5 seasons, 190 gameweeks reconciled)")
     print()
     print("### Primary Leaderboard & Override Analysis")

@@ -105,5 +105,12 @@ def test_corruption_rejects_tampered_source_hash(tmp_path: Path) -> None:
     corrupt_path = tmp_path / "corrupt_hash.json"
     corrupt_path.write_text(json.dumps(artifact), encoding="utf-8")
 
+    # Supply an isolated mock simulations directory containing the raw session trace file so the test
+    # is deterministic and self-contained even in CI environments without uncommitted session traces.
+    mock_sim_dir = tmp_path / "simulations"
+    mock_sim_dir.mkdir(parents=True, exist_ok=True)
+    mock_trace = mock_sim_dir / "sim_2021_22_4016_marco.json"
+    mock_trace.write_bytes(b"mock session trace data")
+
     with pytest.raises(AssertionError, match="source SHA-256 mismatch"):
-        verify_provenance(corrupt_path)
+        verify_provenance(corrupt_path, simulations_dir=mock_sim_dir)
