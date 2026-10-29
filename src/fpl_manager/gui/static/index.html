@@ -523,15 +523,6 @@
               </select>
             </div>
             <div class="tool-group">
-              <label for="strategic-engine-select">Decision Engine:</label>
-              <select id="strategic-engine-select" class="form-control">
-                <option value="v1.3.5" selected>Decision Engine V1.3.5 / V1.4 (Hardened Baseline, H=3, Bench=0.15)</option>
-                <option value="v1.3">Decision Engine V1.3 (GBDT ML)</option>
-                <option value="v1.2.5">Decision Engine V1.2.5 (Lineup & Horizon)</option>
-                <option value="v1.0">Decision Engine V1.0 (Canonical Heuristic)</option>
-              </select>
-            </div>
-            <div class="tool-group">
               <label for="strategic-budget-input">Budget Limit (£m):</label>
               <input type="number" id="strategic-budget-input" step="0.5" value="100.0" class="form-control" style="width: 100px;">
             </div>
@@ -823,14 +814,6 @@
               <option value="ceiling">Ceiling (Differential upside)</option>
             </select>
           </div>
-          <div class="tool-group">
-            <label>Engine:</label>
-            <select id="tx-engine" class="form-control form-control-sm">
-              <option value="v1.3.5" selected>V1.3.5 / V1.4 (Hardened Baseline, H=3, γ=0.75, W_bench=0.15, GK=3.0)</option>
-              <option value="v1.2.5">V1.2.5 (Lineup-Aware, unpruned pool, H=3)</option>
-              <option value="legacy">Legacy V1.0 (Flat squad unweighted)</option>
-            </select>
-          </div>
           <button id="btn-run-suggest-tx" class="btn btn-primary btn-sm">Solve Optimal Moves</button>
         </div>
 
@@ -919,7 +902,7 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <h2 style="margin: 0; font-size: 1.25rem;">Historical Simulation Performance & Divergence Audit</h2>
-              <div class="text-muted text-sm">Gameweek-by-gameweek scoring, autosub execution, and continuous benchmark comparison vs DecisionEngineV135.</div>
+              <div class="text-muted text-sm">Gameweek-by-gameweek scoring, autosub execution, and comparison with the frozen reference baseline.</div>
             </div>
             <div>
               <button id="btn-hist-view-report" class="btn btn-primary btn-sm">📊 View Full Benchmark Report</button>
@@ -1125,15 +1108,6 @@
         <div class="form-group" style="margin-bottom: 1rem;">
           <label for="create-sim-manager">Manager Name:</label>
           <input type="text" id="create-sim-manager" value="Human Manager" class="input-sm" style="width: 100%;">
-        </div>
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label for="create-sim-strategy">Starting Squad Baseline:</label>
-          <select id="create-sim-strategy" class="input-sm" style="width: 100%;">
-            <option value="v1.3.5" selected>Decision Engine V1.3.5 (Maximum EV Baseline — Recommended)</option>
-            <option value="v1.2.5">Engine Baseline (v1.2.5 Balanced)</option>
-            <option value="v1.0">v1.0 Canonical Heuristic</option>
-            <option value="v0.9">v0.9 Participation-Aware</option>
-          </select>
         </div>
         <div class="modal-footer" style="margin: 0; padding: 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
           <button class="btn btn-secondary btn-sm" id="btn-cancel-create-sim">Cancel</button>

@@ -2273,7 +2273,6 @@ async function runSuggestTransfers() {
   const numTx = document.getElementById("tx-num").value;
   const gws = document.getElementById("tx-gws").value;
   const risk = document.getElementById("tx-risk").value;
-  const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.3.5";
 
   const isHist = state.appMode === "historical";
   if (isHist && !histState.sessionId) {
@@ -2294,7 +2293,7 @@ async function runSuggestTransfers() {
   const gwParam = !isHist && targetGw ? `&gameweek=${targetGw}` : "";
 
   try {
-    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}${sidParam}${gwParam}`);
+    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}${sidParam}${gwParam}`);
     if (
       thisReqSeq !== state.transferRequestSeq ||
       state.contextEpoch !== reqProvenance.epoch ||
@@ -5197,7 +5196,6 @@ function initHistoricalTimeMachine() {
       const startGw = parseInt(document.getElementById("create-sim-start-gw").value, 10) || 1;
       const simId = document.getElementById("create-sim-id").value.trim() || `sim_${Date.now()}`;
       const manager = document.getElementById("create-sim-manager").value.trim() || "Human Manager";
-      const strat = document.getElementById("create-sim-strategy").value;
 
       try {
         btnConfirmCreate.disabled = true;
@@ -5208,7 +5206,6 @@ function initHistoricalTimeMachine() {
             session_id: simId,
             season: season,
             start_gw: startGw,
-            starting_strategy: strat,
             manager_name: manager,
           }),
         });
@@ -6665,7 +6662,7 @@ function showHistoricalResolutionModal(res) {
         <div style="font-size: 1.8rem; font-weight: 800; color: ${deltaColor};">
           ${divergence.point_delta_vs_engine > 0 ? '+' : ''}${divergence.point_delta_vs_engine || 0} pts
         </div>
-        <div style="font-size: 0.75rem; color: #94a3b8;">Engine v1.2.5: ${res.engine_net_points} pts</div>
+        <div style="font-size: 0.75rem; color: #94a3b8;">Baseline: ${res.engine_net_points} pts</div>
       </div>
     </div>
 
@@ -6829,8 +6826,7 @@ function showHistoricalRecommendationsModal(recs) {
   const body = document.getElementById("hist-modal-body");
   if (!modal || !body) return;
 
-  const engVer = recs.engine_version || "v1.3.5";
-  if (title) title.textContent = `Decision Engine Recommendations (${engVer} - GW ${recs.gameweek})`;
+  if (title) title.textContent = `Decision Recommendations (GW ${recs.gameweek})`;
 
   const chipRec = recs.recommended_chip;
   const chipBadge = chipRec
@@ -6860,7 +6856,7 @@ function showHistoricalRecommendationsModal(recs) {
     </div>
 
     <div style="margin-bottom: 1.25rem;">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers (${engVer} Baseline)</h4>
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers</h4>
       ${txsHtml}
     </div>
 

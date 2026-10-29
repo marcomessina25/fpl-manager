@@ -8,6 +8,24 @@ FPL Manager is a local-first decision-support system for Fantasy Premier League 
 
 It is **not** an autonomous team manager. A human remains responsible for final FPL decisions and for executing transfers.
 
+## V1.4.7 assessment and proposed evolution
+
+The current implementation and its remaining correctness/integration debt are
+assessed in [the repository analysis](v1.4.7/repository_analysis.md).
+[The V1.4.7 plan](v1.4.7/v147_plan.md) prioritizes authoritative accounting,
+historical outcome correctness, explicit contexts and durable commands.
+[The PyQt6 design](v1.4.7/pyqt6_migration_plan.md) is a proposal only: extract
+framework-independent services before connecting a native client; do not move
+HTTP/DOM orchestration directly into widget callbacks.
+
+Shared Live/Historical workflows retain matching capabilities. Live Matchday
+and AI Advisor & Briefing are intentionally live-only and already hidden in
+Historical mode. New GUI calculations use the central latest decision-engine
+policy without a version menu; frozen research provenance remains explicit.
+
+The V1.1.5 diagram below describes the foundational responsibilities, not proof
+that every current module already satisfies those boundaries.
+
 ## Core principles
 
 - Deterministic software is the source of truth for FPL facts, rules, budget, squad state, and legality.

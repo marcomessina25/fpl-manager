@@ -308,6 +308,26 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
+### Upcoming V1.4.7 — Correctness, GUI Boundaries and Native-Client Planning
+
+The `v147` branch starts from merged V1.4.6. Its immediate GUI cleanup removes
+decision-engine version selectors and uses the latest registered engine for new
+GUI calculations, while preserving explicit research versions, saved baselines,
+LLM provider/model choices and Historical's existing live-only tab exclusions.
+
+The deeper assessment identifies correctness and architecture issues beyond the
+GUI; these are planned remediation, not claims that a framework change fixes
+them. **No PyQt6 client or Qt dependency has been added.**
+
+- [Full repository assessment: strengths, weaknesses and evidence](docs/v1.4.7/repository_analysis.md)
+- [Prioritized V1.4.7 delivery plan and acceptance gates](docs/v1.4.7/v147_plan.md)
+- [PyQt6 architecture, licensing, phased port and effort estimate](docs/v1.4.7/pyqt6_migration_plan.md)
+
+The native parity estimate is approximately **12-18 working weeks for one
+engineer**, including application-boundary work and uncertainty, or **14-22
+weeks** if the complete audit remediation is included in the same programme.
+These are pre-spike planning ranges, not a committed release date.
+
 ### Current scope (V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark, 1:1 Live/Historical Parity & Solver Hardening)
 
 V1.4.6 completes the **5-Season Paired Human-in-the-Loop Replay Benchmark** (`2021-22` through `2025-26`, 190 simulated gameweeks) and enforces strict 1:1 functional, visual, and behavioral parity between Live Manager (`2026/27`) and the Historical Time Machine (`GEMINI.md`):

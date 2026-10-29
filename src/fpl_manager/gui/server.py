@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
+from ..backtest.decision_engine import resolve_decision_engine
 from ..briefing import generate_manager_briefing
 from ..chip_strategy import recommend_chip_strategy
 from ..decision_log import (
@@ -268,7 +269,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 risk = get_arg("risk", "neutral")
                 if risk in ("balanced", "default"):
                     risk = "neutral"
-                engine = get_arg("engine", "v1.3.5")
+                engine = get_arg("engine") or resolve_decision_engine("default").version
                 gamma_val = float(get_arg("gamma", 0.75))
                 horizon_val = int(get_arg("horizon", 3))
                 gw_param = get_arg("gameweek") or get_arg("gw")
@@ -1976,7 +1977,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 sim_id = body.get("session_id") or f"sim_{body.get('season', '2023-24').replace('-', '_')}_{int(time.time())}"
                 season = body.get("season", "2023-24")
                 start_gw = int(body.get("start_gw", 1))
-                strategy = body.get("starting_strategy", "v1.3.5")
+                strategy = body.get("starting_strategy") or resolve_decision_engine("default").version
                 manager_name = body.get("manager_name", "Human Manager")
                 sim_dir = self.config_dir / "simulations"
                 sim = HistoricalSimulationSession.create(

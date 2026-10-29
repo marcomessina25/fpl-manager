@@ -2129,7 +2129,10 @@ def resolve_decision_engine(
     bench_weight: float = 0.15,
     gamma: float = 0.75,
 ) -> BaseDecisionEngine:
-    """Instantiate and return the appropriate DecisionEngine implementation."""
+    """Resolve a pinned engine, retaining v0.9 when the argument is omitted.
+
+    GUI callers explicitly request "default" to use the latest engine.
+    """
     if isinstance(engine_version, BaseDecisionEngine):
         return engine_version
 
@@ -2154,7 +2157,7 @@ def resolve_decision_engine(
         from .optimizer_ablation import DecisionEngineAblation
         return DecisionEngineAblation("B7")
 
-    if clean in ("v1.3.5", "v135", "v1.3.5.0", "hardened", "v1.3.5_hardened", "v1.3.5_production"):
+    if clean in ("default", "v1.3.5", "v135", "v1.3.5.0", "hardened", "v1.3.5_hardened", "v1.3.5_production"):
         strat = "maximum_ev" if initial_strategy == "balanced" else initial_strategy
         return DecisionEngineV135(
             initial_strategy=strat,
@@ -2286,4 +2289,3 @@ def resolve_decision_engine(
     raise ValueError(
         f"Unknown decision engine version: '{engine_version}'. Supported: 'v0.8', 'v0.9', 'v1.0', 'v1.1', 'v1.1.5', 'v1.2', 'v1.2.5', 'v0.9_w<float>'"
     )
-

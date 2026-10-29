@@ -2255,6 +2255,26 @@ Use distinct states:
 - [x] Add follow-up regressions for compound Apply accounting, delayed GUI context transitions, legal chip-squad completion, legacy purchase-basis recovery and all accepted risk objectives.
 - [ ] Record real-browser smoke verification separately from the automated HTTP and Node controller tests.
 
+## Planned — V1.4.7 Correctness and GUI Architecture
+
+- [x] Branch from merged `master` and remove decision-engine version menus while
+  preserving LLM controls and correct Historical tab restrictions.
+- [x] Produce the [repository assessment](v1.4.7/repository_analysis.md),
+  [delivery plan](v1.4.7/v147_plan.md) and
+  [PyQt6 migration estimate](v1.4.7/pyqt6_migration_plan.md).
+- [ ] Correct double-GW outcome aggregation and authoritative price/funds handling.
+- [ ] Establish revisioned commands, durable recovery and non-mutating queries.
+- [ ] Repair predictor identity, objective bounds and research-measurement contracts.
+- [ ] Harden dataset admission, cache integrity and decision-context capture.
+- [ ] Approve native designs, licensing and a worker/model/packaging spike.
+- [ ] Implement the native client only after approval and prerequisite gates.
+- [ ] Complete two-mode parity, Windows packaging and manual acceptance before cutover.
+
+No PyQt6 port is implemented by the planning branch. The current native-client
+estimate is 44-68 base person-days, or 58-89 including uncertainty; broader audit
+remediation changes that scope. See the estimate assumptions rather than treating
+these figures as a promised date.
+
 ## Later — V1.5
 
 - [ ] Multi-provider LLM benchmark.

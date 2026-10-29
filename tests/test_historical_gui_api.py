@@ -113,6 +113,66 @@ def test_api_historical_simulations_lifecycle(test_server) -> None:
         assert rep["gameweeks_completed"] == 1
 
 
+@pytest.mark.parametrize("strategy", [None, "v0.9", "v1.2.5"])
+def test_api_new_simulation_uses_latest_default_but_keeps_explicit_strategy(
+    test_server, monkeypatch: pytest.MonkeyPatch, strategy: str | None
+) -> None:
+    from types import SimpleNamespace
+    from src.fpl_manager.backtest.decision_engine import resolve_decision_engine
+
+    received = []
+    resolved = []
+
+    def resolve(version):
+        resolved.append(version)
+        return resolve_decision_engine(version)
+
+    def create(**kwargs):
+        received.append(kwargs)
+        return SimpleNamespace(
+            session_id=kwargs["session_id"], season=kwargs["season"], current_gw=kwargs["start_gw"],
+            status="active", get_squad_player_details=lambda: [], bank_tenths=0,
+            free_transfers=1, chips_remaining=[], history=[],
+        )
+
+    monkeypatch.setattr("src.fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
+    monkeypatch.setattr("src.fpl_manager.gui.server.HistoricalSimulationSession.create", create)
+    base_url, _ = test_server
+    body = {"session_id": "default-engine-test", "season": "2023-24", "start_gw": 5}
+    if strategy:
+        body["starting_strategy"] = strategy
+    request = urllib.request.Request(
+        f"{base_url}/api/historical/simulations/create",
+        data=json.dumps(body).encode(), headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        result = json.loads(response.read())
+    assert result["current_gw"] == 5
+    assert received[0]["starting_strategy"] == (strategy or resolve_decision_engine("v1.3.5").version)
+    assert resolved == ([] if strategy else ["default"])
+
+
+def test_gui_historical_load_preserves_saved_legacy_baseline(test_server) -> None:
+    from src.fpl_manager.simulation import HistoricalSimulationSession
+
+    base_url, config_dir = test_server
+    sim = HistoricalSimulationSession(
+        session_id="legacy-baseline-test", season="2023-24", current_gw=5,
+        squad_ids=[], purchase_prices_tenths={}, bank_tenths=1000,
+        engine_baseline_version="v0.9", config_dir=config_dir / "simulations",
+    )
+    sim.save()
+    session_file = sim.config_dir / f"{sim.session_id}.json"
+    saved = session_file.read_bytes()
+    with urllib.request.urlopen(
+        f"{base_url}/api/historical/simulations/{sim.session_id}"
+    ) as response:
+        assert json.loads(response.read())["session_id"] == sim.session_id
+    loaded = HistoricalSimulationSession.load(sim.session_id, config_dir=sim.config_dir)
+    assert loaded.engine_baseline_version == "v0.9"
+    assert session_file.read_bytes() == saved
+
+
 def test_api_historical_strategic_squad_lifecycle(test_server) -> None:
     base_url, _ = test_server
 
@@ -1038,6 +1098,14 @@ def test_historical_transfer_api_honors_risk_after_rescoring(
     monkeypatch.setattr(
         "src.fpl_manager.gui.server.analyze_historical_fixtures", lambda *a, **k: ({}, {})
     )
+    from src.fpl_manager.backtest.decision_engine import resolve_decision_engine
+    resolved = []
+
+    def resolve(version):
+        resolved.append(version)
+        return resolve_decision_engine(version)
+
+    monkeypatch.setattr("src.fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
     base_url, _ = test_server
     with urllib.request.urlopen(
         f"{base_url}/api/transfers?session_id=risk-test&gameweeks=1&risk={risk}"
@@ -1045,3 +1113,5 @@ def test_historical_transfer_api_honors_risk_after_rescoring(
         result = json.loads(response.read())
     assert result["risk_profile"] == risk
     assert result["top_suggestions"][0]["incoming"][0]["id"] == expected_id
+    assert result["engine"] == resolve_decision_engine("v1.3.5").version
+    assert resolved == ["default"]
