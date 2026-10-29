@@ -42,6 +42,7 @@ def _evaluate_lineup_for_gameweek(
     player_ids: set[int],
     gw_projections: dict[int, Any],
     risk_profile: str = "neutral",
+    active_chip: str | None = None,
 ) -> tuple[float, float, float, str, Any, Any, list[Any]]:
     """Determine optimal starting 11, captain, and formation for a specific gameweek."""
     by_pos: dict[Position, list[Any]] = {pos: [] for pos in Position}
@@ -86,12 +87,28 @@ def _evaluate_lineup_for_gameweek(
 
     starters_xp = sum(p.expected_points for p in best_starters)
     captain_xp = captain.expected_points
-    total_xp = round(starters_xp + captain_xp, 2)
+    total_xp = starters_xp + captain_xp
 
     starters_floor = sum(p.xp_floor for p in best_starters) + captain.xp_floor
     starters_ceiling = sum(p.xp_ceiling for p in best_starters) + captain.xp_ceiling
 
-    return total_xp, round(starters_floor, 2), round(starters_ceiling, 2), best_formation, captain, vice_captain, best_starters
+    norm_chip = str(active_chip or "").lower().replace("-", "_")
+    if norm_chip in ("bench_boost", "benchboost", "bb"):
+        starter_ids_set = {getattr(p, "player_id", getattr(p, "id", None)) for p in best_starters}
+        bench_players = [
+            gw_projections[pid]
+            for pid in player_ids
+            if pid in gw_projections and getattr(gw_projections[pid], "player_id", getattr(gw_projections[pid], "id", None)) not in starter_ids_set
+        ]
+        total_xp += sum(p.expected_points for p in bench_players)
+        starters_floor += sum(p.xp_floor for p in bench_players)
+        starters_ceiling += sum(p.xp_ceiling for p in bench_players)
+    elif norm_chip in ("triple_captain", "triplecaptain", "tc"):
+        total_xp += captain_xp
+        starters_floor += captain.xp_floor
+        starters_ceiling += captain.xp_ceiling
+
+    return round(total_xp, 2), round(starters_floor, 2), round(starters_ceiling, 2), best_formation, captain, vice_captain, best_starters
 
 
 def _extract_starting_and_bench_ids(
@@ -224,6 +241,8 @@ def generate_multi_gameweek_plan(
                 "lineup_xp": l_xp,
                 "lineup_floor": l_floor,
                 "lineup_ceiling": l_ceil,
+                "net_floor": l_floor,
+                "net_ceiling": l_ceil,
                 "transfer_hits": 0,
                 "net_xp": l_xp,
                 "bank_after_tenths": bank,
@@ -275,7 +294,10 @@ def generate_multi_gameweek_plan(
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp = round(l_xp - (hits * 4), 2)
+                    hit_deduction = hits * 4
+                    net_xp = round(l_xp - hit_deduction, 2)
+                    net_floor = round(l_floor - hit_deduction, 2)
+                    net_ceil = round(l_ceil - hit_deduction, 2)
                     action_label = "1_TRANSFER" if hits == 0 else "1_TRANSFER_HIT"
 
                     tx_step = {
@@ -293,6 +315,8 @@ def generate_multi_gameweek_plan(
                         "lineup_xp": l_xp,
                         "lineup_floor": l_floor,
                         "lineup_ceiling": l_ceil,
+                        "net_floor": net_floor,
+                        "net_ceiling": net_ceil,
                         "transfer_hits": hits,
                         "net_xp": net_xp,
                         "bank_after_tenths": new_bank,
@@ -301,8 +325,8 @@ def generate_multi_gameweek_plan(
                     }
                     next_beam_candidates.append((
                         round(cum_score + net_xp, 2),
-                        round(cum_floor + l_floor, 2),
-                        round(cum_ceil + l_ceil, 2),
+                        round(cum_floor + net_floor, 2),
+                        round(cum_ceil + net_ceil, 2),
                         new_pids,
                         new_bank,
                         ft_after,
@@ -345,7 +369,10 @@ def generate_multi_gameweek_plan(
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp = round(l_xp - (hits * 4), 2)
+                    hit_deduction = hits * 4
+                    net_xp = round(l_xp - hit_deduction, 2)
+                    net_floor = round(l_floor - hit_deduction, 2)
+                    net_ceil = round(l_ceil - hit_deduction, 2)
                     action_label = "2_TRANSFERS" if hits == 0 else "2_TRANSFERS_HIT"
 
                     tx_step = {
@@ -366,6 +393,8 @@ def generate_multi_gameweek_plan(
                         "lineup_xp": l_xp,
                         "lineup_floor": l_floor,
                         "lineup_ceiling": l_ceil,
+                        "net_floor": net_floor,
+                        "net_ceiling": net_ceil,
                         "transfer_hits": hits,
                         "net_xp": net_xp,
                         "bank_after_tenths": new_bank,
@@ -374,8 +403,8 @@ def generate_multi_gameweek_plan(
                     }
                     next_beam_candidates.append((
                         round(cum_score + net_xp, 2),
-                        round(cum_floor + l_floor, 2),
-                        round(cum_ceil + l_ceil, 2),
+                        round(cum_floor + net_floor, 2),
+                        round(cum_ceil + net_ceil, 2),
                         new_pids,
                         new_bank,
                         ft_after,
@@ -500,13 +529,17 @@ def generate_historical_multi_gameweek_plan(
             if gw_xp <= 0.0:
                 gw_fl = 0.0
                 gw_cl = 0.0
-            elif base_ref > 0.0:
+            elif base_ref > 0.0 and float(p.xp_floor) > 0.0 and float(p.xp_ceiling) > 0.0:
                 ratio = gw_xp / base_ref
                 gw_fl = round(float(p.xp_floor) * ratio, 2)
                 gw_cl = round(float(p.xp_ceiling) * ratio, 2)
             else:
-                gw_fl = round(gw_xp * 0.75, 2)
-                gw_cl = round(gw_xp * 1.35, 2)
+                sd = float(p.standard_deviation) if float(p.standard_deviation) > 0 else max(1.2, 0.55 * gw_xp)
+                gw_fl = round(max(0.0, gw_xp - 1.28 * sd), 2)
+                gw_cl = round(gw_xp + 1.65 * sd, 2)
+                if gw_fl <= 0.0 and gw_xp > 0.0:
+                    gw_fl = round(gw_xp * 0.70, 2)
+                    gw_cl = round(gw_xp * 1.40, 2)
             gw_map[pid] = _HistGwProj(
                 player_id=pid,
                 id=pid,
@@ -622,7 +655,9 @@ def generate_historical_multi_gameweek_plan(
             and not is_departed_from_premier_league(p)
             and not is_long_term_unavailable(p)
         ]
-        chip_free = is_step0_free_chip and step_idx == 0
+        chip_at_step = getattr(sim, "active_chip", None) if step_idx == 0 else None
+        is_gw1 = (gw == 1)
+        chip_free = is_gw1 or (is_step0_free_chip and step_idx == 0)
         base_tx_count = staged_count if step_idx == 0 else 0
         base_tx_list = list(pre_staged_step_txs) if step_idx == 0 else []
 
@@ -635,17 +670,31 @@ def generate_historical_multi_gameweek_plan(
             cand_pool = [p for p in candidate_pool_all if p.id not in s_pids]
             eff_ft_for_add = 99 if chip_free else max(0, ft - base_tx_count)
 
+            # Reversion values if this step is an active Free Hit expiring into the next step
+            is_fh_expiring = (step_idx == 0 and chip_at_step == "free_hit")
+            if is_fh_expiring:
+                perm_squad = set(sim.pre_free_hit_state.get("squad_ids")) if sim.pre_free_hit_state else set(sim.gw_start_state.get("squad_ids", s_pids))
+                perm_bank = int(sim.pre_free_hit_state.get("bank_tenths")) if sim.pre_free_hit_state else int(sim.gw_start_state.get("bank_tenths", bank))
+                perm_prices = {int(k): v for k, v in (sim.pre_free_hit_state.get("purchase_prices_tenths") or sim.gw_start_state.get("purchase_prices_tenths", p_prices)).items()}
+            else:
+                perm_squad = None
+                perm_bank = None
+                perm_prices = None
+
             # --- Action 1: 0 additional transfers (ROLL or keep already-staged) ---
             l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                s_pids, gw_projections[gw], risk_profile=risk_profile
+                s_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
             )
             starting_ids, bench_ids = _extract_starting_and_bench_ids(
                 s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
             )
             tot_tx0 = base_tx_count
             hits0 = 0 if chip_free else max(0, tot_tx0 - ft)
-            net_xp0 = round(l_xp - (hits0 * 4), 2)
-            ft_after0 = _next_gw_ft(gw, ft, tot_tx0, chip_free)
+            hits_pts0 = hits0 * 4
+            net_xp0 = round(l_xp - hits_pts0, 2)
+            net_floor0 = round(l_floor - hits_pts0, 2)
+            net_ceil0 = round(l_ceil - hits_pts0, 2)
+            ft_after0 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx0, chip_free)
             roll_step = {
                 "gameweek": gw,
                 "action": _format_action_label(tot_tx0, hits0),
@@ -658,25 +707,36 @@ def generate_historical_multi_gameweek_plan(
                 "lineup_xp": l_xp,
                 "lineup_floor": l_floor,
                 "lineup_ceiling": l_ceil,
+                "net_floor": net_floor0,
+                "net_ceiling": net_ceil0,
                 "transfer_hits": hits0,
                 "net_xp": net_xp0,
+                "expected_points": net_xp0,
+                "xp_floor": net_floor0,
+                "xp_ceiling": net_ceil0,
+                "active_chip": chip_at_step,
                 "bank_after_tenths": bank,
                 "bank_after_fmt": f"£{bank / 10:.1f}m",
                 "free_transfers_after": ft_after0,
             }
+            cand_pids0 = perm_squad if is_fh_expiring else s_pids
+            cand_bank0 = perm_bank if is_fh_expiring else bank
+            cand_ft0 = 1 if (is_fh_expiring or is_gw1) else ft_after0
+            cand_prices0 = perm_prices if is_fh_expiring else p_prices
+
             next_beam_candidates.append((
                 round(cum_score + net_xp0, 2),
-                round(cum_floor + l_floor, 2),
-                round(cum_ceil + l_ceil, 2),
-                s_pids,
-                bank,
-                ft_after0,
-                p_prices,
+                round(cum_floor + net_floor0, 2),
+                round(cum_ceil + net_ceil0, 2),
+                cand_pids0,
+                cand_bank0,
+                cand_ft0,
+                cand_prices0,
                 history + [roll_step],
             ))
 
             # --- Action 2: 1 additional transfer ---
-            if eff_ft_for_add >= 1 or allow_hits:
+            if eff_ft_for_add >= 1 or allow_hits or is_gw1:
                 tx1_results, _ = solve_transfers(
                     num_transfers=1,
                     squad_players=squad_players,
@@ -692,7 +752,7 @@ def generate_historical_multi_gameweek_plan(
                 for tx in tx1_results:
                     tot_tx1 = base_tx_count + 1
                     hits1 = 0 if chip_free else max(0, tot_tx1 - ft)
-                    if not allow_hits and hits1 > 0:
+                    if not allow_hits and hits1 > 0 and not is_gw1:
                         continue
                     out_p = tx["outgoing"][0]
                     in_p = tx["incoming"][0]
@@ -702,15 +762,18 @@ def generate_historical_multi_gameweek_plan(
                     new_prices.pop(out_p["id"], None)
                     new_prices[in_p["id"]] = in_p["price_tenths"]
                     new_bank = tx["bank_after_tenths"]
-                    ft_after1 = _next_gw_ft(gw, ft, tot_tx1, chip_free)
+                    ft_after1 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx1, chip_free)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                        new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
                     )
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp1 = round(l_xp - (hits1 * 4), 2)
+                    hits_pts1 = hits1 * 4
+                    net_xp1 = round(l_xp - hits_pts1, 2)
+                    net_floor1 = round(l_floor - hits_pts1, 2)
+                    net_ceil1 = round(l_ceil - hits_pts1, 2)
 
                     tx_step = {
                         "gameweek": gw,
@@ -727,25 +790,36 @@ def generate_historical_multi_gameweek_plan(
                         "lineup_xp": l_xp,
                         "lineup_floor": l_floor,
                         "lineup_ceiling": l_ceil,
+                        "net_floor": net_floor1,
+                        "net_ceiling": net_ceil1,
                         "transfer_hits": hits1,
                         "net_xp": net_xp1,
+                        "expected_points": net_xp1,
+                        "xp_floor": net_floor1,
+                        "xp_ceiling": net_ceil1,
+                        "active_chip": chip_at_step,
                         "bank_after_tenths": new_bank,
                         "bank_after_fmt": f"£{new_bank / 10:.1f}m",
                         "free_transfers_after": ft_after1,
                     }
+                    cand_pids1 = perm_squad if is_fh_expiring else new_pids
+                    cand_bank1 = perm_bank if is_fh_expiring else new_bank
+                    cand_ft1 = 1 if (is_fh_expiring or is_gw1) else ft_after1
+                    cand_prices1 = perm_prices if is_fh_expiring else new_prices
+
                     next_beam_candidates.append((
                         round(cum_score + net_xp1, 2),
-                        round(cum_floor + l_floor, 2),
-                        round(cum_ceil + l_ceil, 2),
-                        new_pids,
-                        new_bank,
-                        ft_after1,
-                        new_prices,
+                        round(cum_floor + net_floor1, 2),
+                        round(cum_ceil + net_ceil1, 2),
+                        cand_pids1,
+                        cand_bank1,
+                        cand_ft1,
+                        cand_prices1,
                         history + [tx_step],
                     ))
 
             # --- Action 3: 2 additional transfers ---
-            if eff_ft_for_add >= 2 or (allow_hits and (eff_ft_for_add >= 1 or step_idx == 0)):
+            if eff_ft_for_add >= 2 or (allow_hits and (eff_ft_for_add >= 1 or step_idx == 0)) or is_gw1:
                 tx2_results, _ = solve_transfers(
                     num_transfers=2,
                     squad_players=squad_players,
@@ -761,7 +835,7 @@ def generate_historical_multi_gameweek_plan(
                 for tx in tx2_results:
                     tot_tx2 = base_tx_count + 2
                     hits2 = 0 if chip_free else max(0, tot_tx2 - ft)
-                    if not allow_hits and hits2 > 0:
+                    if not allow_hits and hits2 > 0 and not is_gw1:
                         continue
                     out_ids = {p["id"] for p in tx["outgoing"]}
                     in_ids = {p["id"] for p in tx["incoming"]}
@@ -774,15 +848,18 @@ def generate_historical_multi_gameweek_plan(
                         new_prices[in_p["id"]] = in_p["price_tenths"]
 
                     new_bank = tx["bank_after_tenths"]
-                    ft_after2 = _next_gw_ft(gw, ft, tot_tx2, chip_free)
+                    ft_after2 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx2, chip_free)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                        new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
                     )
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
                     )
-                    net_xp2 = round(l_xp - (hits2 * 4), 2)
+                    hits_pts2 = hits2 * 4
+                    net_xp2 = round(l_xp - hits_pts2, 2)
+                    net_floor2 = round(l_floor - hits_pts2, 2)
+                    net_ceil2 = round(l_ceil - hits_pts2, 2)
 
                     tx_step = {
                         "gameweek": gw,
@@ -802,20 +879,31 @@ def generate_historical_multi_gameweek_plan(
                         "lineup_xp": l_xp,
                         "lineup_floor": l_floor,
                         "lineup_ceiling": l_ceil,
+                        "net_floor": net_floor2,
+                        "net_ceiling": net_ceil2,
                         "transfer_hits": hits2,
                         "net_xp": net_xp2,
+                        "expected_points": net_xp2,
+                        "xp_floor": net_floor2,
+                        "xp_ceiling": net_ceil2,
+                        "active_chip": chip_at_step,
                         "bank_after_tenths": new_bank,
                         "bank_after_fmt": f"£{new_bank / 10:.1f}m",
                         "free_transfers_after": ft_after2,
                     }
+                    cand_pids2 = perm_squad if is_fh_expiring else new_pids
+                    cand_bank2 = perm_bank if is_fh_expiring else new_bank
+                    cand_ft2 = 1 if (is_fh_expiring or is_gw1) else ft_after2
+                    cand_prices2 = perm_prices if is_fh_expiring else new_prices
+
                     next_beam_candidates.append((
                         round(cum_score + net_xp2, 2),
-                        round(cum_floor + l_floor, 2),
-                        round(cum_ceil + l_ceil, 2),
-                        new_pids,
-                        new_bank,
-                        ft_after2,
-                        new_prices,
+                        round(cum_floor + net_floor2, 2),
+                        round(cum_ceil + net_ceil2, 2),
+                        cand_pids2,
+                        cand_bank2,
+                        cand_ft2,
+                        cand_prices2,
                         history + [tx_step],
                     ))
 

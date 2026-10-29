@@ -66,6 +66,11 @@ class StrategicConstraints:
     # Legacy/opt-in default: 1.0 reproduces pre-V1.2 symmetric scoring. Pass 0.15
     # explicitly to opt into the V1.2 asymmetric Starting XI vs Bench weighting.
     bench_weight: float = 1.0
+    effective_prices_tenths: dict[int, int] = field(default_factory=dict)
+
+    def player_cost(self, player: Any) -> int:
+        """Return effective cost of selecting `player` (retained selling price if owned, else market price)."""
+        return int(self.effective_prices_tenths.get(player.id, player.price_tenths))
 
     def validate(self, candidate_pool: list[Any]) -> list[str]:
         """Validate constraints for feasibility and raise or return errors."""
@@ -119,7 +124,7 @@ class StrategicConstraints:
                 )
 
         # Budget check for locked players
-        locked_cost = sum(p.price_tenths for p in locked_players)
+        locked_cost = sum(self.player_cost(p) for p in locked_players)
         rem_slots = 15 - len(locked_players)
         min_rem_cost = rem_slots * 40  # minimum £4.0m per remaining slot
         if locked_cost + min_rem_cost + self.min_bank_tenths > self.budget_tenths:
@@ -597,7 +602,7 @@ def solve_strategic_squad_exact_reference(
                         continue
 
                     # Budget check
-                    total_cost = sum(p.price_tenths for p in squad)
+                    total_cost = sum(constraints.player_cost(p) for p in squad)
                     if total_cost + constraints.min_bank_tenths > constraints.budget_tenths:
                         continue
 
@@ -812,8 +817,11 @@ def solve_strategic_squad(
         return best_sc
 
     # Sort candidates by strategic efficiency (utility / cost) and total utility
+    def _p_cost(p: Any) -> int:
+        return constraints.player_cost(p)
+
     for pos in by_pos:
-        by_pos[pos].sort(key=lambda p: (p_score(p) / max(40, p.price_tenths), p_score(p)), reverse=True)
+        by_pos[pos].sort(key=lambda p: (p_score(p) / max(40, _p_cost(p)), p_score(p)), reverse=True)
 
     # Stage 1: Seed locked players and construct initial feasible squad
     squad: list[Any] = [pool_by_id[pid] for pid in locked_set]
@@ -846,9 +854,9 @@ def solve_strategic_squad(
                 continue
 
             # Check conservative budget feasibility
-            current_cost = sum(p.price_tenths for p in squad)
+            current_cost = sum(_p_cost(p) for p in squad)
             rem_slots = 15 - len(squad) - 1
-            if current_cost + cand.price_tenths + rem_slots * 40 > effective_budget:
+            if current_cost + _p_cost(cand) + rem_slots * 40 > effective_budget:
                 continue
 
             squad.append(cand)
@@ -857,7 +865,7 @@ def solve_strategic_squad(
 
         # Fallback to cheapest valid candidates if tight budget
         if picked < needed:
-            cheapest = sorted(cands, key=lambda p: p.price_tenths)
+            cheapest = sorted(cands, key=_p_cost)
             for cand in cheapest:
                 if picked >= needed:
                     break
@@ -880,14 +888,14 @@ def solve_strategic_squad(
                 for sel_p in list(squad):
                     if sel_p.id in locked_set or sel_p.team_id != cand.team_id or sel_p.position == pos:
                         continue
-                    alt_candidates = sorted(by_pos[sel_p.position], key=lambda p: p.price_tenths)
+                    alt_candidates = sorted(by_pos[sel_p.position], key=_p_cost)
                     for alt in alt_candidates:
                         if alt in squad or alt.id in locked_set:
                             continue
                         if t_counts.get(alt.team_id, 0) >= constraints.max_players_per_club or alt.team_id == cand.team_id:
                             continue
-                        current_cost = sum(p.price_tenths for p in squad)
-                        if current_cost - sel_p.price_tenths + alt.price_tenths + cand.price_tenths > effective_budget:
+                        current_cost = sum(_p_cost(p) for p in squad)
+                        if current_cost - _p_cost(sel_p) + _p_cost(alt) + _p_cost(cand) > effective_budget:
                             continue
                         squad.remove(sel_p)
                         t_counts[sel_p.team_id] -= 1
@@ -904,7 +912,7 @@ def solve_strategic_squad(
     if len(squad) != 15:
         raise RuntimeError("Failed to build a valid 15-player squad from candidate pool under constraints.")
 
-    current_cost = sum(p.price_tenths for p in squad)
+    current_cost = sum(_p_cost(p) for p in squad)
     squad_ids = {p.id for p in squad}
 
     # Stage 2: 1-Opt Upgrades (Locked players cannot be replaced)
@@ -929,7 +937,7 @@ def solve_strategic_squad(
             for cand in by_pos[curr_p.position]:
                 if cand.id in squad_ids:
                     continue
-                delta_cost = cand.price_tenths - curr_p.price_tenths
+                delta_cost = _p_cost(cand) - _p_cost(curr_p)
                 if current_cost + delta_cost > effective_budget:
                     continue
                 if cand.team_id != curr_p.team_id and t_counts.get(cand.team_id, 0) >= constraints.max_players_per_club:
@@ -986,7 +994,7 @@ def solve_strategic_squad(
 
                 t_counts[p1.team_id] -= 1
                 t_counts[p2.team_id] -= 1
-                base_cost = current_cost - p1.price_tenths - p2.price_tenths
+                base_cost = current_cost - _p_cost(p1) - _p_cost(p2)
                 if legacy_mode:
                     base_val = p_score(p1) + p_score(p2)
 
@@ -1004,7 +1012,7 @@ def solve_strategic_squad(
                             continue
                         if t_counts.get(c2.team_id, 0) >= constraints.max_players_per_club:
                             continue
-                        new_cost = base_cost + c1.price_tenths + c2.price_tenths
+                        new_cost = base_cost + _p_cost(c1) + _p_cost(c2)
                         if new_cost > effective_budget:
                             continue
 
@@ -1052,7 +1060,7 @@ def solve_strategic_squad(
             name=p.name,
             position=p.position,
             team_id=p.team_id,
-            price_tenths=p.price_tenths,
+            price_tenths=_p_cost(p),
         )
         for p in squad
     ]

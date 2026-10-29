@@ -205,6 +205,197 @@ def extract_season_fixture_topology(
     return topologies
 
 
+@dataclass(frozen=True, slots=True)
+class _CandGwProj:
+    player_id: int
+    id: int
+    web_name: str
+    team_id: int
+    position: Any
+    status: str
+    expected_points: float
+    expected_minutes: float
+    play_probability: float
+    start_probability: float
+    availability_pct: float
+    chance_of_playing_next_round: int | None
+    consecutive_zero_mins: int
+    is_long_term_unavailable: bool
+    price_tenths: int = 50
+
+
+def _norm_pos(pos: Any) -> str:
+    if hasattr(pos, "name"):
+        s = pos.name.upper()
+    elif hasattr(pos, "value"):
+        s = str(pos.value).upper()
+    else:
+        s = str(pos).upper()
+    if s in ("GKP", "GOALKEEPER", "1"):
+        return "GKP"
+    if s in ("DEF", "DEFENDER", "2"):
+        return "DEF"
+    if s in ("MID", "MIDFIELDER", "3"):
+        return "MID"
+    if s in ("FWD", "FORWARD", "4"):
+        return "FWD"
+    return s
+
+
+def _calc_legal_squad_xi_xp(squad_projs: list[_CandGwProj]) -> float:
+    by_pos: dict[str, list[float]] = {"GKP": [], "DEF": [], "MID": [], "FWD": []}
+    for p in squad_projs:
+        pos_k = _norm_pos(p.position)
+        if pos_k in by_pos:
+            by_pos[pos_k].append(p.expected_points)
+    for k in by_pos:
+        by_pos[k].sort(reverse=True)
+    gks = by_pos["GKP"]
+    defs = by_pos["DEF"]
+    mids = by_pos["MID"]
+    fwds = by_pos["FWD"]
+    if not gks or len(defs) < 3 or len(mids) < 2 or len(fwds) < 1:
+        all_vals = sorted((p.expected_points for p in squad_projs), reverse=True)
+        return round(sum(all_vals[:11]), 2)
+    best_val = 0.0
+    for n_def, n_mid, n_fwd in [(3, 5, 2), (3, 4, 3), (4, 4, 2), (4, 3, 3), (4, 5, 1), (5, 3, 2), (5, 4, 1), (5, 2, 3)]:
+        if len(defs) >= n_def and len(mids) >= n_mid and len(fwds) >= n_fwd:
+            tot = gks[0] + sum(defs[:n_def]) + sum(mids[:n_mid]) + sum(fwds[:n_fwd])
+            if tot > best_val:
+                best_val = tot
+    return round(best_val, 2)
+
+
+def _calc_achievable_pool_xi_xp(pool_projs: list[_CandGwProj], max_budget_tenths: int) -> float:
+    by_pos: dict[str, list[_CandGwProj]] = {"GKP": [], "DEF": [], "MID": [], "FWD": []}
+    for p in pool_projs:
+        if p.status not in ("a", "d") or getattr(p, "is_long_term_unavailable", False):
+            continue
+        if p.expected_points <= 0.0:
+            continue
+        pos_k = _norm_pos(p.position)
+        if pos_k in by_pos:
+            by_pos[pos_k].append(p)
+
+    min_costs: dict[str, int] = {}
+    for pos_k in ("GKP", "DEF", "MID", "FWD"):
+        all_p_pos = [p for p in pool_projs if _norm_pos(p.position) == pos_k]
+        min_costs[pos_k] = min((p.price_tenths for p in all_p_pos), default=40)
+
+    base_floor_15 = (
+        2 * min_costs["GKP"]
+        + 5 * min_costs["DEF"]
+        + 5 * min_costs["MID"]
+        + 3 * min_costs["FWD"]
+    )
+
+    filtered_by_pos: dict[str, list[_CandGwProj]] = {}
+    for pos_k, cands in by_pos.items():
+        min_other_14 = base_floor_15 - min_costs[pos_k]
+        filtered_by_pos[pos_k] = [
+            p for p in cands if (p.price_tenths + min_other_14) <= max_budget_tenths
+        ]
+
+    gks = filtered_by_pos["GKP"]
+    defs = filtered_by_pos["DEF"]
+    mids = filtered_by_pos["MID"]
+    fwds = filtered_by_pos["FWD"]
+
+    if not gks or len(defs) < 3 or len(mids) < 2 or len(fwds) < 1:
+        aff_all = sorted(
+            [p for p_list in filtered_by_pos.values() for p in p_list],
+            key=lambda p: p.expected_points,
+            reverse=True,
+        )
+        return round(sum(p.expected_points for p in aff_all[:11]), 2)
+
+    for pos_k in filtered_by_pos:
+        filtered_by_pos[pos_k].sort(key=lambda p: (p.expected_points, -p.price_tenths), reverse=True)
+
+    formations = [(3, 5, 2), (3, 4, 3), (4, 4, 2), (4, 3, 3), (4, 5, 1), (5, 3, 2), (5, 4, 1), (5, 2, 3)]
+    best_pool_xi = 0.0
+
+    for n_def, n_mid, n_fwd in formations:
+        if len(defs) < n_def or len(mids) < n_mid or len(fwds) < n_fwd:
+            continue
+        min_bench_cost = (
+            1 * min_costs["GKP"]
+            + (5 - n_def) * min_costs["DEF"]
+            + (5 - n_mid) * min_costs["MID"]
+            + (3 - n_fwd) * min_costs["FWD"]
+        )
+        xi_budget = max_budget_tenths - min_bench_cost
+
+        cand_gks = gks[:4]
+        cand_defs = defs[:12]
+        cand_mids = mids[:12]
+        cand_fwds = fwds[:8]
+
+        for gk in cand_gks:
+            if gk.price_tenths > xi_budget:
+                continue
+            counts: dict[int, int] = {gk.team_id: 1}
+            rem_budget = xi_budget - gk.price_tenths
+
+            needed = {"DEF": n_def, "MID": n_mid, "FWD": n_fwd}
+            picked: dict[str, list[_CandGwProj]] = {"DEF": [], "MID": [], "FWD": []}
+            spent = 0
+
+            pool_outfield = (
+                [("DEF", p) for p in cand_defs]
+                + [("MID", p) for p in cand_mids]
+                + [("FWD", p) for p in cand_fwds]
+            )
+            pool_outfield.sort(key=lambda item: item[1].expected_points, reverse=True)
+
+            for pos_tag, cand in pool_outfield:
+                if len(picked[pos_tag]) >= needed[pos_tag]:
+                    continue
+                if cand in picked[pos_tag]:
+                    continue
+                if counts.get(cand.team_id, 0) >= 3:
+                    continue
+                rem_needed_cost = 0
+                for p_t, req_n in needed.items():
+                    unfilled = req_n - len(picked[p_t]) - (1 if p_t == pos_tag else 0)
+                    rem_needed_cost += max(0, unfilled) * min_costs[p_t]
+                if spent + cand.price_tenths + rem_needed_cost > rem_budget:
+                    continue
+                picked[pos_tag].append(cand)
+                counts[cand.team_id] = counts.get(cand.team_id, 0) + 1
+                spent += cand.price_tenths
+
+            valid = True
+            for pos_tag, req_n in needed.items():
+                while len(picked[pos_tag]) < req_n:
+                    cheap_pool = sorted(filtered_by_pos[pos_tag], key=lambda p: p.price_tenths)
+                    added = False
+                    for cp in cheap_pool:
+                        if cp in picked[pos_tag]:
+                            continue
+                        if counts.get(cp.team_id, 0) >= 3:
+                            continue
+                        if spent + cp.price_tenths > rem_budget:
+                            continue
+                        picked[pos_tag].append(cp)
+                        counts[cp.team_id] = counts.get(cp.team_id, 0) + 1
+                        spent += cp.price_tenths
+                        added = True
+                        break
+                    if not added:
+                        valid = False
+                        break
+                if not valid:
+                    break
+
+            if valid:
+                formation_xp = gk.expected_points + sum(p.expected_points for p_list in picked.values() for p in p_list)
+                if formation_xp > best_pool_xi:
+                    best_pool_xi = formation_xp
+
+    return round(best_pool_xi, 2)
+
+
 class ChipOpportunityOptimizer:
     """Unified mathematical optimizer for strategic FPL chip deployment."""
 
@@ -837,23 +1028,6 @@ class ChipOpportunityOptimizer:
 
         snap_player_map = {int(p.player_id): p for p in getattr(snapshot, "players", [])}
 
-        @dataclass(frozen=True, slots=True)
-        class _CandGwProj:
-            player_id: int
-            id: int
-            web_name: str
-            team_id: int
-            position: Any
-            status: str
-            expected_points: float
-            expected_minutes: float
-            play_probability: float
-            start_probability: float
-            availability_pct: float
-            chance_of_playing_next_round: int | None
-            consecutive_zero_mins: int
-            is_long_term_unavailable: bool
-
         ui_to_canon = {
             "wildcard": "wildcard",
             "freehit": "free_hit",
@@ -870,6 +1044,16 @@ class ChipOpportunityOptimizer:
             "benchboost": [],
             "wildcard": [],
         }
+
+        total_capital = int(getattr(sim, "bank_tenths", 0))
+        from ..transfers import selling_price
+        for pid in eff_squad_ids:
+            sp_raw = snap_player_map.get(pid)
+            cur_p = int(getattr(sp_raw, "price_tenths", 50))
+            purch_p = int(getattr(sim, "purchase_prices_tenths", {}).get(str(pid), cur_p))
+            total_capital += selling_price(purch_p, cur_p)
+        if total_capital <= 0:
+            total_capital = 1000
 
         target_gws = list(range(eff_start_gw, seg_end + 1))
 
@@ -888,6 +1072,7 @@ class ChipOpportunityOptimizer:
                 xm_val = float(p_info.expected_minutes) if xp_val > 0.0 else 0.0
                 play_p = min(1.0, max(0.0, xm_val / 75.0)) if xp_val > 0.0 else 0.0
                 start_p = min(1.0, max(0.0, xm_val / 85.0)) if xp_val > 0.0 else 0.0
+                p_price = int(getattr(p_info, "price_tenths", getattr(sp_raw, "price_tenths", 50)))
                 c_proj = _CandGwProj(
                     player_id=pid,
                     id=pid,
@@ -903,16 +1088,16 @@ class ChipOpportunityOptimizer:
                     chance_of_playing_next_round=getattr(sp_raw, "chance_of_playing_next_round", 100),
                     consecutive_zero_mins=getattr(sp_raw, "consecutive_zero_mins", 0),
                     is_long_term_unavailable=bool(p_info.is_long_term_unavailable),
+                    price_tenths=p_price,
                 )
                 p_list.append(c_proj)
                 p_map[pid] = c_proj
             gw_proj_lists[gw] = p_list
             gw_proj_maps[gw] = p_map
 
-            all_xps = sorted((cp.expected_points for cp in p_list if cp.status in ("a", "d")), reverse=True)
-            gw_pool_top11_xp[gw] = sum(all_xps[:11])
-            sq_xps = sorted((p_map[pid].expected_points for pid in eff_squad_ids if pid in p_map), reverse=True)
-            gw_squad_top11_xp[gw] = sum(sq_xps[:11])
+            gw_pool_top11_xp[gw] = _calc_achievable_pool_xi_xp(p_list, total_capital)
+            squad_projs = [p_map[pid] for pid in eff_squad_ids if pid in p_map]
+            gw_squad_top11_xp[gw] = _calc_legal_squad_xi_xp(squad_projs)
 
         # Step 1: Compute squad-sensitive immediate EV for every (chip, gw) in the segment
         raw_imm_ev: dict[str, dict[int, float]] = {c: {} for c in canon_available}
@@ -1039,6 +1224,8 @@ class ChipOpportunityOptimizer:
         schedule: list[dict[str, Any]] = []
         assigned_gws: set[int] = set()
         scheduled_wc_gw: int | None = recent_wc_gw
+        scheduled_fh_gw: int | None = None
+        unscheduled_reasons: dict[str, str] = {}
 
         # Check if engine recommends an immediate chip for current_gw
         recs = sim.get_recommendations()
@@ -1080,6 +1267,8 @@ class ChipOpportunityOptimizer:
                 assigned_gws.add(int(sim.current_gw))
                 if norm_rec_ui == "wildcard":
                     scheduled_wc_gw = int(sim.current_gw)
+                elif norm_rec_ui == "freehit":
+                    scheduled_fh_gw = int(sim.current_gw)
 
         chip_priority = ["freehit", "triplecaptain", "benchboost", "wildcard"]
         unassigned_chips = [
@@ -1087,35 +1276,83 @@ class ChipOpportunityOptimizer:
             if c in remaining_clean and not any(s["chip"] == c for s in schedule)
         ]
 
+        def _is_cooldown_ok(gw: int, other_gw: int | None) -> bool:
+            if other_gw is None:
+                return True
+            return abs(gw - other_gw) > self.cooldown_gameweeks
+
+        # Joint pair assignment for Free Hit and Wildcard if both are unassigned
+        if "freehit" in unassigned_chips and "wildcard" in unassigned_chips:
+            fh_cands = [
+                c for c in candidates_by_chip.get("freehit", [])
+                if not c.get("blocked") and c["gameweek"] not in assigned_gws and _is_cooldown_ok(c["gameweek"], scheduled_wc_gw)
+            ]
+            wc_cands = [
+                c for c in candidates_by_chip.get("wildcard", [])
+                if not c.get("blocked") and c["gameweek"] not in assigned_gws and _is_cooldown_ok(c["gameweek"], scheduled_fh_gw) and _is_cooldown_ok(c["gameweek"], recent_wc_gw)
+            ]
+            valid_pairs = []
+            for c_fh in fh_cands:
+                for c_wc in wc_cands:
+                    if c_fh["gameweek"] != c_wc["gameweek"] and _is_cooldown_ok(c_fh["gameweek"], c_wc["gameweek"]):
+                        score = (c_fh["immediate_ev"] + c_wc["immediate_ev"], c_fh["net_utility"] + c_wc["net_utility"])
+                        valid_pairs.append((score, c_fh, c_wc))
+            if valid_pairs:
+                valid_pairs.sort(key=lambda item: item[0], reverse=True)
+                _, best_fh, best_wc = valid_pairs[0]
+                for chosen, ui_chip, all_c in [(best_fh, "freehit", fh_cands), (best_wc, "wildcard", wc_cands)]:
+                    assigned_gws.add(chosen["gameweek"])
+                    alts = [
+                        {
+                            "gameweek": a["gameweek"],
+                            "immediate_ev": a["immediate_ev"],
+                            "net_utility": a["net_utility"],
+                            "gw_type": a["gw_type"],
+                        }
+                        for a in all_c
+                        if a["gameweek"] != chosen["gameweek"] and not a.get("blocked")
+                    ][:2]
+                    schedule.append({
+                        "gameweek": chosen["gameweek"],
+                        "chip": ui_chip,
+                        "gw_type": chosen["gw_type"],
+                        "reasoning": chosen["reasoning"],
+                        "immediate_ev": chosen["immediate_ev"],
+                        "future_opportunity": chosen["future_opportunity"],
+                        "net_utility": chosen["net_utility"],
+                        "confidence": chosen["confidence"],
+                        "alternatives": alts,
+                    })
+                scheduled_fh_gw = best_fh["gameweek"]
+                scheduled_wc_gw = best_wc["gameweek"]
+                unassigned_chips = [c for c in unassigned_chips if c not in ("freehit", "wildcard")]
+
         for ui_chip in unassigned_chips:
             valid_cands = [
                 c for c in candidates_by_chip.get(ui_chip, [])
                 if not c.get("blocked") and c["gameweek"] not in assigned_gws
             ]
             # Enforce Wildcard <-> Free Hit cooldown only between wildcard and freehit (never benchboost/triplecaptain)
-            if ui_chip in ("freehit", "wildcard") and scheduled_wc_gw is not None:
-                filtered_cooldown = [
-                    c for c in valid_cands
-                    if not (1 <= abs(c["gameweek"] - scheduled_wc_gw) <= self.cooldown_gameweeks)
-                ]
-                if filtered_cooldown:
-                    valid_cands = filtered_cooldown
+            if ui_chip == "freehit" and scheduled_wc_gw is not None:
+                valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], scheduled_wc_gw)]
+            elif ui_chip == "wildcard":
+                if scheduled_fh_gw is not None:
+                    valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], scheduled_fh_gw)]
+                if recent_wc_gw is not None:
+                    valid_cands = [c for c in valid_cands if _is_cooldown_ok(c["gameweek"], recent_wc_gw)]
 
             if not valid_cands:
-                # Fallback if all remaining GWs were blocked (e.g. only GW1 in range)
-                fallback_cands = [
-                    c for c in candidates_by_chip.get(ui_chip, [])
-                    if c["gameweek"] not in assigned_gws
-                ]
-                if not fallback_cands:
-                    continue
-                chosen = fallback_cands[0]
-            else:
-                chosen = valid_cands[0]
+                unscheduled_reasons[ui_chip] = (
+                    f"No eligible deployment window in segment satisfies strategy guardrails or cooldown for {ui_chip}."
+                )
+                continue
 
+            chosen = valid_cands[0]
             assigned_gws.add(chosen["gameweek"])
             if ui_chip == "wildcard":
                 scheduled_wc_gw = chosen["gameweek"]
+            elif ui_chip == "freehit":
+                scheduled_fh_gw = chosen["gameweek"]
 
             alts = [
                 {
@@ -1157,6 +1394,9 @@ class ChipOpportunityOptimizer:
             "used_chips": used_clean,
             "active_chip": getattr(sim, "active_chip", None),
             "has_confirmed_blank_gameweeks": has_bgw,
+            "has_confirmed_double_gameweeks": has_dgw,
+            "recommended_schedule": schedule,
+            "unscheduled_chips": unscheduled_reasons,
             "has_confirmed_double_gameweeks": has_dgw,
             "recommended_schedule": schedule,
             "candidate_rankings": {

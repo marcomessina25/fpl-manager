@@ -580,20 +580,23 @@ def suggest_strategic_squad(
     players_map, team_map = load_all_players_meta(store, profiles_map)
 
     # Calculate budget
+    eff_prices_tenths: dict[int, int] = {}
     if budget_millions is not None:
         budget_tenths = int(round(budget_millions * 10))
     elif constraints is not None and constraints.budget_tenths:
         budget_tenths = constraints.budget_tenths
+        eff_prices_tenths = dict(getattr(constraints, "effective_prices_tenths", {}) or {})
     elif mode == "initial":
         budget_tenths = 1000  # Default £100.0m for season start
     else:
         try:
             state = load_current_squad(squad_path)
-            squad_selling_value = sum(
-                selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+            eff_prices_tenths = {
+                p_id: selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
                 for p_id in state.player_ids
                 if p_id in players_map
-            )
+            }
+            squad_selling_value = sum(eff_prices_tenths.values())
             budget_tenths = state.bank_tenths + squad_selling_value
         except Exception:
             budget_tenths = 1000
@@ -609,6 +612,7 @@ def suggest_strategic_squad(
             min_bank_tenths=constraints.min_bank_tenths,
             soft_preference_weight=constraints.soft_preference_weight,
             target_gameweeks=tuple(target_gws),
+            effective_prices_tenths=eff_prices_tenths,
         )
     else:
         effective_constraints = StrategicConstraints(
@@ -617,6 +621,7 @@ def suggest_strategic_squad(
             excluded_player_ids=set(excluded_player_ids or ()),
             preferred_player_ids=set(preferred_player_ids or ()),
             target_gameweeks=tuple(target_gws),
+            effective_prices_tenths=eff_prices_tenths,
         )
 
     candidate_pool = list(players_map.values())

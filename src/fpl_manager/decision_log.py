@@ -1168,10 +1168,11 @@ def apply_wildcard_or_freehit(
     with closing(store._connect()) as conn:
         snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
         snap_id = snap[0] if snap else 1
-        placeholders = ",".join("?" for _ in squad_ids)
+        all_need_ids = sorted(set(squad_ids) | set(state.player_ids))
+        placeholders = ",".join("?" for _ in all_need_ids)
         p_rows = conn.execute(
             f"SELECT player_id, price_tenths FROM players WHERE snapshot_id = ? AND player_id IN ({placeholders})",
-            (snap_id, *squad_ids),
+            (snap_id, *all_need_ids),
         ).fetchall()
         costs = {r[0]: r[1] for r in p_rows}
 
@@ -1189,6 +1190,23 @@ def apply_wildcard_or_freehit(
         chip_norm = "wildcard"
     else:
         chip_norm = "freehit"
+
+    if chip_norm in ("wildcard", "freehit") and state.player_ids:
+        from .transfers import selling_price as _calc_sell
+        old_set = set(state.player_ids)
+        avail_budget = state.bank_tenths + sum(
+            _calc_sell(state.purchase_price(pid), costs.get(pid, state.purchase_price(pid)))
+            for pid in state.player_ids
+        )
+        req_cost = sum(
+            _calc_sell(state.purchase_price(pid), costs.get(pid, state.purchase_price(pid)))
+            if pid in old_set
+            else costs.get(pid, 50)
+            for pid in squad_ids
+        )
+        if req_cost > avail_budget:
+            raise ValueError(f"Strategic squad cost ({req_cost} tenths) exceeds available budget ({avail_budget} tenths).")
+        bank_tenths = avail_budget - req_cost
 
     # Deduct chip from chips_remaining if a chip was used
     if gameweek >= 20 and (state.gameweek or 1) <= 19:

@@ -303,3 +303,104 @@ def test_api_parity_metadata_in_simulation_recommendations(tmp_path: Path):
     assert "recommended_chip_opportunity" in recs
     # In GW 1 fresh squad, recommended_chip is None
     assert recs["recommended_chip"] is None
+
+
+def test_v146_r2_10_cooldown_and_no_blocked_fallbacks(tmp_path: Path):
+    """V146-R2-10: Verify roadmap enforces symmetric FH <-> WC cooldown and never schedules blocked candidates."""
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_10",
+        season="2023-24",
+        start_gw=16,
+        config_dir=tmp_path,
+    )
+    opt = ChipOpportunityOptimizer(variant="c2_ev_planner")
+    roadmap = opt.generate_segment_roadmap(sim=sim, start_gw=16)
+
+    sched = roadmap["recommended_schedule"]
+    fh_gw = next((s["gameweek"] for s in sched if s["chip"] == "freehit"), None)
+    wc_gw = next((s["gameweek"] for s in sched if s["chip"] == "wildcard"), None)
+
+    if fh_gw is not None and wc_gw is not None:
+        assert abs(fh_gw - wc_gw) > opt.cooldown_gameweeks, (
+            f"Free Hit GW{fh_gw} and Wildcard GW{wc_gw} violate cooldown {opt.cooldown_gameweeks}"
+        )
+
+    for item in sched:
+        assert item["gw_type"] != "GUARDRAIL_BLOCKED", f"Blocked chip scheduled: {item}"
+        assert not item.get("blocked", False), f"Blocked chip scheduled: {item}"
+
+
+def test_v146_r2_11_unaffordable_targets_cannot_inflate_ev(tmp_path: Path):
+    """V146-R2-11: Adding exclusively unaffordable targets must not inflate achievable replacement XI or Free Hit EV."""
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_11",
+        season="2023-24",
+        start_gw=5,
+        config_dir=tmp_path,
+    )
+    opt = ChipOpportunityOptimizer(variant="c2_ev_planner")
+    roadmap_base = opt.generate_segment_roadmap(sim=sim, start_gw=5)
+
+    fh_cands_base = roadmap_base["candidate_rankings"].get("freehit", [])
+    assert fh_cands_base, "Expected Free Hit candidate rankings"
+    base_ev_gw6 = next((c["immediate_ev"] for c in fh_cands_base if c["gameweek"] == 6), None)
+
+    # Now verify that the pool achievable XI computation filters out infeasible targets
+    # using _calc_achievable_pool_xi_xp
+    from fpl_manager.simulation.chip_optimizer import _CandGwProj, _calc_achievable_pool_xi_xp
+
+    base_pool = [
+        _CandGwProj(
+            player_id=1, id=1, web_name="GK1", team_id=1, position=Position.GOALKEEPER,
+            status="a", expected_points=4.0, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=65,
+        ),
+        _CandGwProj(
+            player_id=2, id=2, web_name="GK2", team_id=2, position=Position.GOALKEEPER,
+            status="a", expected_points=3.5, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=65,
+        ),
+    ]
+    # Add 5 defenders, 5 midfielders, 3 forwards all at 6.5m (65 tenths)
+    for i in range(3, 8):
+        base_pool.append(_CandGwProj(
+            player_id=i, id=i, web_name=f"DEF_{i}", team_id=i, position=Position.DEFENDER,
+            status="a", expected_points=4.5, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=65,
+        ))
+    for i in range(8, 13):
+        base_pool.append(_CandGwProj(
+            player_id=i, id=i, web_name=f"MID_{i}", team_id=i, position=Position.MIDFIELDER,
+            status="a", expected_points=5.0, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=65,
+        ))
+    for i in range(13, 16):
+        base_pool.append(_CandGwProj(
+            player_id=i, id=i, web_name=f"FWD_{i}", team_id=i, position=Position.FORWARD,
+            status="a", expected_points=5.5, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=65,
+        ))
+
+    # Base achievable XI with total capital 100.0m (1000 tenths)
+    xp_base = _calc_achievable_pool_xi_xp(base_pool, 1000)
+    assert xp_base > 0.0
+
+    # Add eleven 14.0m (140 tenths) forwards with massive expected points (15.0 pts each)
+    inflated_pool = list(base_pool)
+    for i in range(20, 31):
+        inflated_pool.append(_CandGwProj(
+            player_id=i, id=i, web_name=f"INFL_FWD_{i}", team_id=(i % 10) + 1, position=Position.FORWARD,
+            status="a", expected_points=15.0, expected_minutes=90.0, play_probability=1.0,
+            start_probability=1.0, availability_pct=100.0, chance_of_playing_next_round=100,
+            consecutive_zero_mins=0, is_long_term_unavailable=False, price_tenths=140,
+        ))
+
+    xp_with_infeasible = _calc_achievable_pool_xi_xp(inflated_pool, 1000)
+    assert xp_with_infeasible == xp_base, (
+        f"Infeasible 14m forwards altered achievable XI xP: {xp_with_infeasible} vs {xp_base}"
+    )

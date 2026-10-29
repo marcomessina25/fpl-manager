@@ -530,6 +530,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
                     players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
 
+                    eff_prices_tenths: dict[int, int] = {}
                     if budget is not None:
                         budget_tenths = int(round(budget * 10))
                     elif mode == "initial":
@@ -537,11 +538,15 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     elif session_id:
                         sim_dir = self.config_dir / "simulations"
                         sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                        squad_selling_value = sum(
-                            selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                        eff_prices_tenths = {
+                            p_id: selling_price(
+                                sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
+                                players_map[p_id].price_tenths,
+                            )
                             for p_id in sim.squad_ids
                             if p_id in players_map
-                        )
+                        }
+                        squad_selling_value = sum(eff_prices_tenths.values())
                         budget_tenths = sim.bank_tenths + squad_selling_value
                     else:
                         budget_tenths = 1000
@@ -553,6 +558,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         excluded_player_ids=set(excl),
                         preferred_player_ids=set(pref),
                         target_gameweeks=tuple(target_gws),
+                        effective_prices_tenths=eff_prices_tenths,
                     )
                     candidate_pool = [
                         p for p in players_map.values()
@@ -1135,26 +1141,46 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     raw_chip = body.get("chip") if "chip" in body else body.get("chip_played")
 
                     if gw == sim.current_gw:
-                        if has_chip_field:
-                            if raw_chip is not None and str(raw_chip).strip() != "" and str(raw_chip).strip().lower() != "none":
-                                canonical_chip = sim.play_chip(str(raw_chip))
+                        prev_active_chip = sim.active_chip
+                        prev_chips_remaining = list(sim.chips_remaining)
+                        prev_chips_used = dict(sim.chips_used)
+                        prev_pre_fh = dict(sim.pre_free_hit_state) if sim.pre_free_hit_state else None
+                        prev_starters = list(sim.starting_ids)
+                        prev_bench = list(sim.bench_ids)
+                        prev_cap = sim.captain_id
+                        prev_vc = sim.vice_captain_id
+                        try:
+                            if has_chip_field:
+                                if raw_chip is not None and str(raw_chip).strip() != "" and str(raw_chip).strip().lower() != "none":
+                                    canonical_chip = sim.play_chip(str(raw_chip))
+                                else:
+                                    sim.cancel_chip()
+                                    canonical_chip = None
                             else:
-                                sim.cancel_chip()
-                                canonical_chip = None
-                        else:
-                            canonical_chip = sim.active_chip
+                                canonical_chip = sim.active_chip
 
-                        target_starters = (
-                            [int(x) for x in body["starters"]]
-                            if body.get("starters")
-                            else list(sim.starting_ids)
-                        )
-                        target_bench = (
-                            [int(x) for x in body["bench"]]
-                            if body.get("bench")
-                            else list(sim.bench_ids)
-                        )
-                        sim.set_lineup(target_starters, target_bench, cap_val, vc_val)
+                            target_starters = (
+                                [int(x) for x in body["starters"]]
+                                if body.get("starters")
+                                else list(sim.starting_ids)
+                            )
+                            target_bench = (
+                                [int(x) for x in body["bench"]]
+                                if body.get("bench")
+                                else list(sim.bench_ids)
+                            )
+                            sim.set_lineup(target_starters, target_bench, cap_val, vc_val)
+                        except Exception:
+                            sim.active_chip = prev_active_chip
+                            sim.chips_remaining = prev_chips_remaining
+                            sim.chips_used = prev_chips_used
+                            sim.pre_free_hit_state = prev_pre_fh
+                            sim.starting_ids = prev_starters
+                            sim.bench_ids = prev_bench
+                            sim.captain_id = prev_cap
+                            sim.vice_captain_id = prev_vc
+                            sim.save()
+                            raise
                         cap_val = sim.captain_id
                         vc_val = sim.vice_captain_id
                         logged_starters = list(sim.starting_ids)
@@ -1324,6 +1350,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
                         players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
 
+                        eff_prices_tenths: dict[int, int] = {}
                         if budget is not None:
                             budget_tenths = int(round(budget * 10))
                         elif mode == "initial":
@@ -1331,11 +1358,15 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         elif session_id:
                             sim_dir = self.config_dir / "simulations"
                             sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                            squad_selling_value = sum(
-                                selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                            eff_prices_tenths = {
+                                p_id: selling_price(
+                                    sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
+                                    players_map[p_id].price_tenths,
+                                )
                                 for p_id in sim.squad_ids
                                 if p_id in players_map
-                            )
+                            }
+                            squad_selling_value = sum(eff_prices_tenths.values())
                             budget_tenths = sim.bank_tenths + squad_selling_value
                         else:
                             budget_tenths = 1000
@@ -1347,6 +1378,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             excluded_player_ids=set(excluded_ids),
                             preferred_player_ids=set(preferred_ids),
                             target_gameweeks=tuple(target_gws),
+                            effective_prices_tenths=eff_prices_tenths,
                         )
                         candidate_pool = [
                             p for p in players_map.values()
@@ -1455,6 +1487,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 preferred_ids = [int(i) for i in body.get("preferred_player_ids", [])]
 
                 h_len = max(1, min(8, horizon))
+                eff_prices_tenths: dict[int, int] = {}
                 if season:
                     hist_dir = PROJECT_ROOT / "data" / "historical"
                     season_dir = hist_dir / season
@@ -1471,11 +1504,15 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     elif session_id:
                         sim_dir = self.config_dir / "simulations"
                         sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                        squad_selling_value = sum(
-                            selling_price(sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50), players_map[p_id].price_tenths)
+                        eff_prices_tenths = {
+                            p_id: selling_price(
+                                sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
+                                players_map[p_id].price_tenths,
+                            )
                             for p_id in sim.squad_ids
                             if p_id in players_map
-                        )
+                        }
+                        squad_selling_value = sum(eff_prices_tenths.values())
                         budget_tenths = sim.bank_tenths + squad_selling_value
                     else:
                         budget_tenths = 1000
@@ -1495,11 +1532,12 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     else:
                         try:
                             state = load_current_squad(squad_path)
-                            squad_selling_value = sum(
-                                selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+                            eff_prices_tenths = {
+                                p_id: selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
                                 for p_id in state.player_ids
                                 if p_id in players_map
-                            )
+                            }
+                            squad_selling_value = sum(eff_prices_tenths.values())
                             budget_tenths = state.bank_tenths + squad_selling_value
                         except Exception:
                             budget_tenths = 1000
@@ -1510,6 +1548,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     excluded_player_ids=set(excluded_ids),
                     preferred_player_ids=set(preferred_ids),
                     target_gameweeks=tuple(target_gws),
+                    effective_prices_tenths=eff_prices_tenths,
                 )
                 candidate_pool = [
                     p for p in players_map.values()
@@ -1699,7 +1738,12 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         raise ValueError("Captain and Vice-Captain must be distinct players in the starting 11.")
 
                     old_squad = list(sim.squad_ids)
-                    if norm_mode in ("initial", "init", "start") and sim.current_gw == 1:
+                    has_custom_prices = any(
+                        pid in players_map
+                        and sim.purchase_prices_tenths.get(str(pid), players_map[pid].price_tenths) != players_map[pid].price_tenths
+                        for pid in old_squad
+                    )
+                    if norm_mode in ("initial", "init", "start") and sim.current_gw == 1 and not has_custom_prices:
                         avail_budget = max(1000, int(round(float(body.get("budget", 100.0)) * 10)))
                         req_cost = sum(players_map[pid].price_tenths for pid in squad_ids)
                     else:
@@ -1724,8 +1768,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         )
                     if req_cost > avail_budget:
                         raise ValueError(f"Strategic squad cost ({req_cost} tenths) exceeds available budget ({avail_budget} tenths).")
-                    if bank_tenths < 0 or bank_tenths > avail_budget:
-                        bank_tenths = avail_budget - req_cost
+                    bank_tenths = avail_budget - req_cost
 
                     outs = [pid for pid in old_squad if pid not in squad_ids]
                     ins = [pid for pid in squad_ids if pid not in old_squad]
@@ -1754,6 +1797,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                                     "in_name": i_p.web_name if i_p else f"Player {i_id}",
                                     "cost_tenths": i_price - s_price,
                                     "out_selling_price_tenths": s_price,
+                                    "out_purchase_price_tenths": p_price,
                                     "in_price_tenths": i_price,
                                 })
                         for o_id, i_id in zip(remaining_outs, remaining_ins):
@@ -1769,6 +1813,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                                 "in_name": i_p.web_name if i_p else f"Player {i_id}",
                                 "cost_tenths": i_price - s_price,
                                 "out_selling_price_tenths": s_price,
+                                "out_purchase_price_tenths": p_price,
                                 "in_price_tenths": i_price,
                             })
 
@@ -1797,6 +1842,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
 
                     if norm_mode == "initial" and sim.current_gw == 1:
                         staged_list = []
+                        sim._capture_gw_start_state()
                     else:
                         for st in staged_list:
                             st["already_applied"] = True
@@ -2101,9 +2147,13 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 else:
                     self._send_error_json(f"Unknown simulation action '{action}'", status=404)
             elif path == "/api/plan/apply-step":
+                from contextlib import closing
+                from ..squad_state import load_current_squad
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 squad_path = get_team_squad_path(tid, self.config_dir)
-                gw = int(body.get("gameweek") or get_current_gameweek(SnapshotStore(self.database_path)))
+                store = SnapshotStore(self.database_path)
+                store.initialize()
+                gw = int(body.get("gameweek") or get_current_gameweek(store))
                 raw_txs = body.get("transfers") or []
                 tx_list = [
                     {
@@ -2112,15 +2162,42 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     }
                     for t in raw_txs
                 ]
-                starting_ids = [int(x) for x in body["starting_ids"]] if body.get("starting_ids") else None
-                bench_ids = [int(x) for x in body["bench_ids"]] if body.get("bench_ids") else None
+                starting_ids = [int(x) for x in body["starting_ids"]] if body.get("starting_ids") is not None else None
+                bench_ids = [int(x) for x in body["bench_ids"]] if body.get("bench_ids") is not None else None
                 cap_id = int(body["captain_id"]) if body.get("captain_id") is not None else None
                 vc_id = int(body["vice_captain_id"]) if body.get("vice_captain_id") is not None else None
                 cap_name = body.get("captain")
                 vc_name = body.get("vice_captain")
 
                 old_squad_bytes = squad_path.read_bytes() if squad_path.exists() else None
-                prev_dec = get_gameweek_decision(gw, database_path=self.database_path, team_id=tid)
+                cur_state = load_current_squad(squad_path)
+                season_str = getattr(cur_state, "season", "2026/27")
+                orig_decision_row = None
+                orig_recommendation_row = None
+                try:
+                    with closing(store._connect()) as conn:
+                        orig_decision_row = conn.execute(
+                            """
+                            SELECT id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                                   transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                                   predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                            FROM decisions
+                            WHERE team_id = ? AND season = ? AND gameweek = ?
+                            """,
+                            (tid, season_str, gw),
+                        ).fetchone()
+                        if orig_decision_row:
+                            orig_recommendation_row = conn.execute(
+                                """
+                                SELECT recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                                FROM decision_recommendations
+                                WHERE decision_id = ?
+                                """,
+                                (orig_decision_row[0],),
+                            ).fetchone()
+                except Exception:
+                    pass
+
                 try:
                     if starting_ids is not None and len(starting_ids) != 11:
                         raise ValueError(f"Expected 11 starters, got {len(starting_ids)}.")
@@ -2145,24 +2222,66 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         gameweek=gw,
                         squad_path=squad_path,
                         database_path=self.database_path,
-                        captain=cap_name or (str(cap_id) if cap_id is not None else None),
-                        vice_captain=vc_name or (str(vc_id) if vc_id is not None else None),
-                        transfers=tx_res.get("transfers", []) if tx_res else [],
-                        transfer_hits=int(body.get("hits") or (tx_res.get("transfer_hits", 0) if tx_res else 0)),
+                        captain_id=cap_id if cap_id is not None else cap_name,
+                        vice_captain_id=vc_id if vc_id is not None else vc_name,
+                        transfers=None if tx_res else [],
+                        transfer_hits=int(body.get("hits") if body.get("hits") is not None else (tx_res.get("transfer_hits", 0) if tx_res else 0)),
                         notes=body.get("notes") or f"Applied from Multi-GW Planner (Step 0, GW{gw})",
                         starting_player_ids=starting_ids,
                         bench_player_ids=bench_ids,
                         team_id=tid,
                     )
                 except Exception:
-                    if old_squad_bytes is not None:
-                        squad_path.write_bytes(old_squad_bytes)
-                    if prev_dec is None:
-                        from contextlib import closing
-                        store = SnapshotStore(self.database_path)
-                        with closing(store._connect()) as conn:
-                            conn.execute("DELETE FROM manager_decisions WHERE gameweek = ? AND team_id = ?", (gw, tid))
-                            conn.commit()
+                    try:
+                        if old_squad_bytes is not None:
+                            squad_path.write_bytes(old_squad_bytes)
+                        elif squad_path.exists():
+                            squad_path.unlink()
+                    except Exception:
+                        pass
+                    try:
+                        with closing(store._connect()) as conn, conn:
+                            if orig_decision_row is not None:
+                                conn.execute(
+                                    """
+                                    INSERT OR REPLACE INTO decisions (
+                                        id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
+                                        transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
+                                        predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    orig_decision_row,
+                                )
+                                if orig_recommendation_row is not None:
+                                    conn.execute(
+                                        """
+                                        INSERT OR REPLACE INTO decision_recommendations (
+                                            decision_id, recommended_lineup_json, recommended_transfers_json, recommended_plan_json
+                                        ) VALUES (?, ?, ?, ?)
+                                        """,
+                                        (orig_decision_row[0], *orig_recommendation_row),
+                                    )
+                                else:
+                                    conn.execute(
+                                        "DELETE FROM decision_recommendations WHERE decision_id = ?",
+                                        (orig_decision_row[0],),
+                                    )
+                            else:
+                                conn.execute(
+                                    """
+                                    DELETE FROM decision_recommendations
+                                    WHERE decision_id IN (
+                                        SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?
+                                    )
+                                    """,
+                                    (tid, season_str, gw),
+                                )
+                                conn.execute(
+                                    "DELETE FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+                                    (tid, season_str, gw),
+                                )
+                    except Exception:
+                        pass
                     raise
 
                 self._send_json({

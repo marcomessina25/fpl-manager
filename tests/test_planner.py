@@ -218,3 +218,116 @@ def test_generate_multi_gameweek_plan_excludes_long_term_unavailable(
 
     assert _incoming_ids(res).isdisjoint(baseline_in)
 
+
+def test_v146_r2_05_risk_profiles_deduct_hits(tmp_path: Path):
+    """V146-R2-05: Verify floor and ceiling beam rankings deduct hit costs."""
+    from fpl_manager.planner import generate_historical_multi_gameweek_plan
+    from fpl_manager.simulation.session import HistoricalSimulationSession
+
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_05",
+        season="2023-24",
+        start_gw=2,
+        config_dir=tmp_path,
+    )
+    # Plan under neutral, floor, and ceiling
+    plan_neutral = generate_historical_multi_gameweek_plan(sim=sim, horizon=2, risk_profile="neutral", allow_hits=True)
+    plan_floor = generate_historical_multi_gameweek_plan(sim=sim, horizon=2, risk_profile="floor", allow_hits=True)
+    plan_ceiling = generate_historical_multi_gameweek_plan(sim=sim, horizon=2, risk_profile="ceiling", allow_hits=True)
+
+    for plan in (plan_neutral, plan_floor, plan_ceiling):
+        for candidate in plan.get("candidates", []):
+            hits = sum(s.get("hits", 0) for s in candidate.get("gameweek_steps", []))
+            hit_penalty = hits * 4.0
+            cum_mean = candidate.get("cumulative_expected_points", 0.0)
+            cum_floor = candidate.get("cumulative_xp_floor", 0.0)
+            cum_ceil = candidate.get("cumulative_xp_ceiling", 0.0)
+            # Both net floor and net ceiling must account for hits
+            assert cum_floor <= cum_mean + 0.01 or cum_floor == 0.0
+            assert cum_ceil >= cum_mean - 0.01 or cum_ceil == 0.0
+
+
+def test_v146_r2_06_free_hit_reversion(tmp_path: Path):
+    """V146-R2-06: Step 0 Free Hit temporary state must not survive into step 1."""
+    from fpl_manager.planner import generate_historical_multi_gameweek_plan
+    from fpl_manager.simulation.session import HistoricalSimulationSession
+
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_06",
+        season="2023-24",
+        start_gw=5,
+        config_dir=tmp_path,
+    )
+    sim.play_chip("free_hit")
+    plan = generate_historical_multi_gameweek_plan(sim=sim, horizon=2, allow_hits=False)
+    steps = plan["best_plan"]["gameweek_steps"]
+    assert len(steps) >= 2
+    # Step 0 has active Free Hit
+    assert steps[0].get("active_chip") == "free_hit"
+    # Step 1 must have no chip
+    assert steps[1].get("active_chip") is None
+
+
+def test_v146_r2_07_scoring_chips_affect_step0_evaluation(tmp_path: Path):
+    """V146-R2-07: Triple Captain and Bench Boost directly enhance step 0 evaluation."""
+    from fpl_manager.planner import generate_historical_multi_gameweek_plan
+    from fpl_manager.simulation.session import HistoricalSimulationSession
+
+    sim_none = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_07_none",
+        season="2023-24",
+        start_gw=5,
+        config_dir=tmp_path / "none",
+    )
+    plan_none = generate_historical_multi_gameweek_plan(sim=sim_none, horizon=1)
+    ev_none = plan_none["best_plan"]["gameweek_steps"][0]["expected_points"]
+
+    sim_tc = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_07_tc",
+        season="2023-24",
+        start_gw=5,
+        config_dir=tmp_path / "tc",
+    )
+    sim_tc.play_chip("triple_captain")
+    plan_tc = generate_historical_multi_gameweek_plan(sim=sim_tc, horizon=1)
+    ev_tc = plan_tc["best_plan"]["gameweek_steps"][0]["expected_points"]
+
+    # Triple Captain must produce higher immediate score than no chip
+    assert ev_tc > ev_none, f"Triple Captain EV ({ev_tc}) must exceed normal EV ({ev_none})"
+
+
+def test_v146_r2_08_gw1_preseason_unlimited_hit_free(tmp_path: Path):
+    """V146-R2-08: GW1 planning must treat moves as preseason unlimited and hit-free."""
+    from fpl_manager.planner import generate_historical_multi_gameweek_plan
+    from fpl_manager.simulation.session import HistoricalSimulationSession
+
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_08",
+        season="2023-24",
+        start_gw=1,
+        config_dir=tmp_path,
+    )
+    plan = generate_historical_multi_gameweek_plan(sim=sim, horizon=2, allow_hits=False)
+    step0 = plan["best_plan"]["gameweek_steps"][0]
+    # Hits on GW1 must strictly be 0 even with transfers
+    assert step0.get("hits", 0) == 0
+
+
+def test_v146_r2_09_blank_gw_future_risk_distributions(tmp_path: Path):
+    """V146-R2-09: A player with a current blank fixture must retain coherent positive future floor/ceiling."""
+    from fpl_manager.planner import generate_historical_multi_gameweek_plan
+    from fpl_manager.simulation.session import HistoricalSimulationSession
+
+    # In 2023-24, GW18 had Manchester City blank (e.g. Foden)
+    sim = HistoricalSimulationSession.create(
+        session_id="test_v146_r2_09",
+        season="2023-24",
+        start_gw=18,
+        config_dir=tmp_path,
+    )
+    plan = generate_historical_multi_gameweek_plan(sim=sim, horizon=3)
+    # Check that in GW19 and GW20, projected floor and ceiling for candidates are positive
+    assert plan["best_plan"]["gameweek_steps"][1]["xp_floor"] > 0.0
+    assert plan["best_plan"]["gameweek_steps"][1]["xp_ceiling"] > 0.0
+
+

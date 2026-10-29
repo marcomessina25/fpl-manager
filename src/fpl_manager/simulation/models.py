@@ -54,6 +54,7 @@ class GameweekResolution:
     engine_recommendation: dict[str, Any] | None = None
     engine_net_points: int | None = None
     human_engine_divergence: dict[str, Any] | None = None
+    purchase_basis_unverified: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
