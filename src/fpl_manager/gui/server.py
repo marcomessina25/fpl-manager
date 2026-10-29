@@ -47,6 +47,7 @@ from ..planner import generate_historical_multi_gameweek_plan, generate_multi_ga
 from ..scores import update_gameweek_scores
 from ..simulation import HistoricalSimulationSession
 from ..squad_report import generate_squad_report
+from ..squad_state import load_current_squad
 from ..storage import SnapshotStore
 from ..strategic_squad import (
     STRATEGIC_MODES,
@@ -59,6 +60,7 @@ from ..strategic_squad import (
     solve_strategic_squad,
 )
 from ..suggest_transfers import (
+    PlayerInfo,
     load_all_players_meta,
     rescore_transfer_candidates,
     suggest_initial_squad,
@@ -130,6 +132,36 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def _historical_strategic_finances(
+        self,
+        *,
+        players_map: dict[int, PlayerInfo],
+        season: str,
+        session_id: str | None,
+        mode: str,
+        budget: float | None,
+    ) -> tuple[int, dict[int, int]]:
+        effective_prices: dict[int, int] = {}
+        available_budget = 1000
+        if session_id and mode != "initial":
+            sim = HistoricalSimulationSession.load(
+                session_id, config_dir=self.config_dir / "simulations"
+            )
+            if sim.season != season:
+                raise ValueError("Strategic squad season does not match the selected simulation.")
+            effective_prices = {
+                pid: selling_price(
+                    sim.purchase_prices_tenths.get(str(pid), players_map[pid].price_tenths),
+                    players_map[pid].price_tenths,
+                )
+                for pid in sim.squad_ids
+                if pid in players_map
+            }
+            available_budget = sim.bank_tenths + sum(effective_prices.values())
+        if budget is not None:
+            available_budget = int(round(budget * 10))
+        return available_budget, effective_prices
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -209,7 +241,6 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if gw is None:
                     curr_gw = get_current_gameweek(SnapshotStore(self.database_path))
                     try:
-                        from ..squad_state import load_current_squad
                         state_obj = load_current_squad(squad_path)
                         gw = state_obj.gameweek if (state_obj.gameweek and state_obj.gameweek >= curr_gw) else curr_gw
                     except Exception:
@@ -360,6 +391,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             eff_horizon=eff_horizon,
                             eff_gamma=eff_gamma,
                             max_results=max_results_val,
+                            risk_profile=risk,
                         )
                         reason_breakdown = {
                             "engine": engine_name,
@@ -530,26 +562,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
                     players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
 
-                    eff_prices_tenths: dict[int, int] = {}
-                    if budget is not None:
-                        budget_tenths = int(round(budget * 10))
-                    elif mode == "initial":
-                        budget_tenths = 1000
-                    elif session_id:
-                        sim_dir = self.config_dir / "simulations"
-                        sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                        eff_prices_tenths = {
-                            p_id: selling_price(
-                                sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
-                                players_map[p_id].price_tenths,
-                            )
-                            for p_id in sim.squad_ids
-                            if p_id in players_map
-                        }
-                        squad_selling_value = sum(eff_prices_tenths.values())
-                        budget_tenths = sim.bank_tenths + squad_selling_value
-                    else:
-                        budget_tenths = 1000
+                    budget_tenths, eff_prices_tenths = self._historical_strategic_finances(
+                        players_map=players_map, season=season, session_id=session_id,
+                        mode=mode, budget=budget,
+                    )
 
                     target_gws = list(range(gw, min(39, gw + h_len)))
                     effective_constraints = StrategicConstraints(
@@ -1350,26 +1366,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         h_len = 1 if mode == "free_hit" else max(1, min(8, horizon))
                         players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
 
-                        eff_prices_tenths: dict[int, int] = {}
-                        if budget is not None:
-                            budget_tenths = int(round(budget * 10))
-                        elif mode == "initial":
-                            budget_tenths = 1000
-                        elif session_id:
-                            sim_dir = self.config_dir / "simulations"
-                            sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                            eff_prices_tenths = {
-                                p_id: selling_price(
-                                    sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
-                                    players_map[p_id].price_tenths,
-                                )
-                                for p_id in sim.squad_ids
-                                if p_id in players_map
-                            }
-                            squad_selling_value = sum(eff_prices_tenths.values())
-                            budget_tenths = sim.bank_tenths + squad_selling_value
-                        else:
-                            budget_tenths = 1000
+                        budget_tenths, eff_prices_tenths = self._historical_strategic_finances(
+                            players_map=players_map, season=season, session_id=session_id,
+                            mode=mode, budget=budget,
+                        )
 
                         target_gws = list(range(gw, min(39, gw + h_len)))
                         effective_constraints = StrategicConstraints(
@@ -1497,25 +1497,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     players_map, _ = load_historical_players_meta(snap, season_dir, horizon=h_len)
                     target_gws = list(range(gw, min(39, gw + h_len)))
 
-                    if budget is not None:
-                        budget_tenths = int(round(budget * 10))
-                    elif mode == "initial":
-                        budget_tenths = 1000
-                    elif session_id:
-                        sim_dir = self.config_dir / "simulations"
-                        sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
-                        eff_prices_tenths = {
-                            p_id: selling_price(
-                                sim.purchase_prices_tenths.get(str(p_id), players_map[p_id].price_tenths if p_id in players_map else 50),
-                                players_map[p_id].price_tenths,
-                            )
-                            for p_id in sim.squad_ids
-                            if p_id in players_map
-                        }
-                        squad_selling_value = sum(eff_prices_tenths.values())
-                        budget_tenths = sim.bank_tenths + squad_selling_value
-                    else:
-                        budget_tenths = 1000
+                    budget_tenths, eff_prices_tenths = self._historical_strategic_finances(
+                        players_map=players_map, season=season, session_id=session_id,
+                        mode=mode, budget=budget,
+                    )
                 else:
                     squad_path = get_team_squad_path(tid, self.config_dir)
                     store = SnapshotStore(self.database_path)
@@ -1525,22 +1510,17 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=self.database_path)
                     players_map, _ = load_all_players_meta(store, profiles_map)
 
+                    budget_tenths = 1000
+                    if mode != "initial":
+                        state = load_current_squad(squad_path)
+                        eff_prices_tenths = {
+                            p_id: selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
+                            for p_id in state.player_ids
+                            if p_id in players_map
+                        }
+                        budget_tenths = state.bank_tenths + sum(eff_prices_tenths.values())
                     if budget is not None:
                         budget_tenths = int(round(budget * 10))
-                    elif mode == "initial":
-                        budget_tenths = 1000
-                    else:
-                        try:
-                            state = load_current_squad(squad_path)
-                            eff_prices_tenths = {
-                                p_id: selling_price(state.purchase_price(p_id), players_map[p_id].price_tenths)
-                                for p_id in state.player_ids
-                                if p_id in players_map
-                            }
-                            squad_selling_value = sum(eff_prices_tenths.values())
-                            budget_tenths = state.bank_tenths + squad_selling_value
-                        except Exception:
-                            budget_tenths = 1000
 
                 constraints = StrategicConstraints(
                     budget_tenths=budget_tenths,
@@ -2148,7 +2128,6 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     self._send_error_json(f"Unknown simulation action '{action}'", status=404)
             elif path == "/api/plan/apply-step":
                 from contextlib import closing
-                from ..squad_state import load_current_squad
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
                 squad_path = get_team_squad_path(tid, self.config_dir)
                 store = SnapshotStore(self.database_path)
@@ -2224,8 +2203,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         database_path=self.database_path,
                         captain_id=cap_id if cap_id is not None else cap_name,
                         vice_captain_id=vc_id if vc_id is not None else vc_name,
-                        transfers=None if tx_res else [],
-                        transfer_hits=int(body.get("hits") if body.get("hits") is not None else (tx_res.get("transfer_hits", 0) if tx_res else 0)),
+                        transfers=None,
+                        transfer_hits=None,
                         notes=body.get("notes") or f"Applied from Multi-GW Planner (Step 0, GW{gw})",
                         starting_player_ids=starting_ids,
                         bench_player_ids=bench_ids,

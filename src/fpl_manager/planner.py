@@ -14,7 +14,7 @@ from typing import Any
 from .expected_points import ExpectedPointsProjection, project_gameweek, project_multi_gameweek_profiles
 from .fixtures import analyze_team_fixtures, get_current_gameweek
 from .models import Position, is_departed_from_premier_league, is_long_term_unavailable
-from .optimizer import PlayerOptInfo, solve_transfers, validate_risk_profile
+from .optimizer import PlayerOptInfo, get_player_profile_value, solve_transfers, validate_risk_profile
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
 from .suggest_transfers import load_all_players_meta
@@ -140,6 +140,26 @@ def _extract_starting_and_bench_ids(
     return starting_ids, bench_ids
 
 
+def _lineup_profile_utility(
+    starting_ids: list[int],
+    bench_ids: list[int],
+    captain: Any,
+    gw_projections: dict[int, Any],
+    risk_profile: str,
+    active_chip: str | None = None,
+) -> float:
+    """Evaluate the selected lineup and chip under the shared per-player objective."""
+    utility = sum(get_player_profile_value(gw_projections[pid], risk_profile) for pid in starting_ids)
+    captain_utility = get_player_profile_value(captain, risk_profile)
+    utility += captain_utility
+    norm_chip = str(active_chip or "").lower().replace("-", "_")
+    if norm_chip in ("bench_boost", "benchboost", "bb"):
+        utility += sum(get_player_profile_value(gw_projections[pid], risk_profile) for pid in bench_ids)
+    elif norm_chip in ("triple_captain", "triplecaptain", "tc"):
+        utility += captain_utility
+    return round(utility, 2)
+
+
 def generate_multi_gameweek_plan(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
@@ -205,15 +225,15 @@ def generate_multi_gameweek_plan(
         init_ft = state.free_transfers
         init_prices = {p_id: state.purchase_price(p_id) for p_id in state.player_ids}
 
-    # Beam item: (cumulative_net_score, cumulative_floor, cumulative_ceil, player_ids, bank, ft, purchase_prices, history)
-    beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]]]] = [
-        (0.0, 0.0, 0.0, set(init_ids), init_bank, init_ft, dict(init_prices), [])
+    # Keep mean/floor/ceiling reporting separate from the requested net ranking utility.
+    beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]], float]] = [
+        (0.0, 0.0, 0.0, set(init_ids), init_bank, init_ft, dict(init_prices), [], 0.0)
     ]
 
     for step_idx, gw in enumerate(target_gws):
         next_beam_candidates = []
 
-        for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history in beam:
+        for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history, cum_utility in beam:
             squad_players = [players_map[pid] for pid in s_pids if pid in players_map]
             s_prices = {
                 p.id: selling_price(p_prices.get(p.id, p.price_tenths), p.price_tenths)
@@ -227,6 +247,9 @@ def generate_multi_gameweek_plan(
             )
             starting_ids, bench_ids = _extract_starting_and_bench_ids(
                 s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
+            )
+            net_utility = _lineup_profile_utility(
+                starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
             )
             ft_after = min(5, ft + 1)
             roll_step = {
@@ -245,6 +268,7 @@ def generate_multi_gameweek_plan(
                 "net_ceiling": l_ceil,
                 "transfer_hits": 0,
                 "net_xp": l_xp,
+                "net_profile_utility": net_utility,
                 "bank_after_tenths": bank,
                 "bank_after_fmt": f"£{bank / 10:.1f}m",
                 "free_transfers_after": ft_after,
@@ -258,6 +282,7 @@ def generate_multi_gameweek_plan(
                 ft_after,
                 p_prices,
                 history + [roll_step],
+                round(cum_utility + net_utility, 2),
             ))
 
             # --- Action 2: 1 TRANSFER ---
@@ -298,6 +323,9 @@ def generate_multi_gameweek_plan(
                     net_xp = round(l_xp - hit_deduction, 2)
                     net_floor = round(l_floor - hit_deduction, 2)
                     net_ceil = round(l_ceil - hit_deduction, 2)
+                    net_utility = round(_lineup_profile_utility(
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
+                    ) - hit_deduction, 2)
                     action_label = "1_TRANSFER" if hits == 0 else "1_TRANSFER_HIT"
 
                     tx_step = {
@@ -319,6 +347,7 @@ def generate_multi_gameweek_plan(
                         "net_ceiling": net_ceil,
                         "transfer_hits": hits,
                         "net_xp": net_xp,
+                        "net_profile_utility": net_utility,
                         "bank_after_tenths": new_bank,
                         "bank_after_fmt": f"£{new_bank / 10:.1f}m",
                         "free_transfers_after": ft_after,
@@ -332,6 +361,7 @@ def generate_multi_gameweek_plan(
                         ft_after,
                         new_prices,
                         history + [tx_step],
+                        round(cum_utility + net_utility, 2),
                     ))
 
             # --- Action 3: 2 TRANSFERS ---
@@ -373,6 +403,9 @@ def generate_multi_gameweek_plan(
                     net_xp = round(l_xp - hit_deduction, 2)
                     net_floor = round(l_floor - hit_deduction, 2)
                     net_ceil = round(l_ceil - hit_deduction, 2)
+                    net_utility = round(_lineup_profile_utility(
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
+                    ) - hit_deduction, 2)
                     action_label = "2_TRANSFERS" if hits == 0 else "2_TRANSFERS_HIT"
 
                     tx_step = {
@@ -397,6 +430,7 @@ def generate_multi_gameweek_plan(
                         "net_ceiling": net_ceil,
                         "transfer_hits": hits,
                         "net_xp": net_xp,
+                        "net_profile_utility": net_utility,
                         "bank_after_tenths": new_bank,
                         "bank_after_fmt": f"£{new_bank / 10:.1f}m",
                         "free_transfers_after": ft_after,
@@ -410,17 +444,11 @@ def generate_multi_gameweek_plan(
                         ft_after,
                         new_prices,
                         history + [tx_step],
+                        round(cum_utility + net_utility, 2),
                     ))
 
         # Sort and retain top beam_width distinct paths
-        if risk_profile == "floor":
-            sort_key = lambda x: (x[1], x[0])
-        elif risk_profile == "ceiling":
-            sort_key = lambda x: (x[2], x[0])
-        else:
-            sort_key = lambda x: x[0]
-
-        next_beam_candidates.sort(key=sort_key, reverse=True)
+        next_beam_candidates.sort(key=lambda x: (x[8], x[0]), reverse=True)
         # Deduplicate paths that arrive at the same squad with same cumulative score
         seen_states: set[tuple[tuple[int, ...], float]] = set()
         filtered_beam = []
@@ -436,7 +464,7 @@ def generate_multi_gameweek_plan(
 
     # Serialize top plans
     plans = []
-    for rank, (cum_score, cum_floor, cum_ceil, _, _, _, _, history) in enumerate(beam, 1):
+    for rank, (cum_score, cum_floor, cum_ceil, _, _, _, _, history, cum_utility) in enumerate(beam, 1):
         tot_hits = sum(step["transfer_hits"] for step in history)
         plans.append({
             "rank": rank,
@@ -444,6 +472,7 @@ def generate_multi_gameweek_plan(
             "cumulative_net_xp": cum_score,
             "total_floor_xp": cum_floor,
             "total_ceiling_xp": cum_ceil,
+            "total_net_profile_utility": cum_utility,
             "total_hits": tot_hits,
             "gameweek_steps": history,
             "steps": history,
@@ -641,8 +670,8 @@ def generate_historical_multi_gameweek_plan(
         base = "1_TRANSFER" if tx_count == 1 else f"{tx_count}_TRANSFERS"
         return f"{base}_HIT" if hits_count > 0 else base
 
-    beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]]]] = [
-        (0.0, 0.0, 0.0, set(eff_pids), eff_bank, init_ft, dict(eff_prices), [])
+    beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]], float]] = [
+        (0.0, 0.0, 0.0, set(eff_pids), eff_bank, init_ft, dict(eff_prices), [], 0.0)
     ]
 
     for step_idx, gw in enumerate(target_gws):
@@ -661,7 +690,7 @@ def generate_historical_multi_gameweek_plan(
         base_tx_count = staged_count if step_idx == 0 else 0
         base_tx_list = list(pre_staged_step_txs) if step_idx == 0 else []
 
-        for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history in beam:
+        for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history, cum_utility in beam:
             squad_players = [step_p_map[pid] for pid in s_pids if pid in step_p_map]
             s_prices = {
                 p.id: selling_price(p_prices.get(p.id, p.price_tenths), p.price_tenths)
@@ -694,6 +723,9 @@ def generate_historical_multi_gameweek_plan(
             net_xp0 = round(l_xp - hits_pts0, 2)
             net_floor0 = round(l_floor - hits_pts0, 2)
             net_ceil0 = round(l_ceil - hits_pts0, 2)
+            net_utility0 = round(_lineup_profile_utility(
+                starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, chip_at_step,
+            ) - hits_pts0, 2)
             ft_after0 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx0, chip_free)
             roll_step = {
                 "gameweek": gw,
@@ -711,6 +743,7 @@ def generate_historical_multi_gameweek_plan(
                 "net_ceiling": net_ceil0,
                 "transfer_hits": hits0,
                 "net_xp": net_xp0,
+                "net_profile_utility": net_utility0,
                 "expected_points": net_xp0,
                 "xp_floor": net_floor0,
                 "xp_ceiling": net_ceil0,
@@ -733,6 +766,7 @@ def generate_historical_multi_gameweek_plan(
                 cand_ft0,
                 cand_prices0,
                 history + [roll_step],
+                round(cum_utility + net_utility0, 2),
             ))
 
             # --- Action 2: 1 additional transfer ---
@@ -774,6 +808,9 @@ def generate_historical_multi_gameweek_plan(
                     net_xp1 = round(l_xp - hits_pts1, 2)
                     net_floor1 = round(l_floor - hits_pts1, 2)
                     net_ceil1 = round(l_ceil - hits_pts1, 2)
+                    net_utility1 = round(_lineup_profile_utility(
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, chip_at_step,
+                    ) - hits_pts1, 2)
 
                     tx_step = {
                         "gameweek": gw,
@@ -794,6 +831,7 @@ def generate_historical_multi_gameweek_plan(
                         "net_ceiling": net_ceil1,
                         "transfer_hits": hits1,
                         "net_xp": net_xp1,
+                        "net_profile_utility": net_utility1,
                         "expected_points": net_xp1,
                         "xp_floor": net_floor1,
                         "xp_ceiling": net_ceil1,
@@ -816,6 +854,7 @@ def generate_historical_multi_gameweek_plan(
                         cand_ft1,
                         cand_prices1,
                         history + [tx_step],
+                        round(cum_utility + net_utility1, 2),
                     ))
 
             # --- Action 3: 2 additional transfers ---
@@ -860,6 +899,9 @@ def generate_historical_multi_gameweek_plan(
                     net_xp2 = round(l_xp - hits_pts2, 2)
                     net_floor2 = round(l_floor - hits_pts2, 2)
                     net_ceil2 = round(l_ceil - hits_pts2, 2)
+                    net_utility2 = round(_lineup_profile_utility(
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, chip_at_step,
+                    ) - hits_pts2, 2)
 
                     tx_step = {
                         "gameweek": gw,
@@ -883,6 +925,7 @@ def generate_historical_multi_gameweek_plan(
                         "net_ceiling": net_ceil2,
                         "transfer_hits": hits2,
                         "net_xp": net_xp2,
+                        "net_profile_utility": net_utility2,
                         "expected_points": net_xp2,
                         "xp_floor": net_floor2,
                         "xp_ceiling": net_ceil2,
@@ -905,16 +948,10 @@ def generate_historical_multi_gameweek_plan(
                         cand_ft2,
                         cand_prices2,
                         history + [tx_step],
+                        round(cum_utility + net_utility2, 2),
                     ))
 
-        if risk_profile == "floor":
-            sort_key = lambda x: (x[1], x[0])
-        elif risk_profile == "ceiling":
-            sort_key = lambda x: (x[2], x[0])
-        else:
-            sort_key = lambda x: x[0]
-
-        next_beam_candidates.sort(key=sort_key, reverse=True)
+        next_beam_candidates.sort(key=lambda x: (x[8], x[0]), reverse=True)
         seen_states: set[tuple[tuple[int, ...], float]] = set()
         filtered_beam = []
         for cand in next_beam_candidates:
@@ -928,7 +965,7 @@ def generate_historical_multi_gameweek_plan(
         beam = filtered_beam
 
     plans = []
-    for rank, (cum_score, cum_floor, cum_ceil, _, _, _, _, history) in enumerate(beam, 1):
+    for rank, (cum_score, cum_floor, cum_ceil, _, _, _, _, history, cum_utility) in enumerate(beam, 1):
         tot_hits = sum(step["transfer_hits"] for step in history)
         plans.append({
             "rank": rank,
@@ -936,6 +973,7 @@ def generate_historical_multi_gameweek_plan(
             "cumulative_net_xp": cum_score,
             "total_floor_xp": cum_floor,
             "total_ceiling_xp": cum_ceil,
+            "total_net_profile_utility": cum_utility,
             "total_hits": tot_hits,
             "gameweek_steps": history,
             "steps": history,
@@ -1519,5 +1557,4 @@ def plan_multi_gw_exact_reference(
 
 plan_multi_gw_dp_reference = plan_multi_gw_exact_reference
 plan_multi_gw_exhaustive = plan_multi_gw_exact_reference
-
 

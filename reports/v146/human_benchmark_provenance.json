@@ -1,7 +1,8 @@
 {
   "schema_version": "1.4.6",
   "study_id": "V146-HITL-BENCHMARK-5S",
-  "study_status": "completed_paired_two_track_study",
+  "study_status": "completed_end_to_end_two_track_comparison",
+  "study_design": "end_to_end_strategy_comparison",
   "tracks_evaluated": [
     "Track A: Autonomous Frozen Reference Baseline (DecisionEngineV135 + ChipOpportunityOptimizer C1)",
     "Track B: Human-Assisted Replay (Operator EXP-HM-01 + Point-in-Time Engine Advisory)"
@@ -24,7 +25,7 @@
     "total_gameweeks": 190,
     "human_operators_count": 1,
     "participant_id": "EXP-HM-01",
-    "note": "Paired 5-season (190-GW) single-operator replay study. Results demonstrate reproducible positive decision alpha for operator EXP-HM-01 across the 5 historical seasons, but N=5 seasons with a single operator does not establish population-wide statistical significance across all FPL managers."
+    "note": "Five-season (190-GW), single-operator end-to-end strategy comparison. Different initial squads mean the observed net surplus includes initial selection and later decisions, not an isolated identical-start treatment effect. Five seasons with one operator do not establish population-wide significance."
   },
   "aggregate_metrics": {
     "seasons_evaluated": 5,

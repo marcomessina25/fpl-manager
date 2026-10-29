@@ -2,7 +2,7 @@
 
 **Version**: V1.4.6
 **Study ID**: `V146-HITL-BENCHMARK-5S`
-**Status**: Completed (5-Season Paired Two-Track Study; Track C Blind Control Deferred)
+**Status**: Recorded five-season end-to-end strategy comparison; Track C deferred
 **Scope**: 5 Historical Seasons (`2021-22` through `2025-26`, 190 Matched Gameweeks)
 **Participant Identifier**: `EXP-HM-01` (Single-Operator Paired Replay)
 **Provenance Artifact**: [`reports/v146/human_benchmark_provenance.json`](human_benchmark_provenance.json)
@@ -14,7 +14,7 @@
 
 All totals below are computed directly from the 190 gameweek decision and outcome traces in [`reports/v146/human_benchmark_provenance.json`](human_benchmark_provenance.json) (verifiable via `python scripts/verify_v146_human_benchmark.py`). In every gameweek $t \in [1, 38]$, $\text{Net Points} = \text{Gross Points} - 4 \times \text{Transfer Hits}$.
 
-| Season | Session ID | Track B Gross | Track B Hits (Pts) | Track B Net | Track A Gross | Track A Hits (Pts) | Track A Net | Decision Alpha (B − A) | Outcome |
+| Season | Session ID | Track B Gross | Track B Hits (Pts) | Track B Net | Track A Gross | Track A Hits (Pts) | Track A Net | Observed Net Surplus (B - A) | Outcome |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **2021-22** | `exp_hm_01_2021_22` | 1,988 | 3 (-12) | **1,976 pts** | 1,889 | 0 (-0) | 1,889 pts | **+87 pts** | Human-Assisted WIN |
 | **2022-23** | `exp_hm_01_2022_23` | 2,085 | 3 (-12) | **2,073 pts** | 1,951 | 0 (-0) | 1,951 pts | **+122 pts** | Human-Assisted WIN |
@@ -27,9 +27,9 @@ All totals below are computed directly from the 190 gameweek decision and outcom
 
 ## 2. Human Override Decomposition & Chip Timing Comparison
 
-Across the 190 simulated matchdays, operator `EXP-HM-01` modified at least one component of the engine's point-in-time recommendation (transfer pair, captaincy, or chip activation) in **184 of 190 gameweeks**:
+The recorded override classifications mark **184 of 190 gameweeks**. The distributions below describe those flags and observed track differences; they do not isolate the causal value of an override because both trajectories and initial squads differ.
 
-| Season | Total Override GWs | Positive Alpha GWs ($\Delta > 0$) | Negative Alpha GWs ($\Delta < 0$) | Neutral GWs ($\Delta = 0$) | Transfer Overrides | Captain Overrides | Chip Overrides |
+| Season | Total Override GWs | Positive Delta GWs ($\Delta > 0$) | Negative Delta GWs ($\Delta < 0$) | Neutral GWs ($\Delta = 0$) | Transfer Overrides | Captain Overrides | Chip Overrides |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **2021-22** | 37 / 38 | 21 | 15 | 1 | 32 | 19 | 17 |
 | **2022-23** | 36 / 38 | 19 | 14 | 3 | 31 | 18 | 14 |
@@ -61,9 +61,9 @@ All chip deployments below are derived directly from matchday event records in `
 
 ## 3. Empirical Findings & Behavioral Analysis
 
-1. **Observed Paired Surplus (+63.6 pts/season for Operator `EXP-HM-01`)**: Across the 5 audited seasons (190 gameweeks), the human-assisted track averaged **2,102.0 net points** vs. **2,038.4 net points** for the autonomous baseline (+63.6 pts/season mean delta), outperforming the autonomous engine in 4 of 5 seasons (`2021-22`, `2022-23`, `2024-25`, `2025-26`).
-2. **Proactive Structural Wildcarding & Selective Hit Taking**: Notice that Track A (`DecisionEngineV135` with `hit_cost = 4.0` and `gk_transfer_hurdle = 3.0`) took **0 transfer hits** across all 5 seasons and frequently held `WC1` until the Segment 1 terminal decay window (`GW17–19`). By contrast, operator `EXP-HM-01` deployed `WC1` earlier (`GW8–10`) to catch fixture-swing inflection points and took selective transfer hits (`3 to 5 hits/season` in winning seasons, `-12 to -20 pts`) to restructure around blank/double gameweeks.
-3. **Over-Trading Penalty in Template Seasons (`2023-24`)**: In `2023-24`, operator `EXP-HM-01` took **11 transfer hits (`-44 pts`)** and posted a negative override balance (`16+ / 19-`), trailing the zero-hit autonomous baseline by **-88 net points** (`2,126` vs. `2,214`). Even on gross points (`2,170` vs. `2,214`), aggressive human rotation chasing underperformed the engine's patient holding of high-ownership template assets (`B3/B4` horizon damping).
+1. **Observed End-to-End Surplus**: Track B averaged **2,102.0 net points** versus **2,038.4** for Track A: **+63.6 per season**, with four season wins. Initial squads overlap by only 2-4 players, so this margin includes initial selection as well as later decisions. It is not an identical-start treatment effect.
+2. **Recorded Chip and Transfer Behavior**: Track A recorded zero transfer hits. Its first-window Wildcards were GW11 in 2022-23, GW18 in 2023-24, and GW8 in 2024-25, with no first-window Wildcard recorded in the other two seasons. Track B used first-window Wildcards in GW8-10 and incurred the hit costs shown above. The traces establish these differences, not why a particular strategy won.
+3. **2023-24 Accounting**: Track B's 2,170 gross points minus 44 hit points yields 2,126 net, versus Track A's 2,214. The 88-point difference is an observed outcome, not a causal decomposition into trading, initial squad, captaincy, or template exposure.
 
 ---
 
@@ -73,9 +73,12 @@ All chip deployments below are derived directly from matchday event records in `
 The benchmark verification suite ([`scripts/verify_v146_human_benchmark.py`](../../scripts/verify_v146_human_benchmark.py)) enforces three distinct layers of validation:
 - **Level 1: Strict Per-Gameweek Arithmetic Reconciliation**: Validates that for every gameweek $t \in [1, 38]$ across both tracks, $\text{gross} - \text{hits} \times 4 == \text{net}$, cumulative sums agree, and season aggregates match trace totals exactly.
 - **Level 2: Semantic Integrity Verification**: Validates that summary chip dictionaries (`track_a_chips_used`, `track_b_chips_used`) match actual per-gameweek event traces with zero missing or extra entries, and that override counts (`transfer_override`, `captain_override`, `chip_override`) match categorized divergence distributions.
-- **Level 3: Starting State & Governance Audit**: Checks raw session trace SHA-256 digests against disk files, validates starting bank tenths ($0.0\text{m}$ for both tracks) and starting FT ($1$), and documents initial squad selection divergence.
+- **Initial-State Consistency**: Reads the actual recorded bank/FT values, checks 15 distinct IDs per track, and recomputes comparison flags and overlap. This is metadata consistency, not proof of identical squads or an independent rescore.
+- **Optional Raw-Source Digest Verification**: Checks a digest only when its raw session file is available. The CLI reports checked and unavailable seasons separately. Missing private files in a clean checkout do not constitute a passed source check.
 
-| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Initial State Parity | Squad Overlap |
+The following are recorded source identifiers and internally consistent bank/FT values. Run the verifier with the raw sources to establish digest matches; this bundled table does not itself verify those files.
+
+| Season | Anonymized Session ID | Recorded Raw Session SHA-256 Digest | Bank / FT Consistency | Squad Overlap |
 | :--- | :--- | :--- | :--- | :---: |
 | **2021-22** | `exp_hm_01_2021_22` | `ec9106b11159aa58ca5c3d5346d2393f04cfa4c8cfed3370f047eedeffb40732` | Verified (bank=0, FT=1) | 4/15 |
 | **2022-23** | `exp_hm_01_2022_23` | `012f6af835ea9ed423ceef05e984c6fe766dc6f073c98f351e0d5755baaf8c72` | Verified (bank=0, FT=1) | 2/15 |
@@ -84,8 +87,8 @@ The benchmark verification suite ([`scripts/verify_v146_human_benchmark.py`](../
 | **2025-26** | `exp_hm_01_2025_26` | `e1aa82d0aec8cb8b913eceedd433cb6209b4c1785a9fdd2ebba22f7559ee42f1` | Verified (bank=0, FT=1) | 4/15 |
 
 ### 4.2 Initial Squad Selection Methodology
-Both Track A and Track B strictly started GW1 with £0.0m remaining in the bank (full £100.0m invested), 1 free transfer, and standard Segment 1 chip inventory under era-appropriate rollover rules. However, their initial 15-player squads were generated through distinct selection methods:
-- **Track B (Human-Assisted)**: Initial 15-player squad selected by operator `EXP-HM-01` using Strategic Studio's mixed-integer candidate generator and manual refinements.
+Both tracks record GW1 bank of 0 tenths and one free transfer, but their initial squads and stored chip-inventory lists are not identical. The metadata records those differences explicitly under a standardized replay ruleset:
+- **Track B (Human-Assisted)**: Initial 15-player squad selected by operator `EXP-HM-01` using Strategic Studio candidates and manual refinements.
 - **Track A (Engine Baseline)**: Initial 15-player squad selected autonomously by the baseline engine's EV lineup optimizer (`DecisionEngineV135` GW1 max-EV lineup solver).
 - This results in a starting squad overlap between Track A and Track B of 2 to 4 players out of 15 across the five seasons. Both tracks subsequently operated under identical market rules, pricing mechanics, and scoring outcomes.
 
@@ -94,3 +97,5 @@ Both Track A and Track B strictly started GW1 with £0.0m remaining in the bank 
 2. **Prior Domain Familiarity**: Operator `EXP-HM-01` conducted the replays under strict point-in-time UI masking (zero future scores or price spoilers shown in the Time Machine), but as an experienced follower of Premier League football, macro-level recollection of historical seasons cannot be fully eliminated in retrospective human trials.
 3. **Standardized Two-Segment Chip Ruleset (`V146-24`)**: As documented in [`docs/v1.4.6/v146_human_benchmark.md`](../../docs/v1.4.6/v146_human_benchmark.md), both Track A and Track B were evaluated under era-authentic free-transfer caps (`2` in `2021-22`..`2023-24`, `5` in `2024-25`..`2025-26`) and the standardized two-segment chip inventory (`GW1–19` and `GW20–38`) for cross-season comparability with V1.4.5.
 4. **Deferred Deliverables**: Track C (unassisted human blind control) and multi-participant distribution charts remain future research deliverables outside the V1.4.6 single-operator study.
+5. **No Retroactive Validation**: These 190-GW results were not rerun or rescored during remediation. Current regression tests do not establish which code produced every original advisory or retroactively prove the original information boundary. The retained results are descriptive records, not validation of the corrected engine.
+6. **Legacy Field Names**: `decision_alpha_net_points` and `mean_decision_alpha_points` remain serialized for compatibility. In this comparison they mean observed net surplus, including initialization differences, not isolated causal decision alpha.

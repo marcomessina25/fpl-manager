@@ -1,5 +1,6 @@
 """Point-in-time snapshot generator ensuring zero future leakage for FPL Manager (V1.0.1)."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -511,7 +512,7 @@ def load_historical_players_meta(
     Loads forward multi-gameweek fixture-aware xP projections up to `horizon` gameweeks.
     Strictly preserves point-in-time isolation without accessing future ground-truth outcomes.
     """
-    from ..backtest.decision_engine import _get_forward_projections
+    from ..backtest.decision_engine import _get_forward_projections, get_historical_fixtures_for_gw
     from .reconstruction import reconstruct_features_and_project
     from ..suggest_transfers import PlayerInfo
 
@@ -525,6 +526,32 @@ def load_historical_players_meta(
         needed_pids=needed_pids,
     )
     proj_map = {p.player_id: p for p in projections}
+
+    blank_ids = {
+        p.player_id for p in projections
+        if p.expected_points <= 0.0 and (needed_pids is None or p.player_id in needed_pids)
+    }
+    blank_horizon_bounds: dict[int, tuple[float, float]] = {}
+    for gw, gw_means in sorted(fwd_projections.items()):
+        future_ids = sorted(pid for pid in blank_ids if gw_means.get(pid, 0.0) > 0.0)
+        if gw <= snapshot.gameweek or not future_ids:
+            continue
+        future_fixtures = tuple(
+            HistoricalFixture(
+                fixture_id=f.get("id", 0), event=gw, team_h=f["team_h"], team_a=f["team_a"],
+                team_h_difficulty=f.get("team_h_difficulty", 3),
+                team_a_difficulty=f.get("team_a_difficulty", 3),
+                kickoff_time=f.get("kickoff_time"),
+            )
+            for f in get_historical_fixtures_for_gw(season_dir, gw)
+        )
+        # Move only the known schedule forward; player features and observation cutoff stay frozen.
+        future_snapshot = replace(snapshot, gameweek=gw, fixtures=future_fixtures)
+        for projected in reconstruct_features_and_project(future_snapshot, player_ids=future_ids):
+            floor, ceiling = blank_horizon_bounds.get(projected.player_id, (0.0, 0.0))
+            blank_horizon_bounds[projected.player_id] = (
+                round(floor + projected.xp_floor, 2), round(ceiling + projected.xp_ceiling, 2),
+            )
 
     players_map: dict[int, PlayerInfo] = {}
     for p in snapshot.players:
@@ -544,6 +571,10 @@ def load_historical_players_meta(
         p_std = round(statistics.pstdev(p_fwd), 2) if len(p_fwd) > 1 else 0.0
         target_gws = list(range(snapshot.gameweek, min(39, snapshot.gameweek + max(1, horizon))))
         p_gw_breakdown = {gw: float(fwd_projections.get(gw, {}).get(p.player_id, 0.0)) for gw in target_gws}
+        horizon_floor, horizon_ceiling = blank_horizon_bounds.get(
+            p.player_id,
+            (gw1_floor * max(1, len(p_fwd)), gw1_ceil * max(1, len(p_fwd))),
+        )
 
         p_info = PlayerInfo(
             id=p.player_id,
@@ -561,8 +592,8 @@ def load_historical_players_meta(
             standard_deviation=p_std,
             gw_xp=gw1_xp,
             horizon_xp=horizon_xp,
-            horizon_floor=gw1_floor * max(1, len(p_fwd)),
-            horizon_ceiling=gw1_ceil * max(1, len(p_fwd)),
+            horizon_floor=horizon_floor,
+            horizon_ceiling=horizon_ceiling,
             is_long_term_unavailable=p.is_long_term_unavailable,
             gw_breakdown_xp=p_gw_breakdown,
         )

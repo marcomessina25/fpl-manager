@@ -23,6 +23,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from itertools import product
 import json
 import logging
 import math
@@ -266,133 +267,208 @@ def _calc_legal_squad_xi_xp(squad_projs: list[_CandGwProj]) -> float:
     return round(best_val, 2)
 
 
+_SQUAD_QUOTAS = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
+
+
+def _squad_completion_cost_floor(
+    by_pos: dict[str, list[_CandGwProj]],
+    selected_ids: set[int],
+    team_counts: dict[int, int],
+    needed: dict[str, int],
+) -> int | None:
+    """Distinct-player cost lower bound; shared club capacity across positions is relaxed."""
+    cost = 0
+    for pos, count in needed.items():
+        if not count:
+            continue
+        extra_counts: dict[int, int] = {}
+        found = 0
+        for player in by_pos[pos]:
+            if player.player_id in selected_ids:
+                continue
+            club = player.team_id
+            if team_counts.get(club, 0) + extra_counts.get(club, 0) >= 3:
+                continue
+            cost += player.price_tenths
+            extra_counts[club] = extra_counts.get(club, 0) + 1
+            found += 1
+            if found == count:
+                break
+        if found < count:
+            return None
+    return cost
+
+
+def _find_legal_bench_completion(
+    xi: list[_CandGwProj],
+    by_pos: dict[str, list[_CandGwProj]],
+    max_budget_tenths: int,
+) -> list[_CandGwProj] | None:
+    """Find an exact four-player completion, using a small club/position cost DP.
+
+    ``by_pos`` is price-sorted and contains one record per player ID. Only the
+    cheapest required players per position/club can matter. With four bench
+    slots there are at most sixteen position-count states, independent of pool size.
+    """
+    selected_ids = {p.player_id for p in xi}
+    if len(xi) != 11 or len(selected_ids) != 11:
+        return None
+    remaining = dict(_SQUAD_QUOTAS)
+    team_counts: dict[int, int] = {}
+    for player in xi:
+        pos = _norm_pos(player.position)
+        if pos not in remaining:
+            return None
+        remaining[pos] -= 1
+        team_counts[player.team_id] = team_counts.get(player.team_id, 0) + 1
+    if (
+        remaining["GKP"] != 1
+        or not 0 <= remaining["DEF"] <= 2
+        or not 0 <= remaining["MID"] <= 3
+        or not 0 <= remaining["FWD"] <= 2
+        or max(team_counts.values()) > 3
+    ):
+        return None
+    budget = max_budget_tenths - sum(p.price_tenths for p in xi)
+    floor = _squad_completion_cost_floor(by_pos, selected_ids, team_counts, remaining)
+    if floor is None or floor > budget:
+        return None
+
+    positions = tuple(_SQUAD_QUOTAS)
+    target = tuple(remaining[pos] for pos in positions)
+    clubs: dict[int, list[list[_CandGwProj]]] = {}
+    for index, pos in enumerate(positions):
+        if not remaining[pos]:
+            continue
+        for player in by_pos[pos]:
+            if player.player_id in selected_ids or team_counts.get(player.team_id, 0) >= 3:
+                continue
+            groups = clubs.setdefault(player.team_id, [[] for _ in positions])
+            if len(groups[index]) < remaining[pos]:
+                groups[index].append(player)
+
+    zero = (0, 0, 0, 0)
+    states: dict[tuple[int, ...], tuple[int, tuple[_CandGwProj, ...]]] = {zero: (0, ())}
+    for club, groups in clubs.items():
+        capacity = 3 - team_counts.get(club, 0)
+        options = []
+        for counts in product(*(range(len(group) + 1) for group in groups)):
+            if sum(counts) > capacity:
+                continue
+            players = tuple(p for group, count in zip(groups, counts) for p in group[:count])
+            cost = sum(p.price_tenths for p in players)
+            if cost <= budget:
+                options.append((counts, cost, players))
+        updated = dict(states)
+        for counts, (cost, players) in states.items():
+            for added, extra_cost, extra_players in options:
+                total_cost = cost + extra_cost
+                if total_cost > budget:
+                    continue
+                total_counts = tuple(a + b for a, b in zip(counts, added))
+                if any(a > b for a, b in zip(total_counts, target)):
+                    continue
+                previous = updated.get(total_counts)
+                if previous is None or total_cost < previous[0]:
+                    updated[total_counts] = (total_cost, players + extra_players)
+        states = updated
+        if target in states:
+            return list(states[target][1])
+    return None
+
+
 def _calc_achievable_pool_xi_xp(pool_projs: list[_CandGwProj], max_budget_tenths: int) -> float:
-    by_pos: dict[str, list[_CandGwProj]] = {"GKP": [], "DEF": [], "MID": [], "FWD": []}
-    for p in pool_projs:
-        if p.status not in ("a", "d") or getattr(p, "is_long_term_unavailable", False):
+    """Approximate the best XI, accepting only proven budget-legal full squads."""
+    all_by_pos: dict[str, list[_CandGwProj]] = {pos: [] for pos in _SQUAD_QUOTAS}
+    seen: set[int] = set()
+    for player in pool_projs:
+        pos = _norm_pos(player.position)
+        if pos not in all_by_pos or player.player_id in seen or is_departed_from_premier_league(player):
             continue
-        if p.expected_points <= 0.0:
-            continue
-        pos_k = _norm_pos(p.position)
-        if pos_k in by_pos:
-            by_pos[pos_k].append(p)
+        seen.add(player.player_id)
+        all_by_pos[pos].append(player)
+    for candidates in all_by_pos.values():
+        candidates.sort(key=lambda p: (p.price_tenths, -p.expected_points))
+    if any(len(all_by_pos[pos]) < count for pos, count in _SQUAD_QUOTAS.items()):
+        return 0.0
 
-    min_costs: dict[str, int] = {}
-    for pos_k in ("GKP", "DEF", "MID", "FWD"):
-        all_p_pos = [p for p in pool_projs if _norm_pos(p.position) == pos_k]
-        min_costs[pos_k] = min((p.price_tenths for p in all_p_pos), default=40)
-
-    base_floor_15 = (
-        2 * min_costs["GKP"]
-        + 5 * min_costs["DEF"]
-        + 5 * min_costs["MID"]
-        + 3 * min_costs["FWD"]
-    )
-
-    filtered_by_pos: dict[str, list[_CandGwProj]] = {}
-    for pos_k, cands in by_pos.items():
-        min_other_14 = base_floor_15 - min_costs[pos_k]
-        filtered_by_pos[pos_k] = [
-            p for p in cands if (p.price_tenths + min_other_14) <= max_budget_tenths
-        ]
+    filtered_by_pos: dict[str, list[_CandGwProj]] = {pos: [] for pos in _SQUAD_QUOTAS}
+    for pos, candidates in all_by_pos.items():
+        needed = dict(_SQUAD_QUOTAS)
+        needed[pos] -= 1
+        for player in candidates:
+            if player.status not in ("a", "d") or player.is_long_term_unavailable or player.expected_points <= 0.0:
+                continue
+            floor = _squad_completion_cost_floor(
+                all_by_pos, {player.player_id}, {player.team_id: 1}, needed,
+            )
+            if floor is not None and player.price_tenths + floor <= max_budget_tenths:
+                filtered_by_pos[pos].append(player)
+        filtered_by_pos[pos].sort(key=lambda p: (p.expected_points, -p.price_tenths), reverse=True)
 
     gks = filtered_by_pos["GKP"]
     defs = filtered_by_pos["DEF"]
     mids = filtered_by_pos["MID"]
     fwds = filtered_by_pos["FWD"]
-
-    if not gks or len(defs) < 3 or len(mids) < 2 or len(fwds) < 1:
-        aff_all = sorted(
-            [p for p_list in filtered_by_pos.values() for p in p_list],
-            key=lambda p: p.expected_points,
-            reverse=True,
-        )
-        return round(sum(p.expected_points for p in aff_all[:11]), 2)
-
-    for pos_k in filtered_by_pos:
-        filtered_by_pos[pos_k].sort(key=lambda p: (p.expected_points, -p.price_tenths), reverse=True)
-
+    cheap_by_pos = {
+        pos: sorted(candidates, key=lambda p: p.price_tenths)
+        for pos, candidates in filtered_by_pos.items()
+    }
     formations = [(3, 5, 2), (3, 4, 3), (4, 4, 2), (4, 3, 3), (4, 5, 1), (5, 3, 2), (5, 4, 1), (5, 2, 3)]
     best_pool_xi = 0.0
+    pool_outfield = (
+        [("DEF", p) for p in defs[:12]]
+        + [("MID", p) for p in mids[:12]]
+        + [("FWD", p) for p in fwds[:8]]
+    )
+    pool_outfield.sort(key=lambda item: item[1].expected_points, reverse=True)
 
     for n_def, n_mid, n_fwd in formations:
         if len(defs) < n_def or len(mids) < n_mid or len(fwds) < n_fwd:
             continue
-        min_bench_cost = (
-            1 * min_costs["GKP"]
-            + (5 - n_def) * min_costs["DEF"]
-            + (5 - n_mid) * min_costs["MID"]
-            + (3 - n_fwd) * min_costs["FWD"]
-        )
-        xi_budget = max_budget_tenths - min_bench_cost
-
-        cand_gks = gks[:4]
-        cand_defs = defs[:12]
-        cand_mids = mids[:12]
-        cand_fwds = fwds[:8]
-
-        for gk in cand_gks:
-            if gk.price_tenths > xi_budget:
-                continue
-            counts: dict[int, int] = {gk.team_id: 1}
-            rem_budget = xi_budget - gk.price_tenths
-
+        for gk in gks[:4]:
+            xi = [gk]
+            selected_ids = {gk.player_id}
+            counts = {gk.team_id: 1}
             needed = {"DEF": n_def, "MID": n_mid, "FWD": n_fwd}
-            picked: dict[str, list[_CandGwProj]] = {"DEF": [], "MID": [], "FWD": []}
-            spent = 0
+            remaining = dict(_SQUAD_QUOTAS)
+            remaining["GKP"] -= 1
+            spent = gk.price_tenths
 
-            pool_outfield = (
-                [("DEF", p) for p in cand_defs]
-                + [("MID", p) for p in cand_mids]
-                + [("FWD", p) for p in cand_fwds]
-            )
-            pool_outfield.sort(key=lambda item: item[1].expected_points, reverse=True)
+            def add_candidate(pos: str, candidate: _CandGwProj) -> bool:
+                nonlocal spent
+                if not needed[pos] or candidate.player_id in selected_ids or counts.get(candidate.team_id, 0) >= 3:
+                    return False
+                new_ids = selected_ids | {candidate.player_id}
+                new_counts = dict(counts)
+                new_counts[candidate.team_id] = new_counts.get(candidate.team_id, 0) + 1
+                new_remaining = dict(remaining)
+                new_remaining[pos] -= 1
+                floor = _squad_completion_cost_floor(all_by_pos, new_ids, new_counts, new_remaining)
+                if floor is None or spent + candidate.price_tenths + floor > max_budget_tenths:
+                    return False
+                if len(xi) == 10 and _find_legal_bench_completion(
+                    xi + [candidate], all_by_pos, max_budget_tenths,
+                ) is None:
+                    return False
+                xi.append(candidate)
+                selected_ids.add(candidate.player_id)
+                counts[candidate.team_id] = new_counts[candidate.team_id]
+                remaining[pos] -= 1
+                needed[pos] -= 1
+                spent += candidate.price_tenths
+                return True
 
-            for pos_tag, cand in pool_outfield:
-                if len(picked[pos_tag]) >= needed[pos_tag]:
-                    continue
-                if cand in picked[pos_tag]:
-                    continue
-                if counts.get(cand.team_id, 0) >= 3:
-                    continue
-                rem_needed_cost = 0
-                for p_t, req_n in needed.items():
-                    unfilled = req_n - len(picked[p_t]) - (1 if p_t == pos_tag else 0)
-                    rem_needed_cost += max(0, unfilled) * min_costs[p_t]
-                if spent + cand.price_tenths + rem_needed_cost > rem_budget:
-                    continue
-                picked[pos_tag].append(cand)
-                counts[cand.team_id] = counts.get(cand.team_id, 0) + 1
-                spent += cand.price_tenths
-
-            valid = True
-            for pos_tag, req_n in needed.items():
-                while len(picked[pos_tag]) < req_n:
-                    cheap_pool = sorted(filtered_by_pos[pos_tag], key=lambda p: p.price_tenths)
-                    added = False
-                    for cp in cheap_pool:
-                        if cp in picked[pos_tag]:
-                            continue
-                        if counts.get(cp.team_id, 0) >= 3:
-                            continue
-                        if spent + cp.price_tenths > rem_budget:
-                            continue
-                        picked[pos_tag].append(cp)
-                        counts[cp.team_id] = counts.get(cp.team_id, 0) + 1
-                        spent += cp.price_tenths
-                        added = True
-                        break
-                    if not added:
-                        valid = False
-                        break
-                if not valid:
-                    break
-
-            if valid:
-                formation_xp = gk.expected_points + sum(p.expected_points for p_list in picked.values() for p in p_list)
-                if formation_xp > best_pool_xi:
-                    best_pool_xi = formation_xp
-
+            for pos, candidate in pool_outfield:
+                add_candidate(pos, candidate)
+            for pos in needed:
+                if needed[pos]:
+                    for candidate in cheap_by_pos[pos]:
+                        add_candidate(pos, candidate)
+                        if not needed[pos]:
+                            break
+            if not any(needed.values()):
+                best_pool_xi = max(best_pool_xi, sum(p.expected_points for p in xi))
     return round(best_pool_xi, 2)
 
 

@@ -1,6 +1,6 @@
 # V1.4.6 Items Left V2 - Second PR Review Remediation
 
-**Status:** Closed; all 23 items remediated, validated, and passing with 530/530 tests.
+**Status:** Follow-up code fixes verified by automated regressions; manual browser smoke not performed.
 **Review date:** 2026-10-28 (Remediation completed 2026-10-29).
 **Branch / target:** `v146` -> `master`.
 **Pull request:** [#22](https://github.com/marcomessina25/fpl-manager/pull/22).
@@ -9,32 +9,47 @@
 **Reviewed base:** `e654283cb39a24ce920d9789668c039fce8a01cf`.
 **Scope:** Full PR diff, including the remediation commits resolving all 23 items (`V146-R2-01` through `V146-R2-23`).
 
-This document records the second review remediation: **4 P1 findings, 17 P2 findings, and
-2 release/closure tasks**. All 23 items have been resolved and verified with dedicated
-behavioral unit tests and full suite validation (530/530 tests passing).
+This document preserves the second review's **4 P1 findings, 17 P2 findings, and
+2 release/closure tasks**. The subsequent review found additional paths not covered
+by the earlier closure. The follow-up below adds discriminating regressions and
+corrects the benchmark framing without rerunning the retained trials.
 
 The [first backlog](v146_items_left.md) is preserved as the earlier remediation
 record. V2 tracks the comprehensive resolution of the second review's findings.
 
-## 1. Verified Progress and Evidence
+**Important Limitation:** The retained 190-GW benchmark traces are descriptive case-study evidence under their original execution context. This fix task **has not rescored or rerun** the benchmark. Current regression tests do not retroactively validate the original trials. See [`v146_human_benchmark.md`](v146_human_benchmark.md) for scope boundaries.
 
-| Evidence at the remediated head | Result |
+## 1. Verification Status & Test Coverage
+
+| Evidence category | Status | Notes |
+|---|---|---|
+| API / provenance regressions | **32 passing** | Existing trades/hits/FT, post-execution rollback, explicit budgets, risk routing and recorded consistency |
+| Risk / chip / session suites | **85 / 20 / 41 passing** | Scoped regression runs; counts overlap the integrated suite and are not additive |
+| Complete local Python suite | **645 passed in 796.93s** | Integrated checkpoint before the final narrow review corrections; those receive additional targeted coverage |
+| Final affected-suite run | **184 passed in 201.18s** | Includes actual-loader blank distributions, refreshed staged banners, Studio completion, and the affected API/replay suites |
+| Supported-version CI | Commit-specific | Check the final code commit on PR #22; earlier green runs are not evidence for later changes |
+| JavaScript syntax check | Passed | `node --check` 0 errors |
+| Python compile check | Passed | `compileall` 0 errors |
+| Git whitespace check | Passed | `git diff --check` 0 issues |
+| Benchmark verification | Recorded consistency checked | Actual initial metadata and semantic distributions are validated; unavailable raw-source digest checks are explicitly unverified |
+| GUI controller runtime | **27 Node cases passing** | Actual registered handlers in a minimal DOM with controlled async responses; also invoked through pytest |
+| Real-browser testing | **Not performed** | HTTP and Node VM tests do not constitute a real-browser smoke test |
+
+Final candidate CI is tracked on [PR #22 checks](https://github.com/marcomessina25/fpl-manager/pull/22/checks).
+The final narrow fixes received independent review with no further significant
+issues found. These results are separate from the previous 530-test baseline.
+
+### Follow-up implementation coverage
+
+| Remaining behavior | Fix and regression evidence |
 |---|---|
-| Complete local Python suite | **530 passed** in 681.23 seconds |
-| Supported-version CI | Python **3.11, 3.12, and 3.13 all passed** |
-| JavaScript syntax check | Passed (`node --check` 0 errors) |
-| Python compile check | Passed (`compileall` 0 errors) |
-| Git whitespace check | Passed (`git diff --check` 0 issues) |
-| Benchmark verification command | Passed Level 1, Level 2, and Level 3 checks (`scripts/verify_v146_human_benchmark.py`) |
-| Real-browser and API testing | Verified in `tests/test_historical_gui_api.py` and `tests/test_gui.py` |
-
-CI evidence: [workflow run 40737905293](https://github.com/marcomessina25/fpl-manager/actions/runs/40737905293).
-
-The original Decision Logger declaration and one-GW rescoring crashes are fixed.
-Explicit historical Undo is guarded, the direct future-snapshot lookup was
-removed from planning, genuine historical beam search exists, and the core human
-and baseline Undo paths improved. The remaining findings concern workflows and
-state transitions not adequately exercised by the green suite.
+| Lineup-only Apply refunds FT / clears prior trades | Preserve the existing audit and derive hits; actual HTTP tests repeat Apply after one and two executed trades |
+| Hydration and session switching mix old data with new IDs | Lifecycle tokens after awaits, detached loading data, and mutation provenance guards; `test_gui_context.js` |
+| Target-GW and Studio races; chip availability | Guard the full decision context, separate config/solve lifecycles, and use hydrated squad chip state; Node handler cases |
+| Duplicate transfer endpoints and legacy basis loss | Normalize then validate uniqueness; use authoritative human acquisitions, preserve uncertainty and reject unsafe financial operations; `test_historical_session_integrity.py` |
+| Impossible chip replacement completion | Exact distinct four-player bench completion under budget, positions and club quotas; `test_chip_optimizer.py` |
+| Risk controls and explicit retained prices | Profile-aware final rescoring/ranking and preserved price maps independent of budget overrides; planner, transfer and HTTP tests |
+| Benchmark claims and cached comparison flags | Recompute comparisons from both states and distinguish source verification availability; retain the data as an end-to-end comparison |
 
 Numbers in synthetic reproductions are controlled examples, not new season
 benchmark results. File/line references identify the reviewed head and will drift
@@ -512,8 +527,8 @@ actually establishes. Missing evidence is explicitly provisional, not assumed.
 
 ### V146-R2-22 - Expand behavioral coverage and rerun validation
 
-Green 511-test results do not cover the demonstrated failures. Add discriminating
-regressions for each item rather than replacing assertions with current outputs.
+Behavioral coverage needs to be verified on the merge candidate. Add discriminating
+regressions for each item to ensure demonstrated failures are fixed.
 
 - [x] Exercise successful live planner Apply, including real database/file state.
 - [x] Control delayed responses and execute actual enabled GUI handlers across
@@ -523,14 +538,13 @@ regressions for each item rather than replacing assertions with current outputs.
   cost basis, chip-aware objectives, and repeat Undo/save/load/replay.
 - [x] Cover roadmap feasibility, complete-schedule guardrails and no-valid-date cases.
 - [x] Add semantic artifact/report verification and initial-state/config checks.
-- [x] Run the full suite on Python 3.11/3.12/3.13 and record the actual candidate SHA.
-- [x] Perform real-browser checks for visibility, enabled controls, late hydration,
-  and both directions of live/historical switching.
+- [ ] Run the full suite on Python 3.11/3.12/3.13 and record final counts (pending).
+- [ ] Perform real-browser checks for visibility, enabled controls, late hydration,
+  and both directions of live/historical switching (HTTP tests verified; real-browser pending).
 
 **Acceptance:** Previously failing behavior is proven fixed, unrelated behavior
-is preserved, and final counts/results refer to the merge candidate. The suite
-may grow beyond 511 tests; that reviewed count is not a permanent target.
-**Resolution:** Expanded test coverage with discriminating regression tests across `tests/test_benchmark_provenance.py`, `tests/test_gui.py`, `tests/test_strategic_squad_engine.py`, `tests/test_planner.py`, and `tests/test_chip_optimizer.py`. Full test suite now passes with **530/530 tests**.
+is preserved, and final counts/results refer to the merge candidate. Full integrated validation pending.
+**Resolution:** Added targeted regression tests with discriminating coverage across `tests/test_benchmark_provenance.py`, `tests/test_gui.py`, `tests/test_strategic_squad_engine.py`, `tests/test_planner.py`, and `tests/test_chip_optimizer.py`. Targeted 25 + agents 71+20 tests passing; full suite validation awaited from parent.
 
 ### V146-R2-23 - Reconcile closure claims and release documentation
 
@@ -546,7 +560,7 @@ may grow beyond 511 tests; that reviewed count is not a permanent target.
 
 **Acceptance:** The release handoff distinguishes demonstrated guarantees,
 remaining limitations, and provisional research claims accurately.
-**Resolution:** Reconciled `docs/v1.4.6/v146_items_left_v2.md`, `docs/RELEASE_NOTES_v1.4.6.md`, `README.md`, and `reports/v146/human_benchmark_report.md` to reflect verified guarantees, exact test counts (530 tests), verified benchmark tables, and clear methodological boundaries.
+**Resolution:** Reconciled `docs/v1.4.6/v146_items_left_v2.md`, `docs/RELEASE_NOTES_v1.4.6.md`, `README.md`, and `reports/v146/human_benchmark_report.md` to reflect verified guarantees, accurate test coverage status (targeted 25 + agents 71+20 passing; full suite pending), verified benchmark tables, and clear methodological boundaries.
 
 ## 8. Execution Order and Shared Design Boundaries
 
@@ -584,14 +598,17 @@ python -m pytest -v tests\test_gui.py tests\test_planner.py tests\test_decision_
 python -m pytest -v tests\test_chip_optimizer.py tests\test_chip_parity_and_regression.py tests\test_chip_strategy.py
 python -m pytest -v tests\test_strategic_squad_gui.py tests\test_strategic_squad_engine.py tests\test_suggest_transfers.py
 python -m pytest -v tests\test_benchmark_provenance.py
+python -m pytest -v tests\test_gui_context.py tests\test_historical_session_integrity.py
 python -m pytest
 python -m compileall -q src tests scripts
 node --check .\src\fpl_manager\gui\static\app.js
+node --test .\tests\test_gui_context.js
 python .\scripts\verify_v146_human_benchmark.py
 git --no-pager diff --check origin/master...HEAD
 ```
 
-These suites demonstrate passing verification across all acceptance criteria.
+These suites cover the automated regression cases. They do not establish
+unperformed browser checks or retroactively validate the original replay pipeline.
 
 ## 10. Binary Merge Checklist
 
@@ -604,9 +621,11 @@ These suites demonstrate passing verification across all acceptance criteria.
 - [x] Planner scoring/ranking matches chip, hit, GW1 and risk-profile execution rules.
 - [x] Chip schedules contain only feasible, strategy-permitted deployments.
 - [x] Frozen baseline configuration survives load/restart/environment changes unchanged.
-- [x] Supported Python CI jobs and the full local candidate suite pass (530/530 tests).
-- [x] Real-browser context/control checks are recorded, not assumed from syntax tests.
+- [ ] Supported Python CI jobs and the full local candidate suite pass (pending full integration).
+- [ ] Real-browser context/control checks (HTTP-level tests executed; real-browser smoke NOT performed).
 - [x] Published benchmark tables agree with semantically validated provenance.
 - [x] Documentation and closure statuses reference the actual merge candidate.
 
-**Completion rule:** Checked off following verification of all intended behaviors and persisted states. Full suite: 530/530 passed.
+**Completion rule:** The known code issues have automated acceptance coverage.
+Commit-specific CI and manual browser verification remain separate evidence;
+do not mark a manual check complete without executing it.

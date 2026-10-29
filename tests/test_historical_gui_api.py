@@ -933,3 +933,115 @@ def test_v146_05_08_18_planner_no_future_leakage_and_squad_sensitive_chips(test_
         chips_after = json.loads(r.read())
         sched_after = {s["chip"]: s["immediate_ev"] for s in chips_after["recommended_schedule"]}
         assert sched_before != sched_after
+
+
+@pytest.mark.parametrize("operation", ["get", "optimize", "reoptimize"])
+@pytest.mark.parametrize("explicit_budget", [False, True])
+def test_historical_studio_preserves_retained_prices_with_budget(
+    test_server, monkeypatch: pytest.MonkeyPatch, operation: str, explicit_budget: bool
+) -> None:
+    from types import SimpleNamespace
+    from urllib.parse import urlencode
+    from src.fpl_manager.models import Position
+    from src.fpl_manager.suggest_transfers import PlayerInfo
+
+    positions = (
+        [Position.GOALKEEPER] * 2 + [Position.DEFENDER] * 5
+        + [Position.MIDFIELDER] * 5 + [Position.FORWARD] * 3
+    )
+    players = {
+        i: PlayerInfo(
+            id=i, name=f"P{i}", position=position, team_id=(i - 1) % 5 + 1,
+            team_short=f"T{(i - 1) % 5 + 1}", price_tenths=50, status="a",
+            total_points=20, expected_points=4, gw_xp=4, horizon_xp=4,
+            gw_breakdown_xp={5: 4},
+        )
+        for i, position in enumerate(positions, 1)
+    }
+    session = SimpleNamespace(
+        season="2023-24", squad_ids=list(players),
+        purchase_prices_tenths={str(i): 40 for i in players}, bank_tenths=100,
+    )
+    monkeypatch.setattr("src.fpl_manager.gui.server.build_historical_snapshot", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "src.fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
+    )
+    monkeypatch.setattr(
+        "src.fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
+    )
+    base_url, _ = test_server
+    body = {
+        "season": "2023-24", "session_id": "retained-price-test", "gameweek": 5,
+        "mode": "wildcard", "horizon": 1, "strategy": "balanced",
+        "locked_player_ids": list(players),
+    }
+    if explicit_budget:
+        body["budget"] = 77.5
+    if operation == "get":
+        query = {key: value for key, value in body.items() if key != "locked_player_ids"}
+        query["locks"] = ",".join(str(i) for i in players)
+        request = f"{base_url}/api/strategic-squad?{urlencode(query)}"
+    else:
+        request = urllib.request.Request(
+            f"{base_url}/api/strategic-squad/{operation}",
+            data=json.dumps(body).encode(), headers={"Content-Type": "application/json"},
+        )
+    with urllib.request.urlopen(request) as response:
+        candidate = json.loads(response.read())
+    assert set(candidate["player_ids"]) == set(players)
+    assert candidate["total_cost_tenths"] == 675
+    assert candidate["bank_remaining_tenths"] == 100
+
+
+@pytest.mark.parametrize("risk,expected_id", [("neutral", 102), ("floor", 101), ("ceiling", 102)])
+def test_historical_transfer_api_honors_risk_after_rescoring(
+    test_server, monkeypatch: pytest.MonkeyPatch, risk: str, expected_id: int
+) -> None:
+    from types import SimpleNamespace
+    from src.fpl_manager.models import Position
+    from src.fpl_manager.suggest_transfers import PlayerInfo
+
+    positions = (
+        [Position.GOALKEEPER] * 2 + [Position.DEFENDER] * 5
+        + [Position.MIDFIELDER] * 5 + [Position.FORWARD] * 3
+    )
+    players = {
+        i: PlayerInfo(
+            id=i, name=f"P{i}", position=position, team_id=(i - 1) % 5 + 1,
+            team_short=f"T{(i - 1) % 5 + 1}", price_tenths=50, status="a",
+            total_points=20, expected_points=4, gw_xp=4, xp_floor=3, xp_ceiling=5,
+            gw_breakdown_xp={5: 4},
+        )
+        for i, position in enumerate(positions, 1)
+    }
+    for pid, name, mean, floor, ceiling in (
+        (101, "Safe", 4.5, 4, 5), (102, "Volatile", 10, 1, 20)
+    ):
+        players[pid] = PlayerInfo(
+            id=pid, name=name, position=Position.FORWARD, team_id=pid,
+            team_short=f"T{pid}", price_tenths=50, status="a", total_points=20,
+            expected_points=mean, gw_xp=mean, xp_floor=floor, xp_ceiling=ceiling,
+            gw_breakdown_xp={5: mean},
+        )
+    session = SimpleNamespace(
+        session_id="risk-test", season="2023-24", current_gw=5, is_completed=False,
+        historical_dir=Path("data") / "historical", squad_ids=list(range(1, 16)),
+        purchase_prices_tenths={str(i): 50 for i in range(1, 16)},
+        bank_tenths=0, free_transfers=1, transfers_staged=[], get_current_snapshot=lambda: None,
+    )
+    monkeypatch.setattr(
+        "src.fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
+    )
+    monkeypatch.setattr(
+        "src.fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
+    )
+    monkeypatch.setattr(
+        "src.fpl_manager.gui.server.analyze_historical_fixtures", lambda *a, **k: ({}, {})
+    )
+    base_url, _ = test_server
+    with urllib.request.urlopen(
+        f"{base_url}/api/transfers?session_id=risk-test&gameweeks=1&risk={risk}"
+    ) as response:
+        result = json.loads(response.read())
+    assert result["risk_profile"] == risk
+    assert result["top_suggestions"][0]["incoming"][0]["id"] == expected_id

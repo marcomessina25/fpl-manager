@@ -313,9 +313,9 @@ fpl advise --persona devil_advocate --provider gemini
 V1.4.6 completes the **5-Season Paired Human-in-the-Loop Replay Benchmark** (`2021-22` through `2025-26`, 190 simulated gameweeks) and enforces strict 1:1 functional, visual, and behavioral parity between Live Manager (`2026/27`) and the Historical Time Machine (`GEMINI.md`):
 
 - **Audited 5-Season Paired Replay Study (Track B Human-Assisted vs. Track A Autonomous Reference Baseline)**:
-  - Evaluates single operator `EXP-HM-01` assisted by point-in-time software recommendations (Track B) against the autonomous frozen reference engine (`DecisionEngineV135` + `ChipOpportunityOptimizer` `c1_linear_decay`, Track A) from identical GW1 `maximum_ev` starting squads.
-  - Across 190 matched gameweeks, Track B achieved a **2,102.0 net pts mean** vs. **2,038.4 net pts** for Track A (**+63.6 pts/season mean decision alpha**, outperforming in **4 of 5 seasons**: `2021-22` +87, `2022-23` +122, `2023-24` -88, `2024-25` +120, `2025-26` +77). Track C (unassisted blind control) is deferred to future multi-operator studies.
-  - Full sanitized 190-GW decision traces, SHA-256 source checksums, and hit/net point reconciliations are committed in [`reports/v146/human_benchmark_provenance.json`](reports/v146/human_benchmark_provenance.json) and verified via `python scripts/verify_v146_human_benchmark.py`.
+  - Evaluates single operator `EXP-HM-01` assisted by point-in-time software recommendations (Track B) against the autonomous frozen reference engine (`DecisionEngineV135` + `ChipOpportunityOptimizer` `c1_linear_decay`, Track A). Both tracks started GW1 with £0.0m bank and 1 FT, but generated distinct 15-player squads (2–4/15 overlap): Track B via Strategic Studio, Track A via autonomous EV solver. This is an **end-to-end strategy comparison** encompassing both initial selection and later decisions, not an isolated post-start decisional alpha measurement.
+  - Across 190 matched gameweeks, Track B achieved a **2,102.0 net pts mean** vs. **2,038.4 net pts** for Track A (**+63.6 pts/season observed net surplus**, outperforming in **4 of 5 seasons**: `2021-22` +87, `2022-23` +122, `2023-24` -88, `2024-25` +120, `2025-26` +77). Track C (unassisted blind control) is deferred to future multi-operator studies.
+  - Recorded 190-GW traces and declared source digests are in [`reports/v146/human_benchmark_provenance.json`](reports/v146/human_benchmark_provenance.json). `python scripts/verify_v146_human_benchmark.py` checks recorded consistency and reports raw-source digest verification separately when private source files are available. These results were not rerun under the corrected engine.
 - **Historical Replay Ruleset Specification (`V146-24`)**:
   - Combines era-authentic point-in-time player pools, prices, fixtures, departures, and era-gated free-transfer banking caps (`max_free_transfers = 2` for `2021-22`..`2023-24`, `5` for `2024-25`+) with universal `GW1 -> GW2` 1-FT rollover and the standardized two-segment chip inventory (`Segment 1: GW1–19`, `Segment 2: GW20–38`).
 - **End-to-End 1:1 Parity & State Isolation Hardening (`V146-01` through `V146-22`)**:
@@ -492,4 +492,3 @@ The detailed roadmap lives in [`docs/roadmap.md`](docs/roadmap.md), the V1.4.5 s
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. You are free to use, modify, and reproduce this software with attribution to Marco Messina.
-

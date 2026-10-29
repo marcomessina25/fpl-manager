@@ -343,7 +343,8 @@ def export_sanitized_provenance(
     artifact = {
         "schema_version": "1.4.6",
         "study_id": "V146-HITL-BENCHMARK-5S",
-        "study_status": "completed_paired_two_track_study",
+        "study_status": "completed_end_to_end_two_track_comparison",
+        "study_design": "end_to_end_strategy_comparison",
         "tracks_evaluated": [
             "Track A: Autonomous Frozen Reference Baseline (DecisionEngineV135 + ChipOpportunityOptimizer C1)",
             "Track B: Human-Assisted Replay (Operator EXP-HM-01 + Point-in-Time Engine Advisory)",
@@ -367,10 +368,10 @@ def export_sanitized_provenance(
             "human_operators_count": 1,
             "participant_id": "EXP-HM-01",
             "note": (
-                "Paired 5-season (190-GW) single-operator replay study. Results demonstrate "
-                "reproducible positive decision alpha for operator EXP-HM-01 across the 5 "
-                "historical seasons, but N=5 seasons with a single operator does not establish "
-                "population-wide statistical significance across all FPL managers."
+                "Five-season (190-GW), single-operator end-to-end strategy comparison. "
+                "Different initial squads mean the observed net surplus includes initial "
+                "selection and later decisions, not an isolated identical-start treatment effect. "
+                "Five seasons with one operator do not establish population-wide significance."
             ),
         },
         "aggregate_metrics": {
@@ -395,7 +396,7 @@ def verify_provenance(
     provenance_path: Path = PROVENANCE_PATH,
     simulations_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Verify arithmetic, hit reconciliation, and aggregate statistics from the committed provenance file."""
+    """Verify recorded consistency and report which raw-source digests were checked."""
     if not provenance_path.exists():
         raise FileNotFoundError(f"Provenance file missing: {provenance_path}")
 
@@ -407,6 +408,11 @@ def verify_provenance(
     total_b_net_all = 0
     total_a_net_all = 0
     human_wins = 0
+    verified_source_seasons: list[str] = []
+    unavailable_source_seasons: list[str] = []
+    source_sessions = {season: (sid, anon_id) for season, sid, anon_id in BENCHMARK_SESSIONS}
+    if {s["season"] for s in seasons} != set(source_sessions):
+        raise AssertionError("Expected five distinct benchmark seasons")
 
     for s in seasons:
         season_name = s["season"]
@@ -416,27 +422,68 @@ def verify_provenance(
 
         init = s["initial_state_parity"]
         comp = init.get("comparison", {})
-        if not comp.get("bank_tenths_identical"):
+        track_b_initial = init.get("track_b_initial_state", {})
+        track_a_initial = init.get("track_a_initial_state", {})
+        for label, state in (("Track B", track_b_initial), ("Track A", track_a_initial)):
+            ids = state.get("squad_ids", [])
+            if len(ids) != 15 or len(set(ids)) != 15:
+                raise AssertionError(f"Season {season_name}: {label} initial squad must have 15 distinct players")
+            for field in ("bank_tenths", "free_transfers"):
+                if type(state.get(field)) is not int:
+                    raise AssertionError(f"Season {season_name}: {label} initial {field} must be an integer")
+        same_bank = track_b_initial["bank_tenths"] == track_a_initial["bank_tenths"]
+        same_ft = track_b_initial["free_transfers"] == track_a_initial["free_transfers"]
+        if not same_bank:
             raise AssertionError(f"Season {season_name}: initial bank tenths not identical between tracks")
-        if not comp.get("free_transfers_identical"):
+        if not same_ft:
             raise AssertionError(f"Season {season_name}: initial FT not identical between tracks")
-        if len(init.get("track_b_initial_state", {}).get("squad_ids", [])) != 15:
-            raise AssertionError(f"Season {season_name}: Track B initial squad must have 15 players")
-        if len(init.get("track_a_initial_state", {}).get("squad_ids", [])) != 15:
-            raise AssertionError(f"Season {season_name}: Track A initial squad must have 15 players")
+        b_ids = set(track_b_initial["squad_ids"])
+        a_ids = set(track_a_initial["squad_ids"])
+        overlap = len(b_ids & a_ids)
+        expected_comparison = {
+            "bank_tenths_identical": same_bank,
+            "free_transfers_identical": same_ft,
+            "chips_remaining_identical": (
+                sorted(track_b_initial["chips_remaining"]) == sorted(track_a_initial["chips_remaining"])
+            ),
+            "squad_ids_identical": b_ids == a_ids,
+            "squad_ids_overlap": f"{overlap}/15",
+        }
+        for field, expected in expected_comparison.items():
+            if comp.get(field) != expected:
+                raise AssertionError(f"Season {season_name}: initial comparison {field} disagrees with recorded states")
+        expected_flags = {
+            "shared_between_track_a_and_track_b": same_bank and same_ft and b_ids == a_ids,
+            "shared_starting_bank_and_ft": same_bank and same_ft,
+            "shared_starting_squad": b_ids == a_ids,
+            "squad_overlap_count": overlap,
+        }
+        for field, expected in expected_flags.items():
+            if init.get(field) != expected:
+                raise AssertionError(f"Season {season_name}: initial comparison {field} is inconsistent")
 
-        # Check raw file hash if available locally
-        for sess_season, raw_sid, anon_id in BENCHMARK_SESSIONS:
-            if sess_season == season_name and s.get("experiment_session_id") == anon_id:
-                sim_dir = simulations_dir if simulations_dir is not None else SIMULATIONS_DIR
-                src_file = sim_dir / f"{raw_sid}.json"
-                if src_file.exists():
-                    computed_sha = hashlib.sha256(src_file.read_bytes()).hexdigest()
-                    if s.get("source_trace_sha256") != computed_sha:
-                        raise AssertionError(
-                            f"Season {season_name}: source SHA-256 mismatch "
-                            f"(artifact={s.get('source_trace_sha256')}, file={computed_sha})"
-                        )
+        raw_sid, anon_id = source_sessions[season_name]
+        if s.get("experiment_session_id") != anon_id:
+            raise AssertionError(f"Season {season_name}: unexpected experiment session identifier")
+        declared_sha = s.get("source_trace_sha256")
+        if (
+            not isinstance(declared_sha, str)
+            or len(declared_sha) != 64
+            or any(c not in "0123456789abcdef" for c in declared_sha)
+        ):
+            raise AssertionError(f"Season {season_name}: invalid source SHA-256 digest")
+        sim_dir = simulations_dir if simulations_dir is not None else SIMULATIONS_DIR
+        src_file = sim_dir / f"{raw_sid}.json"
+        if src_file.exists():
+            computed_sha = hashlib.sha256(src_file.read_bytes()).hexdigest()
+            if declared_sha != computed_sha:
+                raise AssertionError(
+                    f"Season {season_name}: source SHA-256 mismatch "
+                    f"(artifact={declared_sha}, file={computed_sha})"
+                )
+            verified_source_seasons.append(season_name)
+        else:
+            unavailable_source_seasons.append(season_name)
 
         running_b_net = 0
         running_b_gross = 0
@@ -544,6 +591,20 @@ def verify_provenance(
                 f"Season {season_name}: override_count {summary['override_count']} "
                 f"!= positive+negative+neutral sum {categorized_overrides}"
             )
+        for field, sign in (
+            ("override_positive_count", 1),
+            ("override_negative_count", -1),
+            ("override_neutral_count", 0),
+        ):
+            expected_count = sum(
+                1 for g in gws
+                if g["divergence"]["is_human_override"]
+                and (
+                    (g["divergence"]["net_points_delta"] > 0) - (g["divergence"]["net_points_delta"] < 0)
+                ) == sign
+            )
+            if summary[field] != expected_count:
+                raise AssertionError(f"Season {season_name}: {field} disagrees with trace outcomes")
         actual_tx_overrides = sum(1 for g in gws if g["divergence"]["transfer_override"])
         if summary["transfer_override_count"] != actual_tx_overrides:
             raise AssertionError(
@@ -582,13 +643,22 @@ def verify_provenance(
     if round(human_wins / len(seasons), 4) != agg["human_season_win_rate"]:
         raise AssertionError("Aggregate human season win rate mismatch")
 
+    artifact["verification_status"] = {
+        "arithmetic": "verified",
+        "semantic_consistency": "verified",
+        "initial_state_consistency": "verified",
+        "source_hashes": {
+            "verified_seasons": verified_source_seasons,
+            "unavailable_seasons": unavailable_source_seasons,
+        },
+    }
     return artifact
 
 
 def format_markdown_summary(artifact: dict[str, Any]) -> str:
     """Format the verified leaderboard and override analysis table from trace data."""
     lines = [
-        "| Season | Session ID | Track B Gross | Track B Hits (Pts) | Track B Net | Track A Gross | Track A Hits (Pts) | Track A Net | Decision Alpha (B - A) | Overrides (+ / - / 0) |",
+        "| Season | Session ID | Track B Gross | Track B Hits (Pts) | Track B Net | Track A Gross | Track A Hits (Pts) | Track A Net | Observed Net Surplus (B - A) | Overrides (+ / - / 0) |",
         "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
     for s in artifact["seasons"]:
@@ -652,23 +722,27 @@ def format_chip_schedule_table(artifact: dict[str, Any]) -> str:
 
 
 def format_provenance_audit_table(artifact: dict[str, Any]) -> str:
-    """Format the verified source trace digest and initial state parity table."""
+    """Distinguish metadata consistency from optional raw-source verification."""
     lines = [
-        "| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Initial State Parity | Squad Overlap |",
-        "| :--- | :--- | :--- | :--- | :---: |",
+        "| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Bank / FT Consistency | Squad Overlap | Source Digest Check |",
+        "| :--- | :--- | :--- | :--- | :---: | :--- |",
     ]
+    checked_sources = artifact.get("verification_status", {}).get("source_hashes", {}).get("verified_seasons", [])
     for s in artifact["seasons"]:
         init = s["initial_state_parity"]
-        comp = init["comparison"]
+        b_state = init["track_b_initial_state"]
+        a_state = init["track_a_initial_state"]
         parity_str = (
-            "Verified (bank=0, FT=1)"
-            if comp["bank_tenths_identical"] and comp["free_transfers_identical"]
+            f"Verified (bank={b_state['bank_tenths']}, FT={b_state['free_transfers']})"
+            if b_state["bank_tenths"] == a_state["bank_tenths"]
+            and b_state["free_transfers"] == a_state["free_transfers"]
             else "Discrepancy"
         )
-        overlap_str = comp["squad_ids_overlap"]
+        overlap_str = f"{len(set(b_state['squad_ids']) & set(a_state['squad_ids']))}/15"
+        source_status = "Verified" if s["season"] in checked_sources else "Not checked (raw source unavailable or not supplied)"
         lines.append(
             f"| **{s['season']}** | `{s['experiment_session_id']}` | "
-            f"`{s['source_trace_sha256']}` | {parity_str} | {overlap_str} |"
+            f"`{s['source_trace_sha256']}` | {parity_str} | {overlap_str} | {source_status} |"
         )
     return "\n".join(lines)
 
@@ -693,7 +767,12 @@ def main() -> None:
         print(f"Exported sanitized provenance to {PROVENANCE_PATH}")
 
     artifact = verify_provenance(simulations_dir=args.simulations_dir)
-    print("V1.4.6 Human Benchmark Provenance Verification: PASSED (5 seasons, 190 gameweeks reconciled)")
+    print("V1.4.6 Benchmark Consistency Verification: PASSED (5 seasons, 190 gameweeks reconciled)")
+    hashes = artifact["verification_status"]["source_hashes"]
+    print(f"Raw source digests checked: {len(hashes['verified_seasons'])}/5.")
+    if hashes["unavailable_seasons"]:
+        print("Raw source verification NOT PERFORMED for: " + ", ".join(hashes["unavailable_seasons"]))
+    print("Different initial squads: results compare end-to-end strategies, not an identical-start experiment.")
     print()
     print("### Primary Leaderboard & Override Analysis")
     print(format_markdown_summary(artifact))

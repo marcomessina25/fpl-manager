@@ -1,8 +1,11 @@
 """Unit and integration test suite for Unified Strategic Chip Opportunity-Cost Optimizer (V1.4.5)."""
 
 import json
+from dataclasses import replace
+from itertools import combinations
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import pytest
 
 from fpl_manager.chip_strategy import SeasonalChipInventory, SeasonalChipPolicy, recommend_chip_strategy
@@ -12,6 +15,10 @@ from fpl_manager.simulation.chip_optimizer import (
     ChipOpportunityOptimizer,
     ChipOpportunityValue,
     GameweekFixtureTopology,
+    _CandGwProj,
+    _calc_achievable_pool_xi_xp,
+    _find_legal_bench_completion,
+    _norm_pos,
     extract_season_fixture_topology,
 )
 from fpl_manager.simulation.session import HistoricalSimulationSession
@@ -404,3 +411,172 @@ def test_v146_r2_11_unaffordable_targets_cannot_inflate_ev(tmp_path: Path):
     assert xp_with_infeasible == xp_base, (
         f"Infeasible 14m forwards altered achievable XI xP: {xp_with_infeasible} vs {xp_base}"
     )
+
+
+def _replacement_pool():
+    pool = []
+    for position, prices in (
+        (Position.GOALKEEPER, [40, 65]),
+        (Position.DEFENDER, [40, 75, 75, 75, 75]),
+        (Position.MIDFIELDER, [45, 75, 75, 75, 75]),
+        (Position.FORWARD, [45, 75, 75]),
+    ):
+        for price in prices:
+            pid = len(pool) + 1
+            pool.append(_CandGwProj(
+                player_id=pid, id=pid, web_name=f"P{pid}", team_id=pid,
+                position=position, status="a", expected_points=4.0,
+                expected_minutes=90.0, play_probability=1.0, start_probability=1.0,
+                availability_pct=100.0, chance_of_playing_next_round=100,
+                consecutive_zero_mins=0, is_long_term_unavailable=False,
+                price_tenths=price,
+            ))
+    return pool
+
+
+def test_replacement_xi_requires_distinct_budget_legal_bench():
+    pool = _replacement_pool()
+    assert sum(p.price_tenths for p in pool) == 985
+    target = replace(pool[-1], player_id=16, id=16, team_id=16,
+                     price_tenths=140, expected_points=60.0)
+    assert _calc_achievable_pool_xi_xp(pool, 1000) == 44.0
+    assert _calc_achievable_pool_xi_xp(pool + [target], 1000) == 44.0
+    assert _calc_achievable_pool_xi_xp(pool + [target], 1050) == 100.0
+
+
+def test_replacement_xi_distinguishes_goalkeeper_and_player_identity():
+    pool = _replacement_pool()
+    target = replace(pool[0], player_id=16, id=16, team_id=16,
+                     price_tenths=140, expected_points=60.0)
+    # A goalkeeper upgrade must leave a different goalkeeper on the bench.
+    assert _calc_achievable_pool_xi_xp(pool + [target], 1000) == 44.0
+    assert _calc_achievable_pool_xi_xp(pool + [target], 1060) == 100.0
+    assert _calc_achievable_pool_xi_xp([p for p in pool if p.player_id != 2], 1000) == 0.0
+    assert _calc_achievable_pool_xi_xp(pool[:-1] + [pool[-2]], 1000) == 0.0
+
+
+def test_replacement_xi_cannot_hide_a_fourth_club_player_on_bench():
+    pool = _replacement_pool()
+    # Three compulsory defenders and the only reserve goalkeeper share a club.
+    pool[1] = replace(pool[1], team_id=20)
+    for index in (2, 3, 4):
+        pool[index] = replace(pool[index], team_id=20)
+    assert _calc_achievable_pool_xi_xp(pool, 2000) == 0.0
+    legal_reserve = replace(pool[1], player_id=16, id=16, team_id=19)
+    assert _calc_achievable_pool_xi_xp(pool + [legal_reserve], 2000) == 44.0
+
+
+def test_bench_completion_enforces_shared_club_capacity_and_distinct_reserves():
+    pool = _replacement_pool()
+    xi_indices = (0, 2, 3, 4, 7, 8, 9, 10, 12, 13, 14)
+    xi = [pool[index] for index in xi_indices]
+    bench = [replace(p, team_id=20) for index, p in enumerate(pool) if index not in xi_indices]
+    xi[:3] = [replace(p, team_id=19) for p in xi[:3]]
+    blocked_cheap_gk = replace(pool[0], player_id=16, id=16, team_id=19, price_tenths=1)
+    expensive_mid = replace(pool[11], player_id=17, id=17, team_id=18, price_tenths=110)
+    candidates = xi + bench + [blocked_cheap_gk, expensive_mid]
+    by_pos = {
+        pos: sorted([p for p in candidates if _norm_pos(p.position) == pos],
+                    key=lambda p: p.price_tenths)
+        for pos in ("GKP", "DEF", "MID", "FWD")
+    }
+    assert _find_legal_bench_completion(xi, by_pos, 985) is None
+    result = _find_legal_bench_completion(xi, by_pos, 1020)
+    assert result is not None
+    full_squad = xi + result
+    assert len({p.player_id for p in full_squad}) == 15
+    assert sum(p.price_tenths for p in full_squad) == 1020
+    assert {pos: sum(_norm_pos(p.position) == pos for p in full_squad) for pos in by_pos} == {
+        "GKP": 2, "DEF": 5, "MID": 5, "FWD": 3,
+    }
+    assert all(sum(p.team_id == club for p in full_squad) <= 3 for club in range(1, 21))
+    assert blocked_cheap_gk not in result
+    assert expensive_mid in result
+
+
+def test_bench_completion_matches_exhaustive_four_slot_reference():
+    pool = _replacement_pool()
+    xi_indices = (0, 2, 3, 4, 7, 8, 9, 10, 12, 13, 14)
+    xi = [pool[index] for index in xi_indices]
+    reserves = [p for index, p in enumerate(pool) if index not in xi_indices]
+    reserves += [
+        replace(p, player_id=20 + index, id=20 + index, team_id=18,
+                price_tenths=p.price_tenths - 10)
+        for index, p in enumerate(reserves)
+    ]
+    candidates = xi + reserves
+    by_pos = {
+        pos: sorted([p for p in candidates if _norm_pos(p.position) == pos],
+                    key=lambda p: p.price_tenths)
+        for pos in ("GKP", "DEF", "MID", "FWD")
+    }
+    for budget in (900, 954, 955, 960, 975, 985, 1020):
+        legal = []
+        for bench in combinations(reserves, 4):
+            squad = xi + list(bench)
+            if any(sum(_norm_pos(p.position) == pos for p in squad) != count
+                   for pos, count in (("GKP", 2), ("DEF", 5), ("MID", 5), ("FWD", 3))):
+                continue
+            if any(sum(p.team_id == club for p in squad) > 3 for club in range(1, 21)):
+                continue
+            if sum(p.price_tenths for p in squad) <= budget:
+                legal.append(bench)
+        assert (_find_legal_bench_completion(xi, by_pos, budget) is not None) == bool(legal)
+
+
+def _replacement_roadmap(monkeypatch, tmp_path, pool, *, bank=15, purchase_prices=None):
+    import fpl_manager.historical.snapshots as snapshots
+    import fpl_manager.simulation.chip_optimizer as chip_optimizer
+
+    snapshot = SimpleNamespace(players=tuple(pool[:15]))
+    players = {
+        p.player_id: SimpleNamespace(
+            name=p.web_name, team_id=p.team_id, position=p.position, status=p.status,
+            price_tenths=p.price_tenths, expected_minutes=90.0,
+            is_long_term_unavailable=False,
+            gw_breakdown_xp={gw: p.expected_points if gw == 18 else 4.0 for gw in (18, 19)},
+        )
+        for p in pool
+    }
+    monkeypatch.setattr(snapshots, "load_historical_players_meta", lambda *args, **kwargs: (players, {}))
+    monkeypatch.setattr(chip_optimizer, "extract_season_fixture_topology",
+                        lambda **kwargs: extract_season_fixture_topology())
+    sim = SimpleNamespace(
+        session_id="replacement-test",
+        current_gw=18, season="2023-24", season_dir=tmp_path, historical_dir=tmp_path,
+        squad_ids=list(range(1, 16)), bank_tenths=bank,
+        purchase_prices_tenths=purchase_prices or {},
+        chips_remaining=["free_hit"], chips_used={}, transfers_staged=[],
+        get_current_snapshot=lambda: snapshot,
+        get_recommendations=lambda: {},
+    )
+    return ChipOpportunityOptimizer().generate_segment_roadmap(sim)
+
+
+def test_infeasible_replacement_cannot_inflate_ev_or_move_free_hit(monkeypatch, tmp_path):
+    pool = _replacement_pool()
+    baseline = _replacement_roadmap(monkeypatch, tmp_path, pool)
+    target = replace(pool[-1], player_id=16, id=16, team_id=16,
+                     price_tenths=140, expected_points=60.0)
+    impossible = _replacement_roadmap(monkeypatch, tmp_path, pool + [target])
+    assert impossible["candidate_rankings"]["freehit"] == baseline["candidate_rankings"]["freehit"]
+    assert impossible["recommended_schedule"] == baseline["recommended_schedule"]
+    assert baseline["recommended_schedule"][0]["gameweek"] == 19
+    feasible = _replacement_roadmap(monkeypatch, tmp_path, pool + [target], bank=65)
+    gw18 = next(c for c in feasible["candidate_rankings"]["freehit"] if c["gameweek"] == 18)
+    assert gw18["immediate_ev"] == 14.32
+    assert feasible["recommended_schedule"][0]["gameweek"] == 18
+
+
+def test_replacement_roadmap_budget_uses_selling_capital(monkeypatch, tmp_path):
+    pool = _replacement_pool()
+    target = replace(pool[-1], player_id=16, id=16, team_id=16,
+                     price_tenths=140, expected_points=60.0)
+    # £0.4m rises on all fifteen players yield only £0.2m each on selling.
+    purchase_prices = {str(p.player_id): p.price_tenths - 4 for p in pool}
+    roadmap = _replacement_roadmap(
+        monkeypatch, tmp_path, pool + [target], bank=65, purchase_prices=purchase_prices,
+    )
+    gw18 = next(c for c in roadmap["candidate_rankings"]["freehit"] if c["gameweek"] == 18)
+    assert gw18["immediate_ev"] == 2.0
+    assert roadmap["recommended_schedule"][0]["gameweek"] == 19

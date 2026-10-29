@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -114,3 +115,70 @@ def test_corruption_rejects_tampered_source_hash(tmp_path: Path) -> None:
 
     with pytest.raises(AssertionError, match="source SHA-256 mismatch"):
         verify_provenance(corrupt_path, simulations_dir=mock_sim_dir)
+
+
+@pytest.mark.parametrize("field,value", [("bank_tenths", 9999), ("free_transfers", 5)])
+def test_initial_state_verification_reads_actual_values(tmp_path: Path, field: str, value: int) -> None:
+    artifact = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+    artifact["seasons"][0]["initial_state_parity"]["track_a_initial_state"][field] = value
+    corrupt_path = tmp_path / "initial_state.json"
+    corrupt_path.write_text(json.dumps(artifact), encoding="utf-8")
+    with pytest.raises(AssertionError, match="initial"):
+        verify_provenance(corrupt_path, simulations_dir=tmp_path)
+
+
+def test_initial_state_rejects_stale_comparison_flags(tmp_path: Path) -> None:
+    artifact = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+    artifact["seasons"][0]["initial_state_parity"]["comparison"]["squad_ids_identical"] = True
+    corrupt_path = tmp_path / "comparison.json"
+    corrupt_path.write_text(json.dumps(artifact), encoding="utf-8")
+    with pytest.raises(AssertionError, match="comparison"):
+        verify_provenance(corrupt_path, simulations_dir=tmp_path)
+
+
+def test_initial_state_requires_distinct_players(tmp_path: Path) -> None:
+    artifact = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+    ids = artifact["seasons"][0]["initial_state_parity"]["track_a_initial_state"]["squad_ids"]
+    ids[1] = ids[0]
+    corrupt_path = tmp_path / "duplicate_initial.json"
+    corrupt_path.write_text(json.dumps(artifact), encoding="utf-8")
+    with pytest.raises(AssertionError, match="distinct"):
+        verify_provenance(corrupt_path, simulations_dir=tmp_path)
+
+
+def test_override_distribution_is_derived_from_outcomes(tmp_path: Path) -> None:
+    artifact = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+    summary = artifact["seasons"][0]["season_summary"]
+    summary["override_positive_count"] -= 1
+    summary["override_negative_count"] += 1
+    corrupt_path = tmp_path / "distribution.json"
+    corrupt_path.write_text(json.dumps(artifact), encoding="utf-8")
+    with pytest.raises(AssertionError, match="override_positive_count"):
+        verify_provenance(corrupt_path, simulations_dir=tmp_path)
+
+
+def test_missing_raw_sources_are_explicitly_unverified(tmp_path: Path) -> None:
+    artifact = verify_provenance(PROVENANCE_PATH, simulations_dir=tmp_path)
+    status = artifact["verification_status"]
+    assert status["arithmetic"] == "verified"
+    assert status["semantic_consistency"] == "verified"
+    assert status["initial_state_consistency"] == "verified"
+    assert status["source_hashes"]["verified_seasons"] == []
+    assert len(status["source_hashes"]["unavailable_seasons"]) == 5
+    assert "Not checked" in format_provenance_audit_table(artifact)
+
+
+def test_raw_source_status_reports_partial_verification(tmp_path: Path) -> None:
+    artifact = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+    raw_bytes = b"isolated test source"
+    artifact["seasons"][0]["source_trace_sha256"] = hashlib.sha256(raw_bytes).hexdigest()
+    (tmp_path / "sim_2021_22_4016_marco.json").write_bytes(raw_bytes)
+    provenance = tmp_path / "partial.json"
+    provenance.write_text(json.dumps(artifact), encoding="utf-8")
+    verified = verify_provenance(provenance, simulations_dir=tmp_path)
+    status = verified["verification_status"]["source_hashes"]
+    assert status["verified_seasons"] == ["2021-22"]
+    assert len(status["unavailable_seasons"]) == 4
+    table = format_provenance_audit_table(verified)
+    assert table.count("Not checked") == 4
+    assert "| Source Digest Check |" in table

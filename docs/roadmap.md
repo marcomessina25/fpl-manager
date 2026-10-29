@@ -2245,13 +2245,15 @@ Use distinct states:
 - [x] Pass 25/25 chip regression and contract test suite.
 - [x] Publish benchmark reports in `reports/v145/`.
 
-## Completed — V1.4.6 Human-in-the-Loop Replay Benchmark Study & Parity Hardening
+## V1.4.6 Recorded Strategy Comparison & Parity Hardening
 
-- [x] Execute controlled 5-season paired replay trials (Track B Human-Assisted vs. Track A Autonomous Reference Engine; Track C Blind Control deferred) using the V1.4 Time Machine and V1.4.5 reference engine.
-- [x] Export and verify sanitized 190-GW decision traces, checksums, and hit/net point reconciliations (`reports/v146/human_benchmark_provenance.json`, `scripts/verify_v146_human_benchmark.py`).
+- [x] Retain the five-season Track B / Track A results as an end-to-end comparison, including different initial squads; Track C remains deferred. No identical-start treatment effect or new rerun is claimed.
+- [x] Check arithmetic, semantic totals and actual starting-state metadata in the sanitized 190-GW artifact. Verify raw-source digests only when the corresponding files are available, and report missing checks explicitly.
 - [x] Document the Historical Replay Ruleset Policy (`V146-24`) and statistical scope/limitations (`docs/v1.4.6/v146_human_benchmark.md`, `reports/v146/human_benchmark_report.md`).
 - [x] Enforce strict 1:1 Live/Historical parity (`GEMINI.md`) across Transfers, Decision Logger, Multi-GW Planner (`1..8` GWs, zero future leakage, atomic Step-0 Apply), Chip Strategy (squad-sensitive segment roadmap), and Strategic Studio.
 - [x] Harden simulation Undo/replay determinism (`gw_start_state` and `engine_baseline_*` restoration) and legacy hit-unit normalization (`V146-01` through `V146-25`).
+- [x] Add follow-up regressions for compound Apply accounting, delayed GUI context transitions, legal chip-squad completion, legacy purchase-basis recovery and all accepted risk objectives.
+- [ ] Record real-browser smoke verification separately from the automated HTTP and Node controller tests.
 
 ## Later — V1.5
 

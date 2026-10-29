@@ -329,3 +329,122 @@ def test_v146_r2_09_blank_gw_future_risk_distributions(tmp_path: Path):
     # Check that in GW19 and GW20, projected floor and ceiling for candidates are positive
     assert plan["best_plan"]["gameweek_steps"][1]["xp_floor"] > 0.0
     assert plan["best_plan"]["gameweek_steps"][1]["xp_ceiling"] > 0.0
+
+
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("free_transfers", [0, 1])
+@pytest.mark.parametrize(
+    ("risk_profile", "incoming_profile", "should_transfer", "gross_utility"),
+    [
+        ("neutral", (3.0, 2.0, 10.0), False, 48.0),
+        ("floor", (3.0, 2.0, 10.0), False, 36.0),
+        ("ceiling", (3.0, 2.0, 10.0), True, 70.0),
+        ("chase", (3.0, 2.0, 10.0), True, 73.0),
+        ("defend_lead", (3.0, 4.0, 5.0), True, 40.4),
+    ],
+)
+def test_beam_search_ranks_net_requested_profile_utility(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, historical: bool, free_transfers: int,
+    risk_profile: str, incoming_profile: tuple[float, float, float],
+    should_transfer: bool, gross_utility: float,
+) -> None:
+    from types import SimpleNamespace
+    import fpl_manager.historical.snapshots as snapshots
+    import fpl_manager.planner as planner
+    from fpl_manager.models import Position
+    from fpl_manager.suggest_transfers import PlayerInfo
+
+    players = {
+        pid: PlayerInfo(
+            pid, f"Player {pid}",
+            Position(1 if pid <= 2 else 2 if pid <= 7 else 3 if pid <= 12 else 4),
+            pid, f"T{pid}", 50, "a", 0, expected_points=4.0,
+            xp_floor=3.0, xp_ceiling=5.0, gw_xp=4.0, gw_breakdown_xp={2: 4.0},
+        )
+        for pid in range(1, 16)
+    }
+    mean, floor, ceiling = incoming_profile
+    players[101] = PlayerInfo(
+        101, "Target", Position.FORWARD, 16, "TARGET", 50, "a", 0,
+        expected_points=mean, xp_floor=floor, xp_ceiling=ceiling,
+        gw_xp=mean, gw_breakdown_xp={2: mean},
+    )
+    ids = list(range(1, 16))
+    state = SimpleNamespace(
+        player_ids=ids, bank_tenths=0, free_transfers=free_transfers,
+        purchase_price=lambda pid: 50,
+    )
+    monkeypatch.setattr(planner, "load_current_squad", lambda path: state)
+    monkeypatch.setattr(planner, "load_all_players_meta", lambda *args: (players, {}))
+    monkeypatch.setattr(planner, "project_multi_gameweek_profiles", lambda *args, **kwargs: {})
+    monkeypatch.setattr(planner, "analyze_team_fixtures", lambda **kwargs: {"team_rankings": []})
+    monkeypatch.setattr(
+        planner, "project_gameweek",
+        lambda *args, **kwargs: [
+            planner._HistGwProj(
+                player_id=p.id, id=p.id, web_name=p.name, team_short=p.team_short,
+                position=p.position, expected_points=p.expected_points, xp_floor=p.xp_floor,
+                xp_ceiling=p.xp_ceiling, base_xp_per_match=p.expected_points,
+            )
+            for p in players.values()
+        ],
+    )
+    monkeypatch.setattr(snapshots, "load_historical_players_meta", lambda *args, **kwargs: (players, {}))
+    monkeypatch.setattr(snapshots, "analyze_historical_fixtures", lambda *args, **kwargs: ({}, {}))
+
+    if historical:
+        sim = SimpleNamespace(
+            current_gw=2, season_dir=tmp_path, session_id="risk-objective", season="2023-24",
+            squad_ids=ids, bank_tenths=0, free_transfers=free_transfers,
+            purchase_prices_tenths={pid: 50 for pid in ids}, active_chip=None,
+            get_current_snapshot=lambda: object(),
+        )
+        result = planner.generate_historical_multi_gameweek_plan(
+            sim, horizon=1, risk_profile=risk_profile, allow_hits=True,
+        )
+    else:
+        result = planner.generate_multi_gameweek_plan(
+            database_path=tmp_path / "unused.sqlite3", start_gw=2, horizon=1,
+            risk_profile=risk_profile, allow_hits=True, report_path=tmp_path / "plan.json",
+        )
+
+    # A safety upgrade worth two utility points is not worth a four-point hit.
+    if risk_profile == "defend_lead" and free_transfers == 0:
+        should_transfer = False
+        gross_utility = 38.4
+    best = result["best_plan"]
+    step = best["gameweek_steps"][0]
+    assert bool(step["transfers"]) is should_transfer
+    assert step["transfer_hits"] == (1 if should_transfer and not free_transfers else 0)
+    assert best["total_net_profile_utility"] == pytest.approx(
+        gross_utility - 4 * step["transfer_hits"],
+    )
+    assert best["total_net_profile_utility"] == step["net_profile_utility"]
+    assert best["total_net_xp"] == step["lineup_xp"] - 4 * step["transfer_hits"]
+    assert best["total_floor_xp"] == step["lineup_floor"] - 4 * step["transfer_hits"]
+    assert best["total_ceiling_xp"] == step["lineup_ceiling"] - 4 * step["transfer_hits"]
+
+
+@pytest.mark.parametrize("risk_profile", ["neutral", "floor", "ceiling", "chase", "defend_lead"])
+@pytest.mark.parametrize(("active_chip", "scored_slots"), [(None, 12), ("bench_boost", 16), ("triple_captain", 13)])
+def test_lineup_risk_utility_includes_active_chip(
+    risk_profile: str, active_chip: str | None, scored_slots: int,
+) -> None:
+    from fpl_manager.models import Position
+    from fpl_manager.optimizer import get_player_profile_value
+    from fpl_manager.planner import _HistGwProj, _lineup_profile_utility
+
+    projections = {
+        pid: _HistGwProj(
+            pid, pid, f"Player {pid}", f"T{pid}",
+            Position(1 if pid <= 2 else 2 if pid <= 7 else 3 if pid <= 12 else 4),
+            4.0, 3.0, 5.0, 4.0, standard_deviation=2.0, selected_by_percent=30.0,
+        )
+        for pid in range(1, 16)
+    }
+    starters = [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14]
+    bench = [2, 6, 7, 15]
+    captain = projections[13]
+    assert _lineup_profile_utility(
+        starters, bench, captain, projections, risk_profile, active_chip,
+    ) == pytest.approx(scored_slots * get_player_profile_value(captain, risk_profile))
