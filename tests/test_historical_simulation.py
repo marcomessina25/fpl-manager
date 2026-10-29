@@ -258,7 +258,7 @@ def test_baseline_engine_wildcard_failure_raises_data_integrity(tmp_path: Path) 
         mock_engine = mock_resolve.return_value
         mock_engine.version = "v1.3.5"
         mock_engine.initialize_squad.side_effect = RuntimeError("Infeasible budget solver")
-        
+
         with pytest.raises(DataIntegrityError) as exc_info:
             sim._step_baseline_engine(1, snap, outcomes, positions)
         assert "Baseline engine chip deployment failed" in str(exc_info.value)
@@ -629,6 +629,3 @@ def test_v146_23_24_human_benchmark_provenance_reconciliation() -> None:
     assert agg["mean_decision_alpha_points"] == 63.6
     assert agg["human_season_wins"] == 4
     assert agg["human_season_win_rate"] == 0.8
-
-
-

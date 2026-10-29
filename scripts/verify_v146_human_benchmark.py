@@ -43,6 +43,16 @@ def _normalize_hits_count(raw_hits: Any, gross_pts: int, net_pts: int) -> int:
     return val
 
 
+def _canonical_chip_name(chip: str | None, gw: int) -> str | None:
+    if not chip:
+        return None
+    base = chip.replace("_1", "").replace("_2", "")
+    if gw <= 19:
+        return "wildcard_1" if base == "wildcard" else base
+    else:
+        return f"{base}_2"
+
+
 def _extract_transfer_pair(t: Any) -> dict[str, int]:
     if isinstance(t, (list, tuple)) and len(t) >= 2:
         return {"out_id": int(t[0]), "in_id": int(t[1])}
@@ -143,7 +153,7 @@ def export_sanitized_provenance(
                 )
             )
             chip_diff = (hum_chip or None) != (rec_chip or None)
-            is_override = bool(logged_div.get("human_override", tx_diff or cap_diff or chip_diff))
+            is_override = bool(tx_diff or cap_diff or chip_diff)
 
             div = h_net - b_net
             if is_override:
@@ -215,6 +225,64 @@ def export_sanitized_provenance(
         b_total_hit_pts = sum(g["track_a_engine_baseline"]["transfer_hit_points"] for g in gw_traces)
         b_total_net = sum(g["track_a_engine_baseline"]["net_points"] for g in gw_traces)
 
+        track_b_chips_used: dict[str, int] = {}
+        track_a_chips_used: dict[str, int] = {}
+        for g in gw_traces:
+            b_chip = g["track_b_human_assisted"].get("chip_used")
+            if b_chip:
+                key = _canonical_chip_name(b_chip, g["gameweek"])
+                if key:
+                    track_b_chips_used[key] = g["gameweek"]
+            a_chip = g["track_a_engine_baseline"].get("chip_used")
+            if a_chip:
+                key = _canonical_chip_name(a_chip, g["gameweek"])
+                if key:
+                    track_a_chips_used[key] = g["gameweek"]
+
+        b0 = baseline_history[0]
+        track_a_squad_ids = list(b0.get("squad_ids", []))
+        track_a_bank = int(b0.get("bank_tenths", 0))
+        track_a_ft = 1
+        track_a_chips = ["wildcard_1", "free_hit", "bench_boost", "triple_captain"]
+
+        squads_identical = sorted(initial_squad_ids) == sorted(track_a_squad_ids)
+        overlap_count = len(set(initial_squad_ids).intersection(track_a_squad_ids))
+
+        initial_state_record = {
+            "shared_between_track_a_and_track_b": (
+                squads_identical and initial_bank_tenths == track_a_bank and initial_ft == track_a_ft
+            ),
+            "shared_starting_bank_and_ft": (initial_bank_tenths == track_a_bank and initial_ft == track_a_ft),
+            "shared_starting_squad": squads_identical,
+            "squad_overlap_count": overlap_count,
+            "track_b_initial_state": {
+                "selection_method": "human_strategic_studio",
+                "squad_ids": initial_squad_ids,
+                "purchase_prices_tenths": initial_prices,
+                "bank_tenths": initial_bank_tenths,
+                "free_transfers": initial_ft,
+                "chips_remaining": initial_chips,
+            },
+            "track_a_initial_state": {
+                "selection_method": "autonomous_engine_maximum_ev",
+                "squad_ids": track_a_squad_ids,
+                "bank_tenths": track_a_bank,
+                "free_transfers": track_a_ft,
+                "chips_remaining": track_a_chips,
+            },
+            "comparison": {
+                "bank_tenths_identical": (initial_bank_tenths == track_a_bank),
+                "free_transfers_identical": (initial_ft == track_a_ft),
+                "chips_remaining_identical": (sorted(initial_chips) == sorted(track_a_chips)),
+                "squad_ids_identical": squads_identical,
+                "squad_ids_overlap": f"{overlap_count}/15",
+            },
+            "persisted_configuration": data.get("experiment_metadata") or {
+                "frozen_engine_version": data.get("engine_baseline_version", "v1.3.5"),
+                "starting_policy": data.get("starting_policy", "engine_baseline"),
+            },
+        }
+
         seasons_payload.append(
             {
                 "season": season,
@@ -237,27 +305,19 @@ def export_sanitized_provenance(
                         },
                     },
                 },
-                "initial_state_parity": {
-                    "shared_between_track_a_and_track_b": True,
-                    "initial_strategy": "maximum_ev",
-                    "squad_ids": initial_squad_ids,
-                    "purchase_prices_tenths": initial_prices,
-                    "bank_tenths": initial_bank_tenths,
-                    "free_transfers": initial_ft,
-                    "chips_remaining": initial_chips,
-                },
+                "initial_state_parity": initial_state_record,
                 "season_summary": {
                     "gameweeks_completed": 38,
                     "track_b_gross_points": h_total_gross,
                     "track_b_transfer_hits": h_total_hits,
                     "track_b_transfer_hit_points": h_total_hit_pts,
                     "track_b_net_points": h_total_net,
-                    "track_b_chips_used": data.get("chips_used", {}),
+                    "track_b_chips_used": track_b_chips_used,
                     "track_a_gross_points": b_total_gross,
                     "track_a_transfer_hits": b_total_hits,
                     "track_a_transfer_hit_points": b_total_hit_pts,
                     "track_a_net_points": b_total_net,
-                    "track_a_chips_used": data.get("engine_baseline_chips_used", {}),
+                    "track_a_chips_used": track_a_chips_used,
                     "decision_alpha_net_points": h_total_net - b_total_net,
                     "override_count": override_count,
                     "override_positive_count": override_pos,
@@ -352,10 +412,27 @@ def verify_provenance(provenance_path: Path = PROVENANCE_PATH) -> dict[str, Any]
             raise AssertionError(f"Season {season_name}: expected 38 GWs, got {len(gws)}")
 
         init = s["initial_state_parity"]
-        if not init.get("shared_between_track_a_and_track_b"):
-            raise AssertionError(f"Season {season_name}: initial state parity flag is False")
-        if len(init.get("squad_ids", [])) != 15:
-            raise AssertionError(f"Season {season_name}: initial squad must have 15 players")
+        comp = init.get("comparison", {})
+        if not comp.get("bank_tenths_identical"):
+            raise AssertionError(f"Season {season_name}: initial bank tenths not identical between tracks")
+        if not comp.get("free_transfers_identical"):
+            raise AssertionError(f"Season {season_name}: initial FT not identical between tracks")
+        if len(init.get("track_b_initial_state", {}).get("squad_ids", [])) != 15:
+            raise AssertionError(f"Season {season_name}: Track B initial squad must have 15 players")
+        if len(init.get("track_a_initial_state", {}).get("squad_ids", [])) != 15:
+            raise AssertionError(f"Season {season_name}: Track A initial squad must have 15 players")
+
+        # Check raw file hash if available locally
+        for sess_season, raw_sid, anon_id in BENCHMARK_SESSIONS:
+            if sess_season == season_name and s.get("experiment_session_id") == anon_id:
+                src_file = SIMULATIONS_DIR / f"{raw_sid}.json"
+                if src_file.exists():
+                    computed_sha = hashlib.sha256(src_file.read_bytes()).hexdigest()
+                    if s.get("source_trace_sha256") != computed_sha:
+                        raise AssertionError(
+                            f"Season {season_name}: source SHA-256 mismatch "
+                            f"(artifact={s.get('source_trace_sha256')}, file={computed_sha})"
+                        )
 
         running_b_net = 0
         running_b_gross = 0
@@ -420,6 +497,68 @@ def verify_provenance(provenance_path: Path = PROVENANCE_PATH) -> dict[str, Any]
         if summary["decision_alpha_net_points"] != running_b_net - running_a_net:
             raise AssertionError(f"Season {season_name}: decision alpha mismatch")
 
+        # Semantic verification: validate summary chip deployments against GW traces
+        derived_b_chips: dict[str, int] = {}
+        derived_a_chips: dict[str, int] = {}
+        for gw_rec in gws:
+            b_chip = gw_rec["track_b_human_assisted"].get("chip_used")
+            if b_chip:
+                key = _canonical_chip_name(b_chip, gw_rec["gameweek"])
+                if key:
+                    derived_b_chips[key] = gw_rec["gameweek"]
+            a_chip = gw_rec["track_a_engine_baseline"].get("chip_used")
+            if a_chip:
+                key = _canonical_chip_name(a_chip, gw_rec["gameweek"])
+                if key:
+                    derived_a_chips[key] = gw_rec["gameweek"]
+
+        if summary.get("track_b_chips_used") != derived_b_chips:
+            raise AssertionError(
+                f"Season {season_name}: Track B summary chips {summary.get('track_b_chips_used')} "
+                f"do not match canonical events in GW traces {derived_b_chips}"
+            )
+        if summary.get("track_a_chips_used") != derived_a_chips:
+            raise AssertionError(
+                f"Season {season_name}: Track A summary chips {summary.get('track_a_chips_used')} "
+                f"do not match canonical events in GW traces {derived_a_chips}"
+            )
+
+        # Semantic verification: override classifications and counts
+        actual_overrides = sum(1 for g in gws if g["divergence"]["is_human_override"])
+        if summary["override_count"] != actual_overrides:
+            raise AssertionError(
+                f"Season {season_name}: override_count {summary['override_count']} "
+                f"!= trace override sum {actual_overrides}"
+            )
+        categorized_overrides = (
+            summary["override_positive_count"]
+            + summary["override_negative_count"]
+            + summary["override_neutral_count"]
+        )
+        if summary["override_count"] != categorized_overrides:
+            raise AssertionError(
+                f"Season {season_name}: override_count {summary['override_count']} "
+                f"!= positive+negative+neutral sum {categorized_overrides}"
+            )
+        actual_tx_overrides = sum(1 for g in gws if g["divergence"]["transfer_override"])
+        if summary["transfer_override_count"] != actual_tx_overrides:
+            raise AssertionError(
+                f"Season {season_name}: transfer_override_count {summary['transfer_override_count']} "
+                f"!= trace count {actual_tx_overrides}"
+            )
+        actual_cap_overrides = sum(1 for g in gws if g["divergence"]["captain_override"])
+        if summary["captain_override_count"] != actual_cap_overrides:
+            raise AssertionError(
+                f"Season {season_name}: captain_override_count {summary['captain_override_count']} "
+                f"!= trace count {actual_cap_overrides}"
+            )
+        actual_chip_overrides = sum(1 for g in gws if g["divergence"]["chip_override"])
+        if summary["chip_override_count"] != actual_chip_overrides:
+            raise AssertionError(
+                f"Season {season_name}: chip_override_count {summary['chip_override_count']} "
+                f"!= trace count {actual_chip_overrides}"
+            )
+
         total_b_net_all += running_b_net
         total_a_net_all += running_a_net
         if running_b_net > running_a_net:
@@ -433,7 +572,11 @@ def verify_provenance(provenance_path: Path = PROVENANCE_PATH) -> dict[str, Any]
     if round((total_b_net_all - total_a_net_all) / 5, 2) != agg["mean_decision_alpha_points"]:
         raise AssertionError("Aggregate decision alpha mean mismatch")
     if human_wins != agg["human_season_wins"]:
-        raise AssertionError("Aggregate win count mismatch")
+        raise AssertionError(f"Aggregate win count mismatch: {human_wins} vs {agg['human_season_wins']}")
+    if len(seasons) - human_wins != agg["engine_season_wins"]:
+        raise AssertionError("Aggregate engine win count mismatch")
+    if round(human_wins / len(seasons), 4) != agg["human_season_win_rate"]:
+        raise AssertionError("Aggregate human season win rate mismatch")
 
     return artifact
 
@@ -469,6 +612,63 @@ def format_markdown_summary(artifact: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_chip_schedule_table(artifact: dict[str, Any]) -> str:
+    """Format the verified chip deployment schedule table from trace data."""
+    lines = [
+        "| Season | Track | Segment 1 (`GW1–19`) Chips (`WC1`, `FH1`, `BB1`, `TC1`) | Segment 2 (`GW20–38`) Chips (`WC2`, `FH2`, `BB2`, `TC2`) |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+    for s in artifact["seasons"]:
+        season = s["season"]
+        sm = s["season_summary"]
+        for track_label, track_chips in [
+            ("Track B (Human)", sm["track_b_chips_used"]),
+            ("Track A (Engine)", sm["track_a_chips_used"]),
+        ]:
+            seg1_items: list[tuple[int, str]] = []
+            seg2_items: list[tuple[int, str]] = []
+            for chip_base, abbr in [
+                ("wildcard", "WC"),
+                ("free_hit", "FH"),
+                ("bench_boost", "BB"),
+                ("triple_captain", "TC"),
+            ]:
+                c1_key = f"{chip_base}_1" if chip_base == "wildcard" else chip_base
+                if c1_key in track_chips:
+                    seg1_items.append((track_chips[c1_key], f"`{abbr}1`: GW{track_chips[c1_key]}"))
+                c2_key = f"{chip_base}_2"
+                if c2_key in track_chips:
+                    seg2_items.append((track_chips[c2_key], f"`{abbr}2`: GW{track_chips[c2_key]}"))
+            seg1_items.sort(key=lambda x: x[0])
+            seg2_items.sort(key=lambda x: x[0])
+            seg1_str = ", ".join(x[1] for x in seg1_items) if seg1_items else "*(None deployed)*"
+            seg2_str = ", ".join(x[1] for x in seg2_items) if seg2_items else "*(None deployed)*"
+            lines.append(f"| **{season}** | {track_label} | {seg1_str} | {seg2_str} |")
+    return "\n".join(lines)
+
+
+def format_provenance_audit_table(artifact: dict[str, Any]) -> str:
+    """Format the verified source trace digest and initial state parity table."""
+    lines = [
+        "| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Initial State Parity | Squad Overlap |",
+        "| :--- | :--- | :--- | :--- | :---: |",
+    ]
+    for s in artifact["seasons"]:
+        init = s["initial_state_parity"]
+        comp = init["comparison"]
+        parity_str = (
+            "Verified (bank=0, FT=1)"
+            if comp["bank_tenths_identical"] and comp["free_transfers_identical"]
+            else "Discrepancy"
+        )
+        overlap_str = comp["squad_ids_overlap"]
+        lines.append(
+            f"| **{s['season']}** | `{s['experiment_session_id']}` | "
+            f"`{s['source_trace_sha256']}` | {parity_str} | {overlap_str} |"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify or export V1.4.6 Human Benchmark provenance.")
     parser.add_argument(
@@ -485,7 +685,14 @@ def main() -> None:
     artifact = verify_provenance()
     print("V1.4.6 Human Benchmark Provenance Verification: PASSED (5 seasons, 190 gameweeks reconciled)")
     print()
+    print("### Primary Leaderboard & Override Analysis")
     print(format_markdown_summary(artifact))
+    print()
+    print("### Chip Deployment Schedule (Track B vs. Track A)")
+    print(format_chip_schedule_table(artifact))
+    print()
+    print("### Provenance & Initial State Audit")
+    print(format_provenance_audit_table(artifact))
 
 
 if __name__ == "__main__":

@@ -549,3 +549,76 @@ def test_cli_v6_help(capsys: pytest.CaptureFixture[str]) -> None:
         assert exc.value.code == 0
         out, _ = capsys.readouterr()
         assert "--help" in out
+
+
+def test_api_plan_apply_step_success_with_transfers(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step applies step 0 transfers and lineup cleanly."""
+    body = {
+        "gameweek": 2,
+        "transfers": [{"outgoing_id": 15, "incoming_id": 16}],
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 16],
+        "captain_id": 3,
+        "vice_captain_id": 8,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["gameweek"] == 2
+        assert data["decision"]["captain_id"] == 3
+        assert data["decision"]["vice_captain_id"] == 8
+
+
+def test_api_plan_apply_step_lineup_only_no_transfers(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step applies lineup and captaincy when transfers is empty/None."""
+    body = {
+        "gameweek": 2,
+        "transfers": None,
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 15],
+        "captain_id": 8,
+        "vice_captain_id": 9,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["success"] is True
+        assert data["decision"]["captain_id"] == 8
+        assert data["decision"]["vice_captain_id"] == 9
+
+
+def test_api_plan_apply_step_rollback_on_invalid_lineup(gui_test_server: str) -> None:
+    """Test live POST /api/plan/apply-step rolls back squad and database when lineup validation fails."""
+    # Captain not in starting XI
+    body = {
+        "gameweek": 2,
+        "transfers": [],
+        "starting_ids": [1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14],
+        "bench_ids": [2, 7, 12, 15],
+        "captain_id": 2,  # player 2 is on bench, not starters!
+        "vice_captain_id": 8,
+    }
+    req = urllib.request.Request(
+        f"{gui_test_server}/api/plan/apply-step",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == 400
+    err_body = json.loads(exc_info.value.read().decode("utf-8"))
+    assert "Captain ID 2 must be in starting XI" in err_body["error"]

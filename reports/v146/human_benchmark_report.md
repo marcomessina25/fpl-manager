@@ -27,31 +27,35 @@ All totals below are computed directly from the 190 gameweek decision and outcom
 
 ## 2. Human Override Decomposition & Chip Timing Comparison
 
-Across the 190 simulated matchdays, operator `EXP-HM-01` modified at least one component of the engine's point-in-time recommendation (transfer pair, captaincy, or chip activation) in **182 of 190 gameweeks**:
+Across the 190 simulated matchdays, operator `EXP-HM-01` modified at least one component of the engine's point-in-time recommendation (transfer pair, captaincy, or chip activation) in **184 of 190 gameweeks**:
 
 | Season | Total Override GWs | Positive Alpha GWs ($\Delta > 0$) | Negative Alpha GWs ($\Delta < 0$) | Neutral GWs ($\Delta = 0$) | Transfer Overrides | Captain Overrides | Chip Overrides |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **2021-22** | 36 / 38 | 20 | 15 | 1 | 32 | 19 | 12 |
-| **2022-23** | 35 / 38 | 19 | 14 | 2 | 31 | 18 | 13 |
+| **2021-22** | 37 / 38 | 21 | 15 | 1 | 32 | 19 | 17 |
+| **2022-23** | 36 / 38 | 19 | 14 | 3 | 31 | 18 | 14 |
 | **2023-24** | 36 / 38 | 16 | 19 | 1 | 32 | 21 | 12 |
 | **2024-25** | 37 / 38 | 20 | 16 | 1 | 31 | 21 | 10 |
 | **2025-26** | 38 / 38 | 21 | 15 | 2 | 35 | 23 | 12 |
-| **Total (190 GWs)** | **182 / 190** | **96 (52.7%)** | **79 (43.4%)** | **7 (3.8%)** | **161** | **102** | **59** |
+| **Total (190 GWs)** | **184 / 190** | **97 (52.7%)** | **79 (42.9%)** | **8 (4.3%)** | **161** | **102** | **65** |
 
 ### Chip Deployment Schedule (Track B vs. Track A)
 
+All chip deployments below are derived directly from matchday event records in `gw_traces`:
+
 | Season | Track | Segment 1 (`GW1–19`) Chips (`WC1`, `FH1`, `BB1`, `TC1`) | Segment 2 (`GW20–38`) Chips (`WC2`, `FH2`, `BB2`, `TC2`) |
 | :--- | :--- | :--- | :--- |
-| **2021-22** | Track B (Human) | `WC1`: GW8, `FH1`: GW18, `BB1`: GW3, `TC1`: GW19 | `WC2`: GW32, `FH2`: GW30, `BB2`: GW36, `TC2`: GW26 |
-| **2021-22** | Track A (Engine) | `WC1`: GW17, `FH1`: GW18, `BB1`: GW19, `TC1`: GW7 | `WC2`: GW28, `FH2`: GW30, `BB2`: GW36, `TC2`: GW26 |
-| **2022-23** | Track B (Human) | `WC1`: GW10, `FH1`: GW8, `BB1`: GW11, `TC1`: GW19 | `WC2`: GW30, `FH2`: GW28, `BB2`: GW22, `TC2`: GW29 |
-| **2022-23** | Track A (Engine) | `WC1`: GW17, `FH1`: GW12, `BB1`: GW19, `TC1`: GW9 | `WC2`: GW33, `FH2`: GW28, `BB2`: GW29, `TC2`: GW25 |
-| **2023-24** | Track B (Human) | `WC1`: GW9, `FH1`: GW18, `BB1`: GW8, `TC1`: GW7 | `WC2`: GW27, `FH2`: GW26, `BB2`: GW31, `TC2`: GW25 |
-| **2023-24** | Track A (Engine) | `WC1`: GW19, `FH1`: GW18, `BB1`: GW8, `TC1`: GW7 | `WC2`: GW31, `FH2`: GW29, `BB2`: GW37, `TC2`: GW25 |
-| **2024-25** | Track B (Human) | `WC1`: GW10, `FH1`: GW15, `BB1`: GW11, `TC1`: GW12 | `WC2`: GW32, `FH2`: GW29, `BB2`: GW33, `TC2`: GW25 |
-| **2024-25** | Track A (Engine) | `WC1`: GW19, `FH1`: GW18, `BB1`: GW3, `TC1`: GW2 | `WC2`: GW30, `FH2`: GW29, `BB2`: GW36, `TC2`: GW25 |
-| **2025-26** | Track B (Human) | `WC1`: GW10, `FH1`: GW18, `BB1`: GW7, `TC1`: GW13 | `WC2`: GW32, `FH2`: GW34, `BB2`: GW33, `TC2`: GW25 |
-| **2025-26** | Track A (Engine) | `WC1`: GW19, `FH1`: GW18, `BB1`: GW2, `TC1`: GW6 | `WC2`: GW31, `FH2`: GW29, `BB2`: GW36, `TC2`: GW32 |
+| **2021-22** | Track B (Human) | `BB1`: GW3, `WC1`: GW8, `FH1`: GW18, `TC1`: GW19 | `TC2`: GW26, `FH2`: GW30, `WC2`: GW32, `BB2`: GW36 |
+| **2021-22** | Track A (Engine) | `BB1`: GW11, `FH1`: GW18 | `BB2`: GW23, `TC2`: GW26, `FH2`: GW27 |
+| **2022-23** | Track B (Human) | `FH1`: GW8, `WC1`: GW10, `BB1`: GW11, `TC1`: GW19 | `BB2`: GW22, `FH2`: GW28, `TC2`: GW29, `WC2`: GW30 |
+| **2022-23** | Track A (Engine) | `FH1`: GW7, `WC1`: GW11, `BB1`: GW13 | `BB2`: GW20, `TC2`: GW29 |
+| **2023-24** | Track B (Human) | `TC1`: GW7, `BB1`: GW8, `WC1`: GW9, `FH1`: GW18 | `TC2`: GW25, `FH2`: GW26, `WC2`: GW27, `BB2`: GW31 |
+| **2023-24** | Track A (Engine) | `TC1`: GW6, `BB1`: GW8, `WC1`: GW18 | `BB2`: GW20, `TC2`: GW25, `FH2`: GW29 |
+| **2024-25** | Track B (Human) | `WC1`: GW10, `BB1`: GW11, `TC1`: GW12, `FH1`: GW15 | `TC2`: GW25, `FH2`: GW29, `WC2`: GW32, `BB2`: GW33 |
+| **2024-25** | Track A (Engine) | `WC1`: GW8, `TC1`: GW9, `BB1`: GW10 | `BB2`: GW23, `TC2`: GW24, `FH2`: GW29 |
+| **2025-26** | Track B (Human) | `BB1`: GW7, `WC1`: GW10, `TC1`: GW13, `FH1`: GW18 | `TC2`: GW25, `WC2`: GW32, `BB2`: GW33, `FH2`: GW34 |
+| **2025-26** | Track A (Engine) | `TC1`: GW6, `BB1`: GW10 | `TC2`: GW26, `FH2`: GW31 |
+
+*(Note: Chips not listed in Track A schedules were evaluated by `ChipOpportunityOptimizer` but were either unspent before the segment deadline or held due to lack of a qualifying opportunity meeting threshold hurdles).*
 
 ---
 
@@ -63,21 +67,30 @@ Across the 190 simulated matchdays, operator `EXP-HM-01` modified at least one c
 
 ---
 
-## 4. Provenance, Ruleset & Methodological Limitations
+## 4. Provenance, Verification Levels & Methodological Boundaries
 
-### 4.1 Reproducibility & Source Checksums
-Every number in this report is deterministically verified by [`scripts/verify_v146_human_benchmark.py`](../../scripts/verify_v146_human_benchmark.py) against [`reports/v146/human_benchmark_provenance.json`](human_benchmark_provenance.json):
+### 4.1 Multi-Level Verification Architecture
+The benchmark verification suite ([`scripts/verify_v146_human_benchmark.py`](../../scripts/verify_v146_human_benchmark.py)) enforces three distinct layers of validation:
+- **Level 1: Strict Per-Gameweek Arithmetic Reconciliation**: Validates that for every gameweek $t \in [1, 38]$ across both tracks, $\text{gross} - \text{hits} \times 4 == \text{net}$, cumulative sums agree, and season aggregates match trace totals exactly.
+- **Level 2: Semantic Integrity Verification**: Validates that summary chip dictionaries (`track_a_chips_used`, `track_b_chips_used`) match actual per-gameweek event traces with zero missing or extra entries, and that override counts (`transfer_override`, `captain_override`, `chip_override`) match categorized divergence distributions.
+- **Level 3: Starting State & Governance Audit**: Checks raw session trace SHA-256 digests against disk files, validates starting bank tenths ($0.0\text{m}$ for both tracks) and starting FT ($1$), and documents initial squad selection divergence.
 
-| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Initial Squad Parity (`15 IDs`, Bank, FT) |
-| :--- | :--- | :--- | :---: |
-| **2021-22** | `exp_hm_01_2021_22` | `ef76ce422894db7fd220780747597bb8eb07c8653839ba399f756a813d8f0ab3` | Verified (`bank=10`, `FT=1`) |
-| **2022-23** | `exp_hm_01_2022_23` | `df2699c62fb8fcdf2199b4f1584f96a4a33dc39142c574fd198a4a6a06678915` | Verified (`bank=5`, `FT=1`) |
-| **2023-24** | `exp_hm_01_2023_24` | `3da0fc9c6cc24212a3b08e8170dfea9e2c15d827ab5be21df4120c7f57f1f895` | Verified (`bank=0`, `FT=1`) |
-| **2024-25** | `exp_hm_01_2024_25` | `c85258bb9d03d85bf03460498df20c3b648f2ef3065aa7e34a627786716a6462` | Verified (`bank=5`, `FT=1`) |
-| **2025-26** | `exp_hm_01_2025_26` | `c44890505b4621094c79ec6ec8fa3ca793efbc7b08e079d669963653226c0c79` | Verified (`bank=5`, `FT=1`) |
+| Season | Anonymized Session ID | Raw Session Trace SHA-256 Digest | Initial State Parity | Squad Overlap |
+| :--- | :--- | :--- | :--- | :---: |
+| **2021-22** | `exp_hm_01_2021_22` | `ec9106b11159aa58ca5c3d5346d2393f04cfa4c8cfed3370f047eedeffb40732` | Verified (bank=0, FT=1) | 4/15 |
+| **2022-23** | `exp_hm_01_2022_23` | `012f6af835ea9ed423ceef05e984c6fe766dc6f073c98f351e0d5755baaf8c72` | Verified (bank=0, FT=1) | 2/15 |
+| **2023-24** | `exp_hm_01_2023_24` | `ecb2617b90a800c75ce0129e285353de81ea71c4528108b55d46f1affd191582` | Verified (bank=0, FT=1) | 3/15 |
+| **2024-25** | `exp_hm_01_2024_25` | `040de60261c56eaaa1b9fc1369832ac297ddefb3c15d1027dda2689d105bf968` | Verified (bank=0, FT=1) | 2/15 |
+| **2025-26** | `exp_hm_01_2025_26` | `e1aa82d0aec8cb8b913eceedd433cb6209b4c1785a9fdd2ebba22f7559ee42f1` | Verified (bank=0, FT=1) | 4/15 |
 
-### 4.2 Scope & Statistical Limitations
+### 4.2 Initial Squad Selection Methodology
+Both Track A and Track B strictly started GW1 with £0.0m remaining in the bank (full £100.0m invested), 1 free transfer, and standard Segment 1 chip inventory under era-appropriate rollover rules. However, their initial 15-player squads were generated through distinct selection methods:
+- **Track B (Human-Assisted)**: Initial 15-player squad selected by operator `EXP-HM-01` using Strategic Studio's mixed-integer candidate generator and manual refinements.
+- **Track A (Engine Baseline)**: Initial 15-player squad selected autonomously by the baseline engine's EV lineup optimizer (`DecisionEngineV135` GW1 max-EV lineup solver).
+- This results in a starting squad overlap between Track A and Track B of 2 to 4 players out of 15 across the five seasons. Both tracks subsequently operated under identical market rules, pricing mechanics, and scoring outcomes.
+
+### 4.3 Scope & Statistical Limitations
 1. **Sample Size (`N = 5` Seasons, Single Operator `EXP-HM-01`)**: While the 190-gameweek paired trace provides an exact, auditable record of human-assisted vs. autonomous play across five complete historical seasons, a sample of $N = 5$ seasons with a single human operator is descriptive case-study evidence and does not constitute proof of general population-level statistical significance.
 2. **Prior Domain Familiarity**: Operator `EXP-HM-01` conducted the replays under strict point-in-time UI masking (zero future scores or price spoilers shown in the Time Machine), but as an experienced follower of Premier League football, macro-level recollection of historical seasons cannot be fully eliminated in retrospective human trials.
 3. **Standardized Two-Segment Chip Ruleset (`V146-24`)**: As documented in [`docs/v1.4.6/v146_human_benchmark.md`](../../docs/v1.4.6/v146_human_benchmark.md), both Track A and Track B were evaluated under era-authentic free-transfer caps (`2` in `2021-22`..`2023-24`, `5` in `2024-25`..`2025-26`) and the standardized two-segment chip inventory (`GW1–19` and `GW20–38`) for cross-season comparability with V1.4.5.
-4. **Deferred Deliverables**: Track C (unassisted human blind control) and multi-participant distribution charts remain future work outside the V1.4.6 single-operator study.
+4. **Deferred Deliverables**: Track C (unassisted human blind control) and multi-participant distribution charts remain future research deliverables outside the V1.4.6 single-operator study.

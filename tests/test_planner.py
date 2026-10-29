@@ -329,5 +329,3 @@ def test_v146_r2_09_blank_gw_future_risk_distributions(tmp_path: Path):
     # Check that in GW19 and GW20, projected floor and ceiling for candidates are positive
     assert plan["best_plan"]["gameweek_steps"][1]["xp_floor"] > 0.0
     assert plan["best_plan"]["gameweek_steps"][1]["xp_ceiling"] > 0.0
-
-

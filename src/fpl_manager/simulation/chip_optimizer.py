@@ -55,7 +55,7 @@ CANONICAL_CHIP_NAMES = {
 @dataclass(frozen=True, slots=True)
 class ChipCalibrationConfig:
     """Empirical calibration constants derived from 5-season historical ablation study.
-    
+
     These constants balance immediate gameweek valuation against multi-gameweek continuation value.
     """
     # Bench Boost calibration

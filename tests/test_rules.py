@@ -161,5 +161,3 @@ def test_solve_transfers_enforces_strict_team_quota_with_midseason_excess() -> N
         new_squad = [p for p in squad if p.id not in out_ids] + [p for p in candidate_pool if p.id in in_ids]
         counts = Counter(p.team_id for p in new_squad)
         assert all(c <= 3 for c in counts.values()), f"Illegal move found with team counts: {counts}"
-
-

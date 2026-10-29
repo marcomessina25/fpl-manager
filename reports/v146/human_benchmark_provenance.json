@@ -75,51 +75,98 @@
         }
       },
       "initial_state_parity": {
-        "shared_between_track_a_and_track_b": true,
-        "initial_strategy": "maximum_ev",
-        "squad_ids": [
-          233,
-          273,
-          30,
-          65,
-          168,
-          61,
-          243,
-          36,
-          43,
-          420,
-          441,
-          230,
-          180,
-          307,
-          63
-        ],
-        "purchase_prices_tenths": {
-          "233": 125,
-          "273": 55,
-          "30": 55,
-          "65": 45,
-          "168": 55,
-          "61": 45,
-          "243": 55,
-          "36": 45,
-          "43": 65,
-          "420": 65,
-          "441": 65,
-          "230": 120,
-          "180": 75,
-          "307": 65,
-          "63": 65
+        "shared_between_track_a_and_track_b": false,
+        "shared_starting_bank_and_ft": true,
+        "shared_starting_squad": false,
+        "squad_overlap_count": 4,
+        "track_b_initial_state": {
+          "selection_method": "human_strategic_studio",
+          "squad_ids": [
+            233,
+            273,
+            30,
+            65,
+            168,
+            61,
+            243,
+            36,
+            43,
+            420,
+            441,
+            230,
+            180,
+            307,
+            63
+          ],
+          "purchase_prices_tenths": {
+            "233": 125,
+            "273": 55,
+            "30": 55,
+            "65": 45,
+            "168": 55,
+            "61": 45,
+            "243": 55,
+            "36": 45,
+            "43": 65,
+            "420": 65,
+            "441": 65,
+            "230": 120,
+            "180": 75,
+            "307": 65,
+            "63": 65
+          },
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "wildcard_2",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
         },
-        "bank_tenths": 0,
-        "free_transfers": 1,
-        "chips_remaining": [
-          "wildcard_1",
-          "wildcard_2",
-          "free_hit",
-          "bench_boost",
-          "triple_captain"
-        ]
+        "track_a_initial_state": {
+          "selection_method": "autonomous_engine_maximum_ev",
+          "squad_ids": [
+            114,
+            117,
+            168,
+            273,
+            178,
+            377,
+            379,
+            141,
+            277,
+            485,
+            137,
+            131,
+            180,
+            109,
+            307
+          ],
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
+        },
+        "comparison": {
+          "bank_tenths_identical": true,
+          "free_transfers_identical": true,
+          "chips_remaining_identical": false,
+          "squad_ids_identical": false,
+          "squad_ids_overlap": "4/15"
+        },
+        "persisted_configuration": {
+          "created_at": "2026-10-12T10:15:02.903477+00:00",
+          "manager_name": "Human Manager Marco",
+          "starting_strategy": "v1.3.5",
+          "starting_policy": "engine_baseline",
+          "frozen_engine_version": "v1.3.5"
+        }
       },
       "season_summary": {
         "gameweeks_completed": 38,
@@ -145,17 +192,17 @@
           "bench_boost": 11,
           "free_hit": 18,
           "bench_boost_2": 23,
-          "triple_captain": 26,
+          "triple_captain_2": 26,
           "free_hit_2": 27
         },
         "decision_alpha_net_points": 87,
-        "override_count": 36,
-        "override_positive_count": 20,
+        "override_count": 37,
+        "override_positive_count": 21,
         "override_negative_count": 15,
         "override_neutral_count": 1,
         "transfer_override_count": 36,
         "captain_override_count": 8,
-        "chip_override_count": 16
+        "chip_override_count": 17
       },
       "gameweeks": [
         {
@@ -616,7 +663,7 @@
           },
           "divergence": {
             "net_points_delta": 41,
-            "is_human_override": false,
+            "is_human_override": true,
             "transfer_override": false,
             "captain_override": false,
             "chip_override": true
@@ -2469,51 +2516,98 @@
         }
       },
       "initial_state_parity": {
-        "shared_between_track_a_and_track_b": true,
-        "initial_strategy": "maximum_ev",
-        "squad_ids": [
-          330,
-          283,
-          427,
-          238,
-          81,
-          302,
-          5,
-          10,
-          128,
-          508,
-          305,
-          311,
-          7,
-          30,
-          227
-        ],
-        "purchase_prices_tenths": {
-          "330": 50,
-          "283": 130,
-          "427": 115,
-          "238": 45,
-          "81": 45,
-          "302": 55,
-          "5": 45,
-          "10": 45,
-          "128": 55,
-          "508": 65,
-          "305": 70,
-          "311": 70,
-          "7": 65,
-          "30": 70,
-          "227": 75
+        "shared_between_track_a_and_track_b": false,
+        "shared_starting_bank_and_ft": true,
+        "shared_starting_squad": false,
+        "squad_overlap_count": 2,
+        "track_b_initial_state": {
+          "selection_method": "human_strategic_studio",
+          "squad_ids": [
+            330,
+            283,
+            427,
+            238,
+            81,
+            302,
+            5,
+            10,
+            128,
+            508,
+            305,
+            311,
+            7,
+            30,
+            227
+          ],
+          "purchase_prices_tenths": {
+            "330": 50,
+            "283": 130,
+            "427": 115,
+            "238": 45,
+            "81": 45,
+            "302": 55,
+            "5": 45,
+            "10": 45,
+            "128": 55,
+            "508": 65,
+            "305": 70,
+            "311": 70,
+            "7": 65,
+            "30": 70,
+            "227": 75
+          },
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "wildcard_2",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
         },
-        "bank_tenths": 0,
-        "free_transfers": 1,
-        "chips_remaining": [
-          "wildcard_1",
-          "wildcard_2",
-          "free_hit",
-          "bench_boost",
-          "triple_captain"
-        ]
+        "track_a_initial_state": {
+          "selection_method": "autonomous_engine_maximum_ev",
+          "squad_ids": [
+            72,
+            182,
+            57,
+            59,
+            221,
+            222,
+            350,
+            368,
+            428,
+            446,
+            333,
+            508,
+            427,
+            356,
+            262
+          ],
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
+        },
+        "comparison": {
+          "bank_tenths_identical": true,
+          "free_transfers_identical": true,
+          "chips_remaining_identical": false,
+          "squad_ids_identical": false,
+          "squad_ids_overlap": "2/15"
+        },
+        "persisted_configuration": {
+          "created_at": "2026-10-12T16:45:03.380490+00:00",
+          "manager_name": "Human Manager Marco",
+          "starting_strategy": "v1.3.5",
+          "starting_policy": "engine_baseline",
+          "frozen_engine_version": "v1.3.5"
+        }
       },
       "season_summary": {
         "gameweeks_completed": 38,
@@ -2540,16 +2634,16 @@
           "wildcard_1": 11,
           "bench_boost": 13,
           "bench_boost_2": 20,
-          "triple_captain": 29
+          "triple_captain_2": 29
         },
         "decision_alpha_net_points": 122,
-        "override_count": 35,
+        "override_count": 36,
         "override_positive_count": 19,
         "override_negative_count": 14,
-        "override_neutral_count": 2,
+        "override_neutral_count": 3,
         "transfer_override_count": 34,
         "captain_override_count": 4,
-        "chip_override_count": 9
+        "chip_override_count": 10
       },
       "gameweeks": [
         {
@@ -3008,7 +3102,7 @@
           },
           "divergence": {
             "net_points_delta": 0,
-            "is_human_override": false,
+            "is_human_override": true,
             "transfer_override": false,
             "captain_override": false,
             "chip_override": true
@@ -4873,51 +4967,98 @@
         }
       },
       "initial_state_parity": {
-        "shared_between_track_a_and_track_b": true,
-        "initial_strategy": "maximum_ev",
-        "squad_ids": [
-          349,
-          355,
-          308,
-          509,
-          148,
-          152,
-          7,
-          10,
-          24,
-          151,
-          495,
-          501,
-          210,
-          343,
-          623
-        ],
-        "purchase_prices_tenths": {
-          "349": 105,
-          "355": 140,
-          "308": 125,
-          "509": 70,
-          "148": 45,
-          "152": 45,
-          "7": 45,
-          "10": 45,
-          "24": 45,
-          "151": 45,
-          "495": 45,
-          "501": 70,
-          "210": 65,
-          "343": 65,
-          "623": 45
+        "shared_between_track_a_and_track_b": false,
+        "shared_starting_bank_and_ft": true,
+        "shared_starting_squad": false,
+        "squad_overlap_count": 3,
+        "track_b_initial_state": {
+          "selection_method": "human_strategic_studio",
+          "squad_ids": [
+            349,
+            355,
+            308,
+            509,
+            148,
+            152,
+            7,
+            10,
+            24,
+            151,
+            495,
+            501,
+            210,
+            343,
+            623
+          ],
+          "purchase_prices_tenths": {
+            "349": 105,
+            "355": 140,
+            "308": 125,
+            "509": 70,
+            "148": 45,
+            "152": 45,
+            "7": 45,
+            "10": 45,
+            "24": 45,
+            "151": 45,
+            "495": 45,
+            "501": 70,
+            "210": 65,
+            "343": 65,
+            "623": 45
+          },
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "wildcard_2",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
         },
-        "bank_tenths": 0,
-        "free_transfers": 1,
-        "chips_remaining": [
-          "wildcard_1",
-          "wildcard_2",
-          "free_hit",
-          "bench_boost",
-          "triple_captain"
-        ]
+        "track_a_initial_state": {
+          "selection_method": "autonomous_engine_maximum_ev",
+          "squad_ids": [
+            77,
+            148,
+            29,
+            398,
+            24,
+            68,
+            70,
+            373,
+            14,
+            396,
+            140,
+            134,
+            355,
+            415,
+            246
+          ],
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
+        },
+        "comparison": {
+          "bank_tenths_identical": true,
+          "free_transfers_identical": true,
+          "chips_remaining_identical": false,
+          "squad_ids_identical": false,
+          "squad_ids_overlap": "3/15"
+        },
+        "persisted_configuration": {
+          "created_at": "2026-10-22T12:26:27.289375+00:00",
+          "manager_name": "Human Manager Marco",
+          "starting_strategy": "v1.3.5",
+          "starting_policy": "engine_baseline",
+          "frozen_engine_version": "v1.3.5"
+        }
       },
       "season_summary": {
         "gameweeks_completed": 38,
@@ -4945,7 +5086,7 @@
           "wildcard_1": 18,
           "bench_boost_2": 20,
           "triple_captain_2": 25,
-          "free_hit": 29
+          "free_hit_2": 29
         },
         "decision_alpha_net_points": -88,
         "override_count": 36,
@@ -7258,51 +7399,98 @@
         }
       },
       "initial_state_parity": {
-        "shared_between_track_a_and_track_b": true,
-        "initial_strategy": "maximum_ev",
-        "squad_ids": [
-          328,
-          310,
-          351,
-          201,
-          191,
-          194,
-          241,
-          244,
-          245,
-          329,
-          394,
-          392,
-          28,
-          421,
-          589
-        ],
-        "purchase_prices_tenths": {
-          "328": 125,
-          "310": 55,
-          "351": 150,
-          "201": 45,
-          "191": 45,
-          "194": 45,
-          "241": 45,
-          "244": 45,
-          "245": 45,
-          "329": 65,
-          "394": 65,
-          "392": 65,
-          "28": 65,
-          "421": 70,
-          "589": 70
+        "shared_between_track_a_and_track_b": false,
+        "shared_starting_bank_and_ft": true,
+        "shared_starting_squad": false,
+        "squad_overlap_count": 2,
+        "track_b_initial_state": {
+          "selection_method": "human_strategic_studio",
+          "squad_ids": [
+            328,
+            310,
+            351,
+            201,
+            191,
+            194,
+            241,
+            244,
+            245,
+            329,
+            394,
+            392,
+            28,
+            421,
+            589
+          ],
+          "purchase_prices_tenths": {
+            "328": 125,
+            "310": 55,
+            "351": 150,
+            "201": 45,
+            "191": 45,
+            "194": 45,
+            "241": 45,
+            "244": 45,
+            "245": 45,
+            "329": 65,
+            "394": 65,
+            "392": 65,
+            "28": 65,
+            "421": 70,
+            "589": 70
+          },
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "wildcard_2",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
         },
-        "bank_tenths": 0,
-        "free_transfers": 1,
-        "chips_remaining": [
-          "wildcard_1",
-          "wildcard_2",
-          "free_hit",
-          "bench_boost",
-          "triple_captain"
-        ]
+        "track_a_initial_state": {
+          "selection_method": "autonomous_engine_maximum_ev",
+          "squad_ids": [
+            14,
+            412,
+            415,
+            418,
+            296,
+            302,
+            495,
+            503,
+            16,
+            328,
+            17,
+            382,
+            497,
+            306,
+            589
+          ],
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
+        },
+        "comparison": {
+          "bank_tenths_identical": true,
+          "free_transfers_identical": true,
+          "chips_remaining_identical": false,
+          "squad_ids_identical": false,
+          "squad_ids_overlap": "2/15"
+        },
+        "persisted_configuration": {
+          "created_at": "2026-10-28T11:33:53.700442+00:00",
+          "manager_name": "Human Manager Marco",
+          "starting_strategy": "v1.3.5",
+          "starting_policy": "engine_baseline",
+          "frozen_engine_version": "v1.3.5"
+        }
       },
       "season_summary": {
         "gameweeks_completed": 38,
@@ -7330,7 +7518,7 @@
           "bench_boost": 10,
           "bench_boost_2": 23,
           "triple_captain_2": 24,
-          "free_hit": 29
+          "free_hit_2": 29
         },
         "decision_alpha_net_points": 120,
         "override_count": 37,
@@ -9596,51 +9784,99 @@
         }
       },
       "initial_state_parity": {
-        "shared_between_track_a_and_track_b": true,
-        "initial_strategy": "maximum_ev",
-        "squad_ids": [
-          82,
-          430,
-          528,
-          670,
-          531,
-          72,
-          73,
-          186,
-          187,
-          324,
-          449,
-          382,
-          235,
-          337,
-          397
-        ],
-        "purchase_prices_tenths": {
-          "82": 70,
-          "430": 140,
-          "528": 45,
-          "670": 45,
-          "531": 45,
-          "72": 45,
-          "73": 45,
-          "186": 45,
-          "187": 45,
-          "324": 65,
-          "449": 90,
-          "382": 85,
-          "235": 105,
-          "337": 65,
-          "397": 65
+        "shared_between_track_a_and_track_b": false,
+        "shared_starting_bank_and_ft": true,
+        "shared_starting_squad": false,
+        "squad_overlap_count": 4,
+        "track_b_initial_state": {
+          "selection_method": "human_strategic_studio",
+          "squad_ids": [
+            82,
+            430,
+            528,
+            670,
+            531,
+            72,
+            73,
+            186,
+            187,
+            324,
+            449,
+            382,
+            235,
+            337,
+            397
+          ],
+          "purchase_prices_tenths": {
+            "82": 70,
+            "430": 140,
+            "528": 45,
+            "670": 45,
+            "531": 45,
+            "72": 45,
+            "73": 45,
+            "186": 45,
+            "187": 45,
+            "324": 65,
+            "449": 90,
+            "382": 85,
+            "235": 105,
+            "337": 65,
+            "397": 65
+          },
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "wildcard_2",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
         },
-        "bank_tenths": 0,
-        "free_transfers": 1,
-        "chips_remaining": [
-          "wildcard_1",
-          "wildcard_2",
-          "free_hit",
-          "bench_boost",
-          "triple_captain"
-        ]
+        "track_a_initial_state": {
+          "selection_method": "autonomous_engine_maximum_ev",
+          "squad_ids": [
+            33,
+            528,
+            568,
+            571,
+            531,
+            532,
+            36,
+            381,
+            580,
+            238,
+            239,
+            385,
+            526,
+            397,
+            430
+          ],
+          "bank_tenths": 0,
+          "free_transfers": 1,
+          "chips_remaining": [
+            "wildcard_1",
+            "free_hit",
+            "bench_boost",
+            "triple_captain"
+          ]
+        },
+        "comparison": {
+          "bank_tenths_identical": true,
+          "free_transfers_identical": true,
+          "chips_remaining_identical": false,
+          "squad_ids_identical": false,
+          "squad_ids_overlap": "4/15"
+        },
+        "persisted_configuration": {
+          "created_at": "2026-10-28T13:04:33.637268+00:00",
+          "manager_name": "Human Manager Marco",
+          "starting_strategy": "v1.3.5",
+          "starting_policy": "engine_baseline",
+          "frozen_engine_version": "v1.3.5",
+          "start_gw": 1
+        }
       },
       "season_summary": {
         "gameweeks_completed": 38,
@@ -9665,9 +9901,8 @@
         "track_a_chips_used": {
           "triple_captain": 6,
           "bench_boost": 10,
-          "bench_boost_2": 23,
           "triple_captain_2": 26,
-          "free_hit": 31
+          "free_hit_2": 31
         },
         "decision_alpha_net_points": 77,
         "override_count": 38,

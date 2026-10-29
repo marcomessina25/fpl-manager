@@ -59,7 +59,7 @@ def test_parity_optimizer_candidate_ranking_in_live_and_simulation():
     # Evaluate opportunities through optimizer
     available = ["bench_boost", "triple_captain", "free_hit", "wildcard"]
     opps_c2 = opt_c2.evaluate_all_opportunities(15, available, squad_ids, snap, projs)
-    
+
     # 1. Triple Captain immediate EV must equal top captain projected points
     assert opps_c2["triple_captain"].immediate_ev == pytest.approx(9.0, 0.1)
 

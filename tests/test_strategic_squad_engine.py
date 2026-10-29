@@ -558,3 +558,40 @@ def test_profile_failure_tracking_p12() -> None:
     assert hasattr(cands, "successful_profiles")
     assert hasattr(cands, "failed_profiles")
     assert len(cands.failed_profiles) == 0
+
+
+def test_retained_player_pricing_preserves_bank_under_appreciation() -> None:
+    """Verify that appreciated retained players priced with selling_price do not deplete bank (V146-R2-04)."""
+    from fpl_manager.suggest_transfers import PlayerInfo
+
+    pool = []
+    pid = 1
+    eff_prices = {}
+    for pos, quota in [(Position.GOALKEEPER, 2), (Position.DEFENDER, 5), (Position.MIDFIELDER, 5), (Position.FORWARD, 3)]:
+        for _ in range(quota):
+            pool.append(PlayerInfo(
+                id=pid,
+                name=f"P_{pid}",
+                position=pos,
+                team_id=pid % 8 + 1,
+                team_short=f"T{pid % 8 + 1}",
+                price_tenths=50,
+                status="a",
+                total_points=20,
+                expected_points=4.0,
+                gw_xp=4.0,
+                horizon_xp=20.0,
+            ))
+            eff_prices[pid] = 45  # selling price of bought-at-40, now-50
+            pid += 1
+
+    locked_ids = set(range(1, 16))
+    constraints = StrategicConstraints(
+        budget_tenths=775,
+        locked_player_ids=locked_ids,
+        effective_prices_tenths=eff_prices,
+    )
+    cand = solve_strategic_squad(pool, constraints)
+    assert cand is not None
+    assert set(cand.player_ids) == locked_ids
+    assert cand.bank_remaining_tenths == 100

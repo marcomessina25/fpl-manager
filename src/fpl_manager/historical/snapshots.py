@@ -166,7 +166,7 @@ def build_historical_snapshot(
     include_prior_players: bool = False,
 ) -> HistoricalGameweekSnapshot:
     """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
-    
+
     Zero future-leakage invariant:
     For Gameweek N, the snapshot contains strictly:
     - Players, teams, and fixture schedules known before GW N deadline.
@@ -469,7 +469,7 @@ def load_gameweek_outcomes(
     gameweek: int,
 ) -> dict[int, GameweekOutcome]:
     """Extract authoritative revealed ground truth outcomes for Gameweek N.
-    
+
     MUST be used ONLY during post-gameweek evaluation and scoring.
     """
     manifest_path = season_dir / "season_manifest.json"
@@ -507,7 +507,7 @@ def load_historical_players_meta(
     needed_pids: set[int] | None = None,
 ) -> tuple[dict[int, Any], dict[int, str]]:
     """Build PlayerInfo candidates and team map for a historical snapshot and forward horizon.
-    
+
     Loads forward multi-gameweek fixture-aware xP projections up to `horizon` gameweeks.
     Strictly preserves point-in-time isolation without accessing future ground-truth outcomes.
     """
@@ -613,4 +613,3 @@ def analyze_historical_fixtures(
         ticker_map[s_name] = first_ticker.get(tid, "None")
 
     return fdr_map, ticker_map
-

@@ -1594,8 +1594,8 @@ It succeeds if the end-to-end experiment establishes **where strategic squad con
 
 # 19. V1.1.5 — Premier League Departure Handling, Historically Calibrated Chip Strategy & Multi-Version Benchmark
 
-**Status: completed & validated on branch `v115`.**  
-**Specification:** `docs/v1.1.5/v115.md`  
+**Status: completed & validated on branch `v115`.**
+**Specification:** `docs/v1.1.5/v115.md`
 
 ### Purpose
 Eliminate dead capital from players transferred out of the Premier League, prevent phantom buy recommendations, calibrate the 8 seasonal FPL chips (GW 1–19 and GW 20–38 quotas) against historical evidence with anti-pathology guardrails, and deliver an audited multi-season benchmark across V0.9, V1.0, V1.1, and V1.1.5.
@@ -1685,8 +1685,8 @@ V1.2.5 closes 92% of the Track A performance deficit against V1.0 (2,046.6 vs 2,
 
 # 22. V1.3 — GBDT Quantitative Predictor Challenger
 
-**Status: Hardened, Audited & Retained as Challenger (`v13`)**  
-**Specification:** [`docs/v1.3/v13.md`](v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](v1.3/v13_gradient_boosting.md)  
+**Status: Hardened, Audited & Retained as Challenger (`v13`)**
+**Specification:** [`docs/v1.3/v13.md`](v1.3/v13.md) / [`docs/v1.3/v13_gradient_boosting.md`](v1.3/v13_gradient_boosting.md)
 **Verification Checklist:** [`docs/v1.3/v13_items_left.md`](v1.3/v13_items_left.md)
 
 ### Purpose & Vision
@@ -1716,8 +1716,8 @@ Under the audited walk-forward protocol with zero evaluation-season contaminatio
 
 # 23. V1.3.5 — Optimizer Decision-Quality Study
 
-**Status: Completed and validated on branch `v135`.**  
-**Specification:** [`docs/v1.3.5/v135.md`](v1.3.5/v135.md)  
+**Status: Completed and validated on branch `v135`.**
+**Specification:** [`docs/v1.3.5/v135.md`](v1.3.5/v135.md)
 **Deliverables Ledger:** [`reports/v135/`](../reports/v135/) (`final_summary.md`, `optimizer_ablation.md`, `regret_analysis.md`, `runtime_analysis.csv`)
 
 ### Purpose & Research Verdict
@@ -1747,7 +1747,7 @@ Integrated into `fpl_manager.backtest.decision_engine:DecisionEngineV135` and re
 
 # 24. V1.4 — Interactive Historical Season Simulation & Human-in-the-Loop Benchmark Platform
 
-**Status: completed and validated on branch `v14`.**  
+**Status: completed and validated on branch `v14`.**
 **Specification:** [`docs/v1.4/v14_historical_simulation.md`](v1.4/v14_historical_simulation.md)
 
 ### Delivery Summary & Implemented Architecture
@@ -1803,8 +1803,8 @@ within documented tolerances for the frozen engine.
 
 # 24.5. V1.4.5 — Strategic Chip Optimization & Multi-Team Isolation Hardening
 
-**Status: completed, validated, and PR-ready on branch `v145`.**  
-**Specification:** [`docs/v1.4.5/v145_chip_optimization.md`](v1.4.5/v145_chip_optimization.md)  
+**Status: completed, validated, and PR-ready on branch `v145`.**
+**Specification:** [`docs/v1.4.5/v145_chip_optimization.md`](v1.4.5/v145_chip_optimization.md)
 **Reports:** [`reports/v145/performance_leaderboard.md`](../reports/v145/performance_leaderboard.md), [`reports/v145/ablation_summary.md`](../reports/v145/ablation_summary.md)
 
 ### Core Problems Addressed
@@ -1837,7 +1837,7 @@ within documented tolerances for the frozen engine.
 
 # 24.6. V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark Study
 
-**Status: planned following V1.4.5.**  
+**Status: planned following V1.4.5.**
 **Specification:** [`docs/v1.4.6/v146_human_benchmark.md`](v1.4.6/v146_human_benchmark.md)
 
 ### Core Objectives
@@ -2335,4 +2335,3 @@ The long-term product is therefore not simply:
 It is:
 
 > **A reproducible decision-support system that constructs strategic options, lets a human express preferences and constraints, explains the consequences, records decisions, and continuously evaluates whether the system actually improves FPL decision quality.**
-

@@ -933,9 +933,3 @@ def test_v146_05_08_18_planner_no_future_leakage_and_squad_sensitive_chips(test_
         chips_after = json.loads(r.read())
         sched_after = {s["chip"]: s["immediate_ev"] for s in chips_after["recommended_schedule"]}
         assert sched_before != sched_after
-
-
-
-
-
-
