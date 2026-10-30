@@ -9,22 +9,40 @@ Maintains strict point-in-time isolation:
 """
 
 from dataclasses import asdict
+from copy import deepcopy
+from collections.abc import Callable
 from datetime import datetime, timezone
+from functools import wraps
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
+from ..application import CommandBus, HistoricalContext
+from ..application.commands import active_command
+from ..application.errors import RecoveryRequiredError
+from ..application.files import read_state_text, state_file_exists, write_state_text
 from ..backtest.decision_engine import BaseDecisionEngine, resolve_decision_engine
 from ..backtest.engine import select_best_lineup, simulate_autosubs_and_score
 from ..chip_strategy import SeasonalChipInventory, SeasonalChipPolicy
 from ..errors import DataIntegrityError
+from ..execution import (
+    CURRENT_EXECUTION_VERSION,
+    LEGACY_EXECUTION_VERSION,
+    LegacyTrialReadOnlyError,
+    ExecutionVersion,
+    admit_persisted_execution_version,
+    execution_scope,
+    resolve_execution_version,
+)
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
-from ..rules import MIN_STARTING_QUOTAS, SQUAD_QUOTAS, SQUAD_SIZE
-from ..transfers import resolve_chained_transfers, selling_price
+from ..models import Player
+from ..rules import MIN_STARTING_QUOTAS, SQUAD_QUOTAS, SQUAD_SIZE, free_transfer_transition
+from ..squad_state import CurrentSquadState
+from ..transfers import Transfer, prepare_transfer_finance, resolve_chained_transfers, selling_price
 from .models import GameweekResolution, SimulationSummary, StagedTransfer
 
 LOGGER = logging.getLogger(__name__)
@@ -33,6 +51,46 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SIMULATIONS_DIR = PROJECT_ROOT / "config" / "simulations"
 DEFAULT_HISTORICAL_DIR = PROJECT_ROOT / "data" / "historical"
 DEFAULT_REPORTS_DIR = PROJECT_ROOT / "reports" / "simulations"
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _trial_mutation(
+    method: Callable[Concatenate["HistoricalSimulationSession", _P], _R],
+) -> Callable[Concatenate["HistoricalSimulationSession", _P], _R]:
+    @wraps(method)
+    def guarded(self: "HistoricalSimulationSession", *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        self.require_writable()
+        context = HistoricalContext(self.session_id, self.season, self.current_gw)
+        if active_command(context) is not None:
+            with execution_scope(self.execution_version):
+                return method(self, *args, **kwargs)
+        before = deepcopy(self.__dict__)
+        result: list[_R] = []
+
+        def action() -> Any:
+            with execution_scope(self.execution_version):
+                value = method(self, *args, **kwargs)
+            result.append(value)
+            return str(value) if isinstance(value, Path) else value
+
+        try:
+            receipt = CommandBus(
+                self.config_dir / "command_journal.sqlite3",
+                historical_database_path=self.config_dir / "command_journal.sqlite3",
+            ).execute(
+                context, method.__name__, {"args": args, "kwargs": kwargs}, action,
+                expected_revision=self._revision,
+            )
+        except RecoveryRequiredError:
+            raise
+        except Exception:
+            self.__dict__.clear()
+            self.__dict__.update(before)
+            raise
+        self._revision = receipt.revision_after
+        return result[0]
+    return guarded
 
 
 class HistoricalSimulationSession:
@@ -73,7 +131,13 @@ class HistoricalSimulationSession:
         gw_start_state: dict[str, Any] | None = None,
         config_dir: Path | None = None,
         historical_dir: Path | None = None,
+        execution_version: str | ExecutionVersion = CURRENT_EXECUTION_VERSION.value,
     ) -> None:
+        self.execution_version = (
+            execution_version if execution_version is ExecutionVersion.UNKNOWN_ARCHIVE
+            else resolve_execution_version(execution_version)
+        )
+        self.recorded_execution_version: object = self.execution_version.value
         self.session_id = session_id
         self.season = season
         self.current_gw = current_gw
@@ -137,6 +201,15 @@ class HistoricalSimulationSession:
 
         self.config_dir = config_dir or DEFAULT_SIMULATIONS_DIR
         self.historical_dir = historical_dir or DEFAULT_HISTORICAL_DIR
+        context = HistoricalContext(session_id, season, current_gw)
+        scope = active_command()
+        if scope is None:
+            self._revision = CommandBus(
+                self.config_dir / "command_journal.sqlite3",
+                historical_database_path=self.config_dir / "command_journal.sqlite3",
+            ).revision(context)
+        else:
+            self._revision = scope.revision_before if scope.context.key == context.key else 0
 
         # Start gameweek tracking
         if self.experiment_metadata and "start_gw" in self.experiment_metadata:
@@ -152,7 +225,8 @@ class HistoricalSimulationSession:
         self._normalize_history_hit_units()
 
         # Reconcile chip inventory according to 2-segment rules (GW1-19 and GW20-38)
-        self._reconcile_chips()
+        if not self.read_only:
+            self._reconcile_chips()
 
         # Capture or restore clean pre-gameweek start state before staging mutations
         if gw_start_state and gw_start_state.get("gameweek") == self.current_gw:
@@ -452,6 +526,7 @@ class HistoricalSimulationSession:
 
             self.engine_baseline_chips_remaining = [c for c in w2_base if c not in engine_used_w2]
 
+    @_trial_mutation
     def reset_chips_for_segment_2(self) -> None:
         """Reset chip inventory at Gameweek 20 for Season Segment 2 (GW20–38)."""
         self._reconcile_chips()
@@ -464,6 +539,91 @@ class HistoricalSimulationSession:
     @property
     def is_completed(self) -> bool:
         return self.status == "completed" or self.current_gw > 38
+
+    @property
+    def read_only(self) -> bool:
+        return self.execution_version != CURRENT_EXECUTION_VERSION
+
+    def require_writable(self) -> None:
+        if self.read_only:
+            raise LegacyTrialReadOnlyError()
+
+    def fork_corrected(self, session_id: str) -> "HistoricalSimulationSession":
+        """Start a distinct corrected trial from a recoverable clean boundary."""
+        if (
+            not session_id or session_id.startswith(".")
+            or "/" in session_id or "\\" in session_id
+        ):
+            raise ValueError("A fork requires a valid new session identifier.")
+        if self.is_completed:
+            raise ValueError("Completed trials remain archived; create a new replay at a chosen gameweek.")
+        target = self.config_dir / f"{session_id}.json"
+        if state_file_exists(target):
+            raise ValueError(f"Simulation '{session_id}' already exists.")
+        boundary = self.gw_start_state
+        ids = list(boundary["squad_ids"])
+        self._validate_unique_squad(ids)
+        prices = {str(k): int(v) for k, v in boundary["purchase_prices_tenths"].items()}
+        self._require_verified_purchase_basis(
+            ids, prices, "fork the archived trial",
+            unverified=bool(boundary.get("purchase_basis_unverified")),
+        )
+        if set(prices) != {str(pid) for pid in ids}:
+            raise DataIntegrityError("The archived boundary has incomplete human purchase prices.")
+        bank = int(boundary["bank_tenths"])
+        if bank < 0:
+            raise DataIntegrityError("The archived boundary has a negative bank.")
+        snapshot = self.get_current_snapshot()
+        players = {p.player_id: p for p in snapshot.players}
+        if any(pid not in players for pid in ids):
+            raise DataIntegrityError("The archived squad cannot be resolved at the fork deadline.")
+        from ..rules import validate_squad
+        validation = validate_squad([
+            Player(p.player_id, p.web_name, p.position, p.team_id, p.price_tenths)
+            for p in (players[pid] for pid in ids)
+        ], budget_tenths=None)
+        if not validation.is_valid:
+            raise ValueError("The archived squad requires repair before a corrected fork: " + "; ".join(validation.errors))
+        projections = reconstruct_features_and_project(snapshot)
+        starters, bench, captain, vice, _ = select_best_lineup(ids, projections)
+        ft = 1 if self.current_gw <= 2 else min(
+            self.max_free_transfers, max(0, int(boundary["free_transfers"]))
+        )
+        metadata = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "start_gw": self.current_gw,
+            "manager_name": self.experiment_metadata.get("manager_name", "Human Manager"),
+            "parent_session_id": self.session_id,
+            "parent_execution_version": self.execution_version.value,
+            "parent_recorded_execution_version": self.recorded_execution_version,
+            "initial_state_source": "recorded_clean_boundary_not_rescored",
+            "source_free_transfers": boundary["free_transfers"],
+            "execution_version": CURRENT_EXECUTION_VERSION.value,
+        }
+        fork = type(self)(
+            session_id=session_id, season=self.season, current_gw=self.current_gw,
+            squad_ids=ids, purchase_prices_tenths=prices, bank_tenths=bank,
+            free_transfers=ft, chips_remaining=list(boundary["chips_remaining"]),
+            chips_used=dict(boundary["chips_used"]), starting_ids=starters,
+            bench_ids=bench, captain_id=captain, vice_captain_id=vice,
+            engine_baseline_squad_ids=ids, engine_baseline_purchase_prices=prices,
+            engine_baseline_bank_tenths=bank, engine_baseline_free_transfers=ft,
+            engine_baseline_chips_remaining=list(boundary["chips_remaining"]),
+            engine_baseline_chips_used=dict(boundary["chips_used"]),
+            engine_baseline_version=resolve_decision_engine("default").version,
+            experiment_metadata=metadata, config_dir=self.config_dir,
+            historical_dir=self.historical_dir,
+        )
+        fork.initial_decision = {
+            "gameweek": fork.current_gw, "season": fork.season, "session_id": session_id,
+            "squad_player_ids": ids, "purchase_prices_tenths": prices,
+            "starting_player_ids": starters, "bench_player_ids": bench,
+            "captain_id": captain, "vice_captain_id": vice,
+            "transfers": [], "transfer_hits": 0,
+            "notes": f"Explicit corrected fork of archived trial {self.session_id}",
+        }
+        fork.set_lineup(starters, bench, captain, vice)
+        return fork
 
     # -------------------------------------------------------------------------
     # Factory & Storage
@@ -485,6 +645,11 @@ class HistoricalSimulationSession:
         historical_dir: Path | None = None,
     ) -> "HistoricalSimulationSession":
         """Create and initialize a new historical simulation session."""
+        HistoricalContext(session_id, season, start_gw)
+        if not 1 <= start_gw <= 38:
+            raise ValueError("A new trial must start between GW1 and GW38.")
+        if state_file_exists((config_dir or DEFAULT_SIMULATIONS_DIR) / f"{session_id}.json"):
+            raise ValueError(f"Simulation '{session_id}' already exists.")
         hist_dir = historical_dir or DEFAULT_HISTORICAL_DIR
         season_dir = hist_dir / season
         if not season_dir.exists():
@@ -581,12 +746,13 @@ class HistoricalSimulationSession:
         session.save()
         return session
 
+    @_trial_mutation
     def save(self) -> Path:
         """Persist session state to isolated JSON file."""
         self._normalize_history_hit_units()
-        self.config_dir.mkdir(parents=True, exist_ok=True)
         file_path = self.config_dir / f"{self.session_id}.json"
         data = {
+            "execution_version": self.execution_version.value,
             "session_id": self.session_id,
             "season": self.season,
             "current_gw": self.current_gw,
@@ -617,7 +783,7 @@ class HistoricalSimulationSession:
             "experiment_metadata": self.experiment_metadata,
             "gw_start_state": getattr(self, "gw_start_state", None),
         }
-        file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        write_state_text(file_path, json.dumps(data, indent=2))
         return file_path
 
     @classmethod
@@ -630,9 +796,7 @@ class HistoricalSimulationSession:
         """Load session from its isolated JSON file."""
         c_dir = config_dir or DEFAULT_SIMULATIONS_DIR
         file_path = c_dir / f"{session_id}.json"
-        if not file_path.exists():
-            raise FileNotFoundError(f"Simulation session file not found: {file_path}")
-        data = json.loads(file_path.read_text(encoding="utf-8"))
+        data = json.loads(read_state_text(file_path))
         session = cls(
             session_id=data["session_id"],
             season=data["season"],
@@ -665,13 +829,15 @@ class HistoricalSimulationSession:
             gw_start_state=data.get("gw_start_state"),
             config_dir=c_dir,
             historical_dir=historical_dir,
+            execution_version=admit_persisted_execution_version(
+                data.get("execution_version", LEGACY_EXECUTION_VERSION.value)
+            ),
         )
-        if session.current_gw <= 2 and session.free_transfers > 1:
+        session.recorded_execution_version = data.get("execution_version")
+        if not session.read_only and session.current_gw <= 2 and session.free_transfers > 1:
             session.free_transfers = 1
-        if session.current_gw <= 2 and session.engine_baseline_free_transfers > 1:
+        if not session.read_only and session.current_gw <= 2 and session.engine_baseline_free_transfers > 1:
             session.engine_baseline_free_transfers = 1
-        if session.current_gw >= 20 and session.chips_remaining != data.get("chips_remaining"):
-            session.save()
         return session
 
     @classmethod
@@ -687,6 +853,11 @@ class HistoricalSimulationSession:
                 completed_hist = [h for h in data.get("history", []) if isinstance(h, dict) and "gross_points" in h]
                 sessions.append({
                     "session_id": data.get("session_id", p.stem),
+                    "execution_version": admit_persisted_execution_version(
+                        data.get("execution_version", LEGACY_EXECUTION_VERSION.value)
+                    ).value,
+                    "recorded_execution_version": data.get("execution_version"),
+                    "read_only": data.get("execution_version", LEGACY_EXECUTION_VERSION.value) != CURRENT_EXECUTION_VERSION.value,
                     "season": data.get("season"),
                     "current_gw": data.get("current_gw"),
                     "status": data.get("status"),
@@ -903,6 +1074,7 @@ class HistoricalSimulationSession:
     # Staging Transfers & Lineup
     # -------------------------------------------------------------------------
 
+    @_trial_mutation
     def stage_transfers_batch(self, transfers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Stage a batch of transfers atomically, validating legality and net budget."""
         if self.is_completed:
@@ -1074,6 +1246,7 @@ class HistoricalSimulationSession:
         res = self.stage_transfers_batch([{"out_id": out_id, "in_id": in_id}])
         return res[0]
 
+    @_trial_mutation
     def clear_staged_transfers(self) -> None:
         """Clear all staged transfers for the upcoming deadline, reversing any committed transfers atomically."""
         has_applied = any(st.get("already_applied") for st in self.transfers_staged)
@@ -1139,6 +1312,7 @@ class HistoricalSimulationSession:
         self.transfers_staged = []
         self.save()
 
+    @_trial_mutation
     def set_lineup(
         self,
         starting_ids: list[int],
@@ -1204,6 +1378,7 @@ class HistoricalSimulationSession:
         self.vice_captain_id = mapped_vc
         self.save()
 
+    @_trial_mutation
     def play_chip(self, chip_name: str) -> str:
         """Activate a chip for the upcoming gameweek."""
         if self.is_completed:
@@ -1264,6 +1439,7 @@ class HistoricalSimulationSession:
         self.save()
         return canonical
 
+    @_trial_mutation
     def cancel_chip(self) -> None:
         """Deactivate the active chip and clear any temporary Free Hit restoration snapshot."""
         self.active_chip = None
@@ -1422,6 +1598,7 @@ class HistoricalSimulationSession:
     # Gameweek Resolution & Step Engine
     # -------------------------------------------------------------------------
 
+    @_trial_mutation
     def run_gameweek(self) -> dict[str, Any]:
         """Resolve the matchday deterministically and advance to next gameweek."""
         if self.is_completed:
@@ -1761,6 +1938,7 @@ class HistoricalSimulationSession:
         }
 
         resolution = GameweekResolution(
+            execution_version=self.execution_version.value,
             gameweek=gw,
             gross_points=gross_points,
             transfer_hits=extra_transfers,
@@ -1820,17 +1998,10 @@ class HistoricalSimulationSession:
             self.bank_tenths = self.pre_free_hit_state["bank_tenths"]
             self.pre_free_hit_state = None
 
-        # Free transfer rollover
-        # In FPL, Gameweek 1 (initial squad setup) does NOT roll over a free transfer into GW2.
-        # Gameweek 2 always begins with exactly 1 free transfer.
-        if self.active_chip in ("wildcard_1", "wildcard_2", "free_hit"):
-            self.free_transfers = 1
-        elif gw == 1 or gw == getattr(self, "start_gw", 1):
-            self.free_transfers = 1
-        else:
-            used_fts = min(num_transfers, self.free_transfers)
-            remaining_fts = self.free_transfers - used_fts
-            self.free_transfers = min(self.max_free_transfers, remaining_fts + 1)
+        _, self.free_transfers = free_transfer_transition(
+            gw, self.free_transfers, num_transfers, max_free_transfers=self.max_free_transfers,
+            active_chip=self.active_chip, initial_deadline=gw == self.start_gw,
+        )
 
         self.transfers_staged = []
         self.active_chip = None
@@ -1862,6 +2033,7 @@ class HistoricalSimulationSession:
         self.save()
         return resolution.to_dict()
 
+    @_trial_mutation
     def undo_last_gameweek(self) -> dict[str, Any]:
         """Undo the last simulated gameweek, restoring squad, bank, chips, lineup, and baseline state to the clean pre-GW state."""
         if not self.history:
@@ -2118,27 +2290,56 @@ class HistoricalSimulationSession:
                 saved_prices = dict(self.engine_baseline_purchase_prices)
                 saved_bank = self.engine_baseline_bank_tenths
 
+            self._require_verified_purchase_basis(
+                self.engine_baseline_squad_ids, self.engine_baseline_purchase_prices,
+                "liquidate the comparison squad",
+            )
+            if any(pid not in players_by_id for pid in self.engine_baseline_squad_ids):
+                raise DataIntegrityError("Comparison squad market prices are unavailable at this deadline.")
             selling_prices = {
-                pid: self.engine_baseline_purchase_prices.get(str(pid), players_by_id[pid].price_tenths if pid in players_by_id else 50)
-                + max(0, ((proj_map[pid].price_tenths if pid in proj_map else 50) - self.engine_baseline_purchase_prices.get(str(pid), 50)) // 2)
+                pid: selling_price(self.engine_baseline_purchase_prices[str(pid)], players_by_id[pid].price_tenths)
                 for pid in self.engine_baseline_squad_ids
             }
             total_funds = self.engine_baseline_bank_tenths + sum(selling_prices.values())
 
             try:
                 chip_mode = "free_hit" if current_chip == "free_hit" else None
-                new_squad_ids, new_prices_int, new_bank = engine.initialize_squad(
+                new_squad_ids, _new_prices_int, _new_bank = engine.initialize_squad(
                     snapshot, projections, budget_tenths=total_funds, bench_weight=eff_bench_weight, mode=chip_mode
                 )
                 if len(new_squad_ids) == 15:
+                    self._validate_unique_squad(new_squad_ids)
+                    if any(pid not in players_by_id for pid in new_squad_ids):
+                        raise DataIntegrityError("Comparison chip squad contains unresolved players.")
                     old_set = set(self.engine_baseline_squad_ids)
                     new_set = set(new_squad_ids)
-                    out_list = sorted(list(old_set - new_set))
-                    in_list = sorted(list(new_set - old_set))
-                    txs = list(zip(out_list, in_list))
+                    txs = []
+                    for position in Position:
+                        outgoing = sorted(pid for pid in old_set - new_set if players_by_id[pid].position == position)
+                        incoming = sorted(pid for pid in new_set - old_set if players_by_id[pid].position == position)
+                        if len(outgoing) != len(incoming):
+                            raise DataIntegrityError("Comparison chip squad violates position quotas.")
+                        txs.extend(zip(outgoing, incoming))
+                    # Settle net trades, preserving retained players' acquisition basis.
+                    if txs:
+                        updated, _ = prepare_transfer_finance(
+                            CurrentSquadState(
+                                tuple(self.engine_baseline_squad_ids),
+                                {int(key): value for key, value in self.engine_baseline_purchase_prices.items()},
+                                self.engine_baseline_bank_tenths, self.engine_baseline_free_transfers,
+                                tuple(self.engine_baseline_chips_remaining), self.season, gw,
+                            ),
+                            [
+                                Player(p.player_id, p.web_name, p.position, p.team_id, p.price_tenths)
+                                for p in snapshot.players
+                            ],
+                            [Transfer(out_id, in_id) for out_id, in_id in txs],
+                        )
+                        self.engine_baseline_purchase_prices = {
+                            str(key): value for key, value in updated.purchase_prices_tenths.items()
+                        }
+                        self.engine_baseline_bank_tenths = updated.bank_tenths
                     self.engine_baseline_squad_ids = new_squad_ids
-                    self.engine_baseline_purchase_prices = {str(k): v for k, v in new_prices_int.items()}
-                    self.engine_baseline_bank_tenths = new_bank
                 else:
                     LOGGER.error(
                         "Baseline engine chip squad initialization returned %d players (expected 15) for %s in GW %d",
@@ -2182,26 +2383,32 @@ class HistoricalSimulationSession:
                 if is_dynamic_chip:
                     engine.bench_weight = old_bw
 
-            for out_id, in_id in txs:
-                out_p = players_by_id.get(out_id)
-                in_p = players_by_id.get(in_id)
-                if out_p and in_p and out_id in self.engine_baseline_squad_ids:
-                    cur_out_price = out_p.price_tenths
-                    bought_price = self.engine_baseline_purchase_prices.get(str(out_id), cur_out_price)
-                    sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
-                    self.engine_baseline_bank_tenths += sell_price - in_p.price_tenths
-                    idx = self.engine_baseline_squad_ids.index(out_id)
-                    self.engine_baseline_squad_ids[idx] = in_id
-                    self.engine_baseline_purchase_prices.pop(str(out_id), None)
-                    self.engine_baseline_purchase_prices[str(in_id)] = in_p.price_tenths
+            if txs:
+                state = CurrentSquadState(
+                    tuple(self.engine_baseline_squad_ids),
+                    {int(key): value for key, value in self.engine_baseline_purchase_prices.items()},
+                    self.engine_baseline_bank_tenths, self.engine_baseline_free_transfers,
+                    tuple(self.engine_baseline_chips_remaining), self.season, gw,
+                )
+                updated, _ = prepare_transfer_finance(
+                    state,
+                    [
+                        Player(p.player_id, p.web_name, p.position, p.team_id, p.price_tenths)
+                        for p in snapshot.players
+                    ],
+                    [Transfer(out_id, in_id) for out_id, in_id in txs],
+                )
+                replacements = dict(txs)
+                self.engine_baseline_squad_ids = [replacements.get(pid, pid) for pid in self.engine_baseline_squad_ids]
+                self.engine_baseline_purchase_prices = {str(key): value for key, value in updated.purchase_prices_tenths.items()}
+                self.engine_baseline_bank_tenths = updated.bank_tenths
 
-            hits = max(0, len(txs) - self.engine_baseline_free_transfers) * 4
-            used_ft = min(len(txs), self.engine_baseline_free_transfers)
-            rem_ft = self.engine_baseline_free_transfers - used_ft
-            if gw == 1 or gw == getattr(self, "start_gw", 1):
-                self.engine_baseline_free_transfers = 1
-            else:
-                self.engine_baseline_free_transfers = min(self.max_free_transfers, rem_ft + 1)
+            hit_count, self.engine_baseline_free_transfers = free_transfer_transition(
+                gw, self.engine_baseline_free_transfers, len(txs),
+                max_free_transfers=self.max_free_transfers,
+                initial_deadline=gw == self.start_gw,
+            )
+            hits = hit_count * 4
 
         b_starters, b_bench, b_cap, b_vc, _ = engine.select_lineup(self.engine_baseline_squad_ids, projections)
         gross_pts, _, _ = simulate_autosubs_and_score(
@@ -2281,6 +2488,8 @@ class HistoricalSimulationSession:
         last_val = completed_hist[-1].get("squad_value_tenths_after", 1000) if completed_hist else 1000
 
         return SimulationSummary(
+            execution_version=self.execution_version.value,
+            read_only=self.read_only,
             session_id=self.session_id,
             season=self.season,
             gameweeks_completed=len(completed_hist),

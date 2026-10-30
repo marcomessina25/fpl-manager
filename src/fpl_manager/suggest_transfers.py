@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .expected_points import (
     MultiGameweekProfile,
@@ -24,7 +24,7 @@ from .models import (
     is_long_term_unavailable,
 )
 from .optimizer import get_player_profile_value, solve_transfers, solve_wildcard, validate_risk_profile
-from .squad_state import load_current_squad
+from .squad_state import CurrentSquadState, load_current_squad, validate_current_squad
 from .storage import SnapshotStore
 from .strategic_squad import (
     StrategicConstraints,
@@ -41,6 +41,31 @@ TRANSFERS_REPORT_PATH = PROJECT_ROOT / "reports" / "transfer_suggestions.json"
 WILDCARD_REPORT_PATH = PROJECT_ROOT / "reports" / "wildcard_squad.json"
 INITIAL_SQUAD_REPORT_PATH = PROJECT_ROOT / "reports" / "initial_squad.json"
 STRATEGIC_SQUAD_REPORT_PATH = PROJECT_ROOT / "reports" / "strategic_squad.json"
+
+
+def _projected_fixture_maps(
+    gameweeks: list[int],
+    database_path: Path,
+    projections_by_gw: dict[int, dict[int, Any]] | None = None,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Read fixture difficulty/tickers without invoking the exporting report service."""
+    schedules: dict[str, list[Any]] = {}
+    for gw in gameweeks:
+        projections = (
+            projections_by_gw[gw].values() if projections_by_gw is not None
+            else project_gameweek(gw, database_path=database_path)
+        )
+        seen: set[str] = set()
+        for projection in projections:
+            if projection.team_short not in seen:
+                schedules.setdefault(projection.team_short, []).extend(projection.fixtures)
+                seen.add(projection.team_short)
+    return (
+        {team: round(sum(f.fdr for f in fixtures) / len(fixtures), 2) if fixtures else 9.0
+         for team, fixtures in schedules.items()},
+        {team: " ".join(f"{f.opponent_short}({f.venue},{f.fdr})" for f in fixtures)
+         for team, fixtures in schedules.items()},
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,7 +378,7 @@ def suggest_transfers(
     max_results: int = 30,
     num_gameweeks: int = 5,
     risk_profile: str = "neutral",
-    report_path: Path = TRANSFERS_REPORT_PATH,
+    report_path: Path | None = TRANSFERS_REPORT_PATH,
     gameweek: int | None = None,
     dead_capital_weight: float = 3.0,
     engine: str = "v1.3.5",
@@ -361,12 +386,14 @@ def suggest_transfers(
     horizon: int = 3,
     team_id: str | None = None,
     config_dir: Path | None = None,
+    state: CurrentSquadState | None = None,
 ) -> dict[str, Any]:
     """Generate legal 1- to 5-transfer move recommendations for the current squad.
 
     Supports V1.3.5/V1.4 Hardened Baseline Lineup-Aware Evaluation with rolling discounted horizon,
     pruned candidate search pool, goalkeeper churn suppression, and reason breakdown tracking, with optional
-    fallback to V1.2.5 or legacy unweighted squad optimization.
+    fallback to V1.2.5 or legacy unweighted squad optimization. An explicit
+    ``state`` is authoritative and never reads or synchronizes a squad file.
     """
     if num_transfers < 1 or num_transfers > 5:
         raise ValueError(
@@ -383,7 +410,10 @@ def suggest_transfers(
 
     store = SnapshotStore(database_path)
     curr_gw = get_current_gameweek(store)
-    if squad_path.exists():
+    explicit_state = state is not None
+    if explicit_state:
+        validate_current_squad(state)
+    elif squad_path.exists() and report_path is not None:
         from .teams import sync_squad_with_current_gameweek
         resolved_team_id = team_id
         resolved_config_dir = config_dir
@@ -405,16 +435,23 @@ def suggest_transfers(
 
     if gameweek is not None:
         start_gw = gameweek
-    elif state.gameweek is not None and state.gameweek >= curr_gw:
+    elif state.gameweek is not None and (explicit_state or state.gameweek >= curr_gw):
         start_gw = state.gameweek
     else:
         start_gw = curr_gw
     target_gws = list(range(start_gw, start_gw + num_gameweeks))
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)
-    fdr_analysis = analyze_team_fixtures(database_path=database_path, num_gameweeks=num_gameweeks, start_gw=start_gw)
-    fdr_map = {t["short_name"]: t["avg_difficulty"] for t in fdr_analysis["team_rankings"]}
-    ticker_map = {t["short_name"]: t["ticker"] for t in fdr_analysis["team_rankings"]}
+    if explicit_state:
+        missing_ids = sorted(set(state.player_ids) - players_map.keys())
+        if missing_ids:
+            raise ValueError(f"Unknown player IDs in supplied squad state: {missing_ids}.")
+    if explicit_state or report_path is None:
+        fdr_map, ticker_map = _projected_fixture_maps(target_gws, database_path)
+    else:
+        fdr_analysis = analyze_team_fixtures(database_path=database_path, num_gameweeks=num_gameweeks, start_gw=start_gw)
+        fdr_map = {t["short_name"]: t["avg_difficulty"] for t in fdr_analysis["team_rankings"]}
+        ticker_map = {t["short_name"]: t["ticker"] for t in fdr_analysis["team_rankings"]}
 
     squad_set = set(state.player_ids)
     squad_players = [players_map[p_id] for p_id in state.player_ids if p_id in players_map]
@@ -531,6 +568,12 @@ def suggest_transfers(
             },
         }
 
+    report["optimization_metadata"] = {
+        "is_exact_global_optimum": False,
+        "optimality_guarantee": "branch_and_bound_within_heuristic_candidate_shortlist",
+        "candidate_pool_policy": "solve_transfers_default_position_limits",
+        "lineup_rescoring_shortlist_size": cand_search_max,
+    }
     team_counts = Counter(getattr(p, "team_short", getattr(p, "team_id", "")) for p in squad_players)
     excess_teams = {t: c for t, c in team_counts.items() if c > 3}
     if excess_teams:
@@ -547,8 +590,9 @@ def suggest_transfers(
             ),
         }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return report
 
@@ -563,7 +607,7 @@ def suggest_wildcard(
     excluded_player_ids: list[int] | set[int] | None = None,
     preferred_player_ids: list[int] | set[int] | None = None,
     strategic_engine: bool = False,
-    report_path: Path = WILDCARD_REPORT_PATH,
+    report_path: Path | None = WILDCARD_REPORT_PATH,
 ) -> dict[str, Any]:
     """Generate 15-player squad (Wildcard) under budget and club limits with V1.1 strategic support."""
     if strategic_engine or locked_player_ids or excluded_player_ids or preferred_player_ids:
@@ -635,7 +679,7 @@ def suggest_strategic_squad(
     preferred_player_ids: list[int] | set[int] | None = None,
     previous_result: dict[str, Any] | None = None,
     generate_all_candidates: bool = True,
-    report_path: Path | None = None,
+    report_path: Path | None | Literal["default"] = "default",
 ) -> dict[str, Any]:
     """Generate strategic squad solution(s) under explicit constraints and strategic objectives (V1.1)."""
     store = SnapshotStore(database_path)
@@ -739,12 +783,12 @@ def suggest_strategic_squad(
     else:
         res["constraint_impact"] = None
 
-    out_path = report_path or (
+    out_path = (
         INITIAL_SQUAD_REPORT_PATH
         if mode == "initial"
         else (WILDCARD_REPORT_PATH if mode == "wildcard" else STRATEGIC_SQUAD_REPORT_PATH)
-    )
-    if out_path:
+    ) if report_path == "default" else report_path
+    if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(res, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -760,7 +804,7 @@ def suggest_initial_squad(
     excluded_player_ids: list[int] | set[int] | None = None,
     preferred_player_ids: list[int] | set[int] | None = None,
     generate_all_candidates: bool = True,
-    report_path: Path = INITIAL_SQUAD_REPORT_PATH,
+    report_path: Path | None = INITIAL_SQUAD_REPORT_PATH,
 ) -> dict[str, Any]:
     """Generate strategic starting squad for Gameweek 1 over an initial planning horizon (V1.1)."""
     return suggest_strategic_squad(
@@ -785,7 +829,7 @@ def suggest_free_hit(
     locked_player_ids: list[int] | set[int] | None = None,
     excluded_player_ids: list[int] | set[int] | None = None,
     preferred_player_ids: list[int] | set[int] | None = None,
-    report_path: Path | None = None,
+    report_path: Path | None = STRATEGIC_SQUAD_REPORT_PATH,
 ) -> dict[str, Any]:
     """Generate 1-Gameweek optimal temporary squad for Free Hit (V1.1)."""
     return suggest_strategic_squad(
@@ -801,7 +845,3 @@ def suggest_free_hit(
         generate_all_candidates=True,
         report_path=report_path,
     )
-
-
-
-

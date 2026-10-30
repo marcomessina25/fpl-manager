@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.fpl_manager.historical.models import Position
-from src.fpl_manager.simulation import HistoricalSimulationSession
+from fpl_manager.historical.models import Position
+from fpl_manager.simulation import HistoricalSimulationSession
 
 
 class HistoricalSessionIntegrityTests(unittest.TestCase):
@@ -58,13 +58,13 @@ class HistoricalSessionIntegrityTests(unittest.TestCase):
             patch.object(HistoricalSimulationSession, "get_recommendations", return_value={}),
             patch.object(HistoricalSimulationSession, "_step_baseline_engine", return_value=0),
             patch.object(HistoricalSimulationSession, "get_squad_player_details", return_value=[]),
-            patch("src.fpl_manager.simulation.session.load_gameweek_outcomes", return_value={}),
-            patch("src.fpl_manager.simulation.session.reconstruct_features_and_project", return_value=[]),
+            patch("fpl_manager.simulation.session.load_gameweek_outcomes", return_value={}),
+            patch("fpl_manager.simulation.session.reconstruct_features_and_project", return_value=[]),
             patch(
-                "src.fpl_manager.simulation.session.select_best_lineup",
+                "fpl_manager.simulation.session.select_best_lineup",
                 side_effect=lambda ids, projections: (list(ids[:11]), list(ids[11:]), ids[0], ids[1], 0),
             ),
-            patch("src.fpl_manager.simulation.session.simulate_autosubs_and_score", return_value=(50, (), False)),
+            patch("fpl_manager.simulation.session.simulate_autosubs_and_score", return_value=(50, (), False)),
         )
         for active_patch in patches:
             active_patch.start()

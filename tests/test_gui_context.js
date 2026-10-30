@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { test } = require("node:test");
 
+
 class Element {
   constructor(tag = "div") {
     this.tagName = tag.toUpperCase();
@@ -191,6 +192,129 @@ function defaults(url) {
   if (/\/simulations\/[AB]$/.test(url)) return session(url.endsWith("A") ? "A" : "B");
   return {};
 }
+
+test("live writes carry the loaded revision and adopt only their matching receipt", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 4, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  h.route(() => ({
+    success: true,
+    command: { context: h.state.currentSquad.command_context, revision_after: 5 },
+  }));
+  await h.run('api("/api/decisions", {method:"POST",body:JSON.stringify({team_id:"live",gameweek:12})})');
+  const body = h.requests[0].body;
+  assert.equal(body.expected_revision, 4);
+  assert.equal(body.command_context.team_id, "live");
+  assert.ok(body.command_id);
+  assert.equal(h.state.currentSquad.revision, 5);
+  h.assertNoErrors();
+});
+
+test("a delayed command receipt cannot replace another team's revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 4, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  const response = deferred();
+  h.route(() => response.promise);
+  const pending = h.run('api("/api/decisions", {method:"POST",body:JSON.stringify({team_id:"live",gameweek:12})})');
+  h.state.contextEpoch++;
+  h.state.activeTeamId = "next";
+  h.state.currentSquad = {
+    revision: 2, command_context: { mode: "live", team_id: "next", season: "2026/27", gameweek: 12 },
+  };
+  response.resolve({
+    command: { context: { mode: "live", team_id: "live" }, revision_after: 5 },
+  });
+  await pending;
+  assert.equal(h.state.currentSquad.revision, 2);
+  h.assertNoErrors();
+});
+
+test("a calculation's original revision is not replaced by a newer HUD revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 8, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  h.route(() => ({ success: true }));
+  await h.run('api("/api/plan/apply-step", {method:"POST",body:JSON.stringify({team_id:"live",expected_revision:6})})');
+  assert.equal(h.requests[0].body.expected_revision, 6);
+  h.assertNoErrors();
+});
+
+test("Strategic Studio applies the candidate revision rather than the latest HUD revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 8, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 1 },
+  };
+  h.run(`strategicState.previousCandidate = {
+    strategy:"balanced", mode:"initial", revision:6,
+    command_context:{mode:"live",team_id:"live",season:"2026/27",gameweek:1}
+  };`);
+  h.route(() => ({ success: false }));
+  await h.element("btn-apply-strategic-squad").click();
+  const applied = h.requests.find(request => request.url === "/api/strategic-squad/apply");
+  assert.ok(applied);
+  assert.equal(applied.body.expected_revision, 6);
+  h.assertNoErrors();
+});
+
+test("historical writes carry session revisions and cannot fall back to a live team", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.hist.sessionData = {
+    revision: 7, command_context: { mode: "historical", session_id: "A", season: "2023-24", gameweek: 5 },
+  };
+  h.route(() => ({ success: true }));
+  await h.run('api("/api/historical/simulations/A/chip", {method:"POST",body:JSON.stringify({chip:null})})');
+  assert.equal(h.requests[0].body.expected_revision, 7);
+  assert.equal(h.requests[0].body.command_context.session_id, "A");
+  await assert.rejects(h.run('api("/api/decisions", {method:"POST",body:"{}"})'), /selected simulation/);
+  assert.equal(h.requests.length, 1);
+  h.assertNoErrors();
+});
+
+test("read-only archives render normally but never submit mutation requests", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.route(url => url === "/api/historical/simulations/A"
+    ? { ...session("A"), read_only: true, execution_version: "v146" } : defaults(url));
+  await h.run('loadHistoricalSession("A")');
+  assert.ok(h.run("getHistoricalMutationContext()"), "read context must remain usable");
+  assert.equal(h.element("hist-archive-notice").style.display, "block");
+  assert.equal(h.element("btn-hist-run-gw").disabled, true);
+  assert.equal(h.element("btn-execute-trade").disabled, true);
+  const count = h.requests.length;
+  await assert.rejects(
+    h.run('api("/api/historical/simulations/A/chip", {method:"POST",body:"{}"})'),
+    /read-only archive/,
+  );
+  assert.equal(h.requests.length, count);
+  await h.element("btn-mode-live").click();
+  assert.equal(h.element("hist-archive-notice").style.display, "none");
+  h.assertNoErrors();
+});
+
+test("explicit fork preserves archive controls and hydrates the corrected session", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.route(url => {
+    if (url === "/api/historical/simulations/A") return { ...session("A"), read_only: true };
+    if (url.endsWith("/fork")) return { session_id: "B" };
+    if (url === "/api/historical/simulations") return {
+      simulations: ["A", "B"].map(session_id => ({ session_id, season: "2023-24", current_gw: 5 })),
+    };
+    return defaults(url);
+  });
+  await h.run('loadHistoricalSession("A")');
+  await h.element("btn-hist-fork").click();
+  assert.equal(h.requests.filter(request => request.url.endsWith("/fork")).length, 1);
+  assert.equal(h.hist.sessionId, "B");
+  assert.equal(h.element("hist-archive-notice").style.display, "none");
+  assert.equal(h.element("btn-hist-run-gw").disabled, false);
+  h.assertNoErrors();
+});
 
 test("historical continuation cannot overwrite live GW after its lineup finishes", async () => {
   const h = await harness();

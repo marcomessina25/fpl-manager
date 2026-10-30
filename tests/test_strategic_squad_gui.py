@@ -216,7 +216,7 @@ def test_api_strategic_squad_apply_post(strategic_gui_server: dict) -> None:
 
     apply_payload = {
         "mode": "initial",
-        "gameweek": 1,
+        "gameweek": 2,
         "candidate": cand_data,
         "season": "2026/27",
     }
@@ -237,3 +237,53 @@ def test_api_strategic_squad_apply_post(strategic_gui_server: dict) -> None:
     assert len(updated_squad.player_ids) == 15
     for pid in [p["id"] for p in cand_data["squad"]]:
         assert pid in updated_squad.player_ids
+
+
+def test_studio_rejects_candidate_from_an_older_same_deadline_revision(strategic_gui_server):
+    url = strategic_gui_server["url"]
+    config = strategic_gui_server["config_dir"]
+    with urllib.request.urlopen(f"{url}/api/strategic-squad?mode=initial") as response:
+        candidate = json.load(response)
+    assert candidate["selected_candidate"]["revision"] == candidate["revision"]
+    decision = urllib.request.Request(
+        f"{url}/api/teams/advance",
+        data=json.dumps({"team_id": "default"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(decision) as response:
+        changed = json.load(response)
+    assert changed["command"]["revision_after"] > candidate["revision"]
+    path = config / "current_squad.json"
+    before = path.read_bytes()
+    request = urllib.request.Request(
+        f"{url}/api/strategic-squad/apply",
+        data=json.dumps({"mode": "initial", "gameweek": 2, "candidate": candidate}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(request)
+    assert error.value.code == 409
+    assert json.load(error.value)["code"] == "STALE_REVISION"
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("operation", ["get", "optimize", "reoptimize"])
+def test_studio_calculations_never_export_shared_reports(strategic_gui_server, monkeypatch, operation):
+    url = strategic_gui_server["url"]
+
+    def reject_export(*args, **kwargs):
+        raise AssertionError("A Strategic Studio query attempted to export a shared report.")
+
+    monkeypatch.setattr(Path, "write_text", reject_export)
+    if operation == "get":
+        request = f"{url}/api/strategic-squad?mode=initial&horizon=1"
+    else:
+        request = urllib.request.Request(
+            f"{url}/api/strategic-squad/{operation}",
+            data=json.dumps({"mode": "initial", "horizon": 1}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+    with urllib.request.urlopen(request) as response:
+        result = json.load(response)
+    assert isinstance(result["revision"], int)
+    assert result["command_context"]["mode"] == "live"

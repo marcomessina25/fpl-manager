@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import logging
 import mimetypes
 import os
 import socket
@@ -12,8 +13,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .. import __version__
+from ..application import HistoricalContext, LiveContext
+from ..application.errors import InvalidCommandError
+from ..application.files import delete_state_file
+from ..application.services import ApplicationService
 from ..backtest.decision_engine import resolve_decision_engine
 from ..briefing import generate_manager_briefing
 from ..chip_strategy import recommend_chip_strategy
@@ -26,6 +32,7 @@ from ..decision_log import (
     undo_gameweek_changes,
 )
 from ..evaluation import evaluate_gameweek_decision, evaluate_season_decisions
+from ..errors import FPLError
 from ..fixtures import get_current_gameweek
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import (
@@ -86,6 +93,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "fpl.sqlite3"
 DEFAULT_CONFIG_DIR = PROJECT_ROOT / "config"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+LOGGER = logging.getLogger(__name__)
+
+
+class _CommandResponseError(Exception):
+    def __init__(self, payload: dict[str, Any], status: int) -> None:
+        super().__init__(str(payload.get("error", "Command failed.")))
+        self.payload = payload
+        self.status = status
 
 
 class FPLRequestHandler(BaseHTTPRequestHandler):
@@ -101,6 +116,10 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             super().log_message(format, *args)
 
     def _send_json(self, data: Any, status: int = 200) -> None:
+        pending = getattr(self, "_command_response", None)
+        if pending is not None:
+            pending.append((status, data))
+            return
         body = json.dumps(data, indent=2, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -123,9 +142,25 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(content_length).decode("utf-8")
         try:
-            return json.loads(raw)
-        except Exception as err:
+            body = json.loads(raw)
+        except json.JSONDecodeError as err:
             raise ValueError(f"Malformed JSON body: {err}") from err
+        if not isinstance(body, dict):
+            raise ValueError("The request body must be a JSON object.")
+        return body
+
+    def _application(self) -> ApplicationService:
+        return ApplicationService(self.database_path, self.config_dir)
+
+    def _send_domain_error(self, error: FPLError) -> None:
+        status = 409 if error.code in {
+            "STALE_REVISION", "IDEMPOTENCY_CONFLICT", "LEGACY_TRIAL_READ_ONLY",
+            "RECOVERY_REQUIRED", "RECOVERY_CONFLICT", "COMMAND_CONTEXT_CONFLICT",
+        } else 400
+        self._send_json({
+            "error": error.message, "error_type": error.code, "code": error.code,
+            "details": error.details, "success": False, "status": "error",
+        }, status=status)
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -168,9 +203,63 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
         query = urllib.parse.parse_qs(parsed.query)
+        state_queries = {
+            "/api/squad", "/api/lineup", "/api/transfers", "/api/wildcard",
+            "/api/strategic-squad/config", "/api/strategic-squad", "/api/plan",
+            "/api/chips", "/api/decisions", "/api/evaluate", "/api/briefing",
+        }
+        historical_prefix = "/api/historical/simulations/"
+        if path not in state_queries and not path.startswith(historical_prefix):
+            self._dispatch_get()
+            return
+        service = self._application()
+        try:
+            if path.startswith(historical_prefix):
+                sid = path[len(historical_prefix):].split("/")[0]
+                context = service.historical_context(sid)
+            elif query.get("session_id"):
+                context = service.historical_context(query["session_id"][0])
+            elif query.get("season") and query["season"][0] != "2026/27":
+                self._dispatch_get()
+                return
+            else:
+                tid = (query.get("team") or [get_active_team_id(self.config_dir)])[0]
+                context = service.live_context(tid)
+                self._resolved_query_team = tid
+
+            def calculate() -> dict[str, Any]:
+                self._command_response = []
+                try:
+                    self._dispatch_get()
+                    if len(self._command_response) != 1:
+                        raise InvalidCommandError("A state query must return exactly one result.")
+                    status, payload = self._command_response[0]
+                    if status >= 400:
+                        raise _CommandResponseError(payload, status)
+                    return payload
+                finally:
+                    self._command_response = None
+
+            self._send_json(service.query(context, path, calculate).to_dict())
+        except _CommandResponseError as error:
+            self._send_json(error.payload, status=error.status)
+        except FPLError as error:
+            self._send_domain_error(error)
+        except (ValueError, FileNotFoundError) as error:
+            self._send_error_json(str(error), status=400, error_type="DATA_UNAVAILABLE")
+        except Exception as error:
+            LOGGER.exception("GUI state query failed: %s", path)
+            self._send_error_json(str(error), status=500)
+
+    def _dispatch_get(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        query = urllib.parse.parse_qs(parsed.query)
 
         def get_arg(name: str, default: Any = None) -> Any:
             vals = query.get(name)
+            if not vals and name == "team":
+                return getattr(self, "_resolved_query_team", default)
             return vals[0] if vals else default
 
         try:
@@ -226,10 +315,13 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                     gameweek=gw,
                     team_id=tid,
+                    report_path=None,
                 )
                 rep["team_id"] = tid
                 if rep.get("gameweek") is None:
                     rep["gameweek"] = get_current_gameweek(SnapshotStore(self.database_path))
+                service = self._application()
+                rep.update(service.identity(service.live_context(tid)).to_dict())
                 self._send_json(rep)
             elif path == "/api/lineup":
                 tid = get_arg("team") or get_active_team_id(self.config_dir)
@@ -254,7 +346,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 if decision is not None and mode != "model":
                     rep = build_logged_lineup(decision, database_path=self.database_path)
                 else:
-                    rep = select_starting_lineup(squad_path=squad_path, database_path=self.database_path, gameweek=gw)
+                    rep = select_starting_lineup(
+                        squad_path=squad_path, database_path=self.database_path, gameweek=gw, report_path=None,
+                    )
                     rep["is_logged"] = False
                     existing_dec = get_gameweek_decision(gw, season=season, team_id=tid, database_path=self.database_path)
                     rep["has_logged_decision"] = existing_dec is not None
@@ -454,6 +548,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         horizon=horizon_val,
                         team_id=tid,
                         config_dir=self.config_dir,
+                        report_path=None,
                     )
                     rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -470,6 +565,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     database_path=self.database_path,
                     num_gameweeks=gws,
                     risk_profile=risk,
+                    report_path=None,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -626,6 +722,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         excluded_player_ids=excl,
                         preferred_player_ids=pref,
                         generate_all_candidates=True,
+                        report_path=None,
                     )
                     rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -653,6 +750,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         horizon=horizon,
                         risk_profile=risk,
                         allow_hits=not no_hits,
+                        report_path=None,
                     )
                 else:
                     squad_path = get_team_squad_path(tid, self.config_dir)
@@ -663,6 +761,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         start_gw=start_gw,
                         risk_profile=risk,
                         allow_hits=not no_hits,
+                        report_path=None,
                     )
                     rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -680,6 +779,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     end_gw=end_gw,
                     used_chips=used_list,
                     team_id=tid,
+                    report_path=None,
                 )
                 rep["team_id"] = tid or get_active_team_id(self.config_dir)
                 self._send_json(rep)
@@ -832,7 +932,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                         gw = int(gw_arg)
                         rep = evaluate_gameweek_decision(gameweek=gw, team_id=tid, season=season, database_path=self.database_path)
                     else:
-                        rep = evaluate_season_decisions(team_id=tid, season=season, database_path=self.database_path)
+                        rep = evaluate_season_decisions(
+                            team_id=tid, season=season, database_path=self.database_path, report_path=None,
+                        )
                     self._send_json(rep)
             elif path == "/api/players":
                 search = get_arg("search", "")
@@ -857,6 +959,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     gameweek=gw,
                     team_id=tid,
                     database_path=self.database_path,
+                    save_reports=False,
                 )
                 self._send_json(rep)
             elif path == "/api/live":
@@ -871,6 +974,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     team_id=tid,
                     database_path=self.database_path,
                     force_fetch=force,
+                    save_reports=False,
                 )
                 self._send_json(rep)
             elif path == "/api/advise":
@@ -890,6 +994,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     provider=provider,
                     api_key=api_key,
                     model=model,
+                    team_id=tid,
+                    save_reports=False,
                 )
                 self._send_json(rep)
             elif path == "/api/overview":
@@ -971,6 +1077,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     if sim.is_completed:
                         self._send_json({
                             "session_id": sim.session_id,
+                                **self._application().identity(
+                                    HistoricalContext(sim.session_id, sim.season, sim.current_gw)
+                                ).to_dict(),
                             "season": sim.season,
                             "season_ended": True,
                             "message": "The season is ended. All 38 gameweeks have been completed.",
@@ -998,6 +1107,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     effective_fts = max(0, sim.free_transfers - len(sim.transfers_staged))
                     self._send_json({
                         "session_id": sim.session_id,
+                        **self._application().identity(
+                            HistoricalContext(sim.session_id, sim.season, sim.current_gw)
+                        ).to_dict(),
                         "season": sim.season,
                         "current_gw": sim.current_gw,
                         "status": sim.status,
@@ -1017,21 +1129,150 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
             else:
                 # Static file serving fallback
                 self._serve_static(path)
+        except FPLError as err:
+            self._send_domain_error(err)
         except Exception as err:
+            LOGGER.exception("GUI query failed: %s", path)
             self._send_error_json(str(err), status=500)
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
-
         try:
             body = self._read_json_body()
+            if body.get("mode") == "historical" or body.get("app_mode") == "historical" or "session_id" in body:
+                sid = body.get("session_id")
+                if not isinstance(sid, str) or not sid.strip():
+                    raise ValueError("Historical commands require a valid simulation session_id.")
+            service = self._application()
+            historical_prefix = "/api/historical/simulations/"
+            is_historical = path.startswith(historical_prefix)
+            if path in {"/api/strategic-squad/optimize", "/api/strategic-squad/reoptimize"}:
+                if body.get("session_id"):
+                    calculation_context = service.historical_context(body["session_id"])
+                elif body.get("season") and body["season"] != "2026/27":
+                    self._dispatch_post(path, body)
+                    return
+                else:
+                    tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                    body["team_id"] = tid
+                    calculation_context = service.live_context(tid)
 
+                def calculate() -> dict[str, Any]:
+                    self._command_response = []
+                    try:
+                        self._dispatch_post(path, body)
+                        if len(self._command_response) != 1:
+                            raise InvalidCommandError("A calculation must return exactly one result.")
+                        status, result = self._command_response[0]
+                        if status >= 400:
+                            raise _CommandResponseError(result, status)
+                        return result
+                    finally:
+                        self._command_response = None
+
+                self._send_json(service.query(calculation_context, path, calculate).to_dict())
+                return
+            mutations = {
+                "/api/transfers/execute", "/api/decisions", "/api/decisions/undo",
+                "/api/wildcard/apply", "/api/strategic-squad/apply", "/api/plan/apply-step",
+                "/api/teams/advance",
+            }
+            if not is_historical and path not in mutations:
+                self._dispatch_post(path, body)
+                return
+            creating = path == historical_prefix + "create"
+            forking = is_historical and path.endswith("/fork")
+            source_id = None
+            if creating:
+                body.setdefault("session_id", f"sim_{uuid4().hex}")
+                context = HistoricalContext(
+                    body["session_id"], body.get("season", "2023-24"), int(body.get("start_gw", 1)),
+                )
+            elif is_historical or body.get("session_id"):
+                source_id = path[len(historical_prefix):].split("/")[0] if is_historical else body["session_id"]
+                actual = service.historical_context(source_id)
+                if forking:
+                    target_id = body.get("new_session_id")
+                    context = HistoricalContext(target_id, actual.season, actual.gameweek)
+                else:
+                    context = actual
+                body["session_id"] = source_id
+            else:
+                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                context = service.live_context(tid)
+                body["team_id"] = tid
+
+            candidate = body.get("candidate") if path == "/api/strategic-squad/apply" else None
+            if isinstance(candidate, dict) and "revision" in candidate:
+                body["expected_revision"] = candidate["revision"]
+            requested = body.get("command_context") or (
+                candidate.get("command_context") if isinstance(candidate, dict) else None
+            )
+            if requested is not None:
+                if not isinstance(requested, dict):
+                    raise ValueError("command_context must be an object.")
+                if isinstance(context, HistoricalContext):
+                    supplied = HistoricalContext(
+                        requested.get("session_id"), requested.get("season"), requested.get("gameweek"),
+                    )
+                else:
+                    supplied = LiveContext(
+                        requested.get("team_id"), requested.get("season"), requested.get("gameweek"),
+                    )
+                if requested.get("mode") != context.to_dict()["mode"] or supplied.key != context.key:
+                    raise InvalidCommandError("The command context does not match its target.")
+                context = supplied
+
+            def action() -> Any:
+                if not creating and not forking:
+                    current = service.historical_context(source_id) if source_id else service.live_context(body["team_id"])
+                    if current.to_dict() != context.to_dict():
+                        raise InvalidCommandError("The command deadline changed; refresh the selected state.")
+                    if source_id:
+                        service.historical_session(source_id).require_writable()
+                self._command_response = []
+                try:
+                    self._dispatch_post(path, body)
+                    if len(self._command_response) != 1:
+                        raise InvalidCommandError("A command must return exactly one result.")
+                    status, payload = self._command_response[0]
+                    if status >= 400:
+                        raise _CommandResponseError(payload, status)
+                    return payload
+                finally:
+                    self._command_response = None
+
+            payload = {key: value for key, value in body.items() if key not in {
+                "expected_revision", "command_id", "command_context",
+            }}
+            receipt = service.execute(
+                context, path, payload, action,
+                expected_revision=body.get("expected_revision"), command_id=body.get("command_id"),
+            )
+            result = dict(receipt.result)
+            result["command"] = {
+                "command_id": receipt.command_id, "revision_before": receipt.revision_before,
+                "revision_after": receipt.revision_after, "context": context.to_dict(),
+            }
+            self._send_json(result)
+        except _CommandResponseError as err:
+            self._send_json(err.payload, status=err.status)
+        except FPLError as err:
+            self._send_domain_error(err)
+        except (ValueError, TypeError) as err:
+            self._send_error_json(str(err), status=400, error_type="VALIDATION_ERROR")
+        except Exception as err:
+            LOGGER.exception("GUI command failed: %s", path)
+            self._send_error_json(str(err), status=500, error_type="COMMAND_FAILURE")
+
+    def _dispatch_post(self, path: str, body: dict[str, Any]) -> None:
+        try:
             if path == "/api/teams/switch":
                 tid = body.get("team_id")
                 if not tid:
                     raise ValueError("Field 'team_id' is required.")
-                result = set_active_team(tid, self.config_dir)
+                result = set_active_team(tid, self.config_dir, database_path=self.database_path)
                 self._send_json(result)
             elif path == "/api/teams/create":
                 name = body.get("name")
@@ -1048,13 +1289,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     copy_from_team_id=copy_from,
                     set_as_active=activate,
                     config_dir=self.config_dir,
+                    database_path=self.database_path,
                 )
                 self._send_json(result)
             elif path == "/api/teams/delete":
                 tid = body.get("team_id")
                 if not tid:
                     raise ValueError("Field 'team_id' is required.")
-                result = delete_team(tid, self.config_dir)
+                result = delete_team(tid, self.config_dir, database_path=self.database_path)
                 self._send_json(result)
             elif path == "/api/teams/rename" or (path.startswith("/api/teams/") and path.endswith("/rename")):
                 if path.endswith("/rename") and path != "/api/teams/rename":
@@ -1064,7 +1306,16 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 name = body.get("name")
                 if not name or not str(name).strip():
                     raise ValueError("Field 'name' is required.")
-                result = rename_team(tid, str(name).strip(), self.config_dir)
+                result = rename_team(tid, str(name).strip(), self.config_dir, database_path=self.database_path)
+                self._send_json(result)
+            elif path == "/api/teams/advance":
+                from ..teams import advance_current_squad
+
+                tid = body["team_id"]
+                result = advance_current_squad(
+                    get_team_squad_path(tid, self.config_dir),
+                    team_id=tid, config_dir=self.config_dir, database_path=self.database_path,
+                )
                 self._send_json(result)
             elif path == "/api/transfers/execute":
                 session_id = body.get("session_id")
@@ -1248,51 +1499,9 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     return
 
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
-                gw = int(body["gameweek"])
-                squad_path = get_team_squad_path(tid, self.config_dir)
-                actual_points = body.get("actual_points")
-                overwrite = body.get("overwrite", True)
-
-                if actual_points is not None:
-                    existing = get_gameweek_decision(gw, team_id=tid, database_path=self.database_path)
-                    if existing is not None and not overwrite:
-                        res = record_actual_gameweek_score(gw, actual_points, team_id=tid, database_path=self.database_path)
-                    else:
-                        log_decision_from_current_squad(
-                            gameweek=gw,
-                            squad_path=squad_path,
-                            database_path=self.database_path,
-                            team_id=tid,
-                            squad_player_ids=body.get("squad_players"),
-                            starting_player_ids=body.get("starters"),
-                            bench_player_ids=body.get("bench"),
-                            captain_id=body.get("captain"),
-                            vice_captain_id=body.get("vice_captain"),
-                            chip_played=body.get("chip"),
-                            transfer_hits=body.get("hits"),
-                            transfers=body.get("transfers"),
-                            notes=body.get("notes", ""),
-                            overwrite=overwrite,
-                        )
-                        res = record_actual_gameweek_score(gw, actual_points, team_id=tid, database_path=self.database_path)
-                else:
-                    res = log_decision_from_current_squad(
-                        gameweek=gw,
-                        squad_path=squad_path,
-                        database_path=self.database_path,
-                        team_id=tid,
-                        squad_player_ids=body.get("squad_players"),
-                        starting_player_ids=body.get("starters"),
-                        bench_player_ids=body.get("bench"),
-                        captain_id=body.get("captain"),
-                        vice_captain_id=body.get("vice_captain"),
-                        chip_played=body.get("chip"),
-                        transfer_hits=body.get("hits"),
-                        transfers=body.get("transfers"),
-                        notes=body.get("notes", ""),
-                        overwrite=overwrite,
-                    )
-                self._send_json(res)
+                service = self._application()
+                receipt = service.log_live_decision(service.live_context(tid), body)
+                self._send_json(receipt.result)
             elif path == "/api/decisions/undo":
                 mode_arg = str(body.get("mode") or "").strip().lower()
                 has_session_key = "session_id" in body
@@ -1348,7 +1557,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 gw_val = body.get("gameweek")
                 gw = int(gw_val) if gw_val is not None else 1
                 session_id = body.get("session_id")
-                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                tid = body.get("team_id") or (None if season else get_active_team_id(self.config_dir))
                 mode = body.get("mode", "initial")
                 horizon = int(body.get("horizon", 5))
                 strategy = body.get("strategy", "balanced")
@@ -1442,6 +1651,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                             excluded_player_ids=excluded_ids,
                             preferred_player_ids=preferred_ids,
                             generate_all_candidates=True,
+                            report_path=None,
                         )
                         rep["team_id"] = tid
                         live_gw = (rep.get("horizon_gws") or [gw])[0]
@@ -1477,7 +1687,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 gw_val = body.get("gameweek")
                 gw = int(gw_val) if gw_val is not None else 1
                 session_id = body.get("session_id")
-                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                tid = body.get("team_id") or (None if season else get_active_team_id(self.config_dir))
                 prev_cand_data = body.get("previous_candidate", {})
                 mode = body.get("mode") or prev_cand_data.get("mode", "initial")
                 horizon = int(body.get("horizon") or len(prev_cand_data.get("horizon_gws", [1, 2, 3, 4, 5])))
@@ -1613,7 +1823,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 session_id = body.get("session_id")
                 has_session_key = "session_id" in body
                 app_mode_arg = str(body.get("app_mode") or "").strip().lower()
-                tid = body.get("team_id") or get_active_team_id(self.config_dir)
+                tid = body.get("team_id") or (None if session_id else get_active_team_id(self.config_dir))
                 mode = body.get("mode", "initial")
                 cand_data = body.get("candidate", {}) or {}
                 cand_prov = (cand_data.get("provenance") or {}) if isinstance(cand_data, dict) else {}
@@ -1970,6 +2180,8 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                     provider=provider,
                     api_key=api_key,
                     model=model,
+                    team_id=tid,
+                    save_reports=False,
                 )
                 self._send_json(res)
             elif path == "/api/historical/simulations/create":
@@ -2007,7 +2219,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 action = parts[1] if len(parts) > 1 else ""
                 sim = HistoricalSimulationSession.load(session_id, config_dir=sim_dir)
 
-                if action == "transfers":
+                if action == "fork":
+                    fork = sim.fork_corrected(body["new_session_id"])
+                    self._send_json({
+                        "session_id": fork.session_id, "season": fork.season,
+                        "current_gw": fork.current_gw, "execution_version": fork.execution_version.value,
+                        "read_only": False,
+                    })
+                elif action == "transfers":
                     sub_action = body.get("action")
                     if sub_action == "clear":
                         sim.clear_staged_transfers()
@@ -2128,151 +2347,14 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 else:
                     self._send_error_json(f"Unknown simulation action '{action}'", status=404)
             elif path == "/api/plan/apply-step":
-                from contextlib import closing
                 tid = body.get("team_id") or get_active_team_id(self.config_dir)
-                squad_path = get_team_squad_path(tid, self.config_dir)
-                store = SnapshotStore(self.database_path)
-                store.initialize()
-                gw = int(body.get("gameweek") or get_current_gameweek(store))
-                raw_txs = body.get("transfers") or []
-                tx_list = [
-                    {
-                        "outgoing_id": int(t.get("outgoing_id", t.get("out_id"))),
-                        "incoming_id": int(t.get("incoming_id", t.get("in_id"))),
-                    }
-                    for t in raw_txs
-                ]
-                starting_ids = [int(x) for x in body["starting_ids"]] if body.get("starting_ids") is not None else None
-                bench_ids = [int(x) for x in body["bench_ids"]] if body.get("bench_ids") is not None else None
-                cap_id = int(body["captain_id"]) if body.get("captain_id") is not None else None
-                vc_id = int(body["vice_captain_id"]) if body.get("vice_captain_id") is not None else None
-                cap_name = body.get("captain")
-                vc_name = body.get("vice_captain")
-
-                old_squad_bytes = squad_path.read_bytes() if squad_path.exists() else None
-                cur_state = load_current_squad(squad_path)
-                season_str = getattr(cur_state, "season", "2026/27")
-                orig_decision_row = None
-                orig_recommendation_row = None
-                try:
-                    with closing(store._connect()) as conn:
-                        orig_decision_row = conn.execute(
-                            """
-                            SELECT id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
-                                   transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
-                                   predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
-                            FROM decisions
-                            WHERE team_id = ? AND season = ? AND gameweek = ?
-                            """,
-                            (tid, season_str, gw),
-                        ).fetchone()
-                        if orig_decision_row:
-                            orig_recommendation_row = conn.execute(
-                                """
-                                SELECT recommended_lineup_json, recommended_transfers_json, recommended_plan_json
-                                FROM decision_recommendations
-                                WHERE decision_id = ?
-                                """,
-                                (orig_decision_row[0],),
-                            ).fetchone()
-                except Exception:
-                    pass
-
-                try:
-                    if starting_ids is not None and len(starting_ids) != 11:
-                        raise ValueError(f"Expected 11 starters, got {len(starting_ids)}.")
-                    if bench_ids is not None and len(bench_ids) != 4:
-                        raise ValueError(f"Expected 4 bench players, got {len(bench_ids)}.")
-                    if cap_id is not None and vc_id is not None and cap_id == vc_id:
-                        raise ValueError("Captain and Vice-Captain must be distinct players.")
-                    if starting_ids is not None and cap_id is not None and cap_id not in starting_ids:
-                        raise ValueError(f"Captain ID {cap_id} must be in starting XI.")
-                    if starting_ids is not None and vc_id is not None and vc_id not in starting_ids:
-                        raise ValueError(f"Vice-Captain ID {vc_id} must be in starting XI.")
-
-                    tx_res = None
-                    if tx_list:
-                        tx_res = execute_transfers(
-                            squad_path=squad_path,
-                            transfers=tx_list,
-                            database_path=self.database_path,
-                            gameweek=gw,
-                        )
-                    dec_res = log_decision_from_current_squad(
-                        gameweek=gw,
-                        squad_path=squad_path,
-                        database_path=self.database_path,
-                        captain_id=cap_id if cap_id is not None else cap_name,
-                        vice_captain_id=vc_id if vc_id is not None else vc_name,
-                        transfers=None,
-                        transfer_hits=None,
-                        notes=body.get("notes") or f"Applied from Multi-GW Planner (Step 0, GW{gw})",
-                        starting_player_ids=starting_ids,
-                        bench_player_ids=bench_ids,
-                        team_id=tid,
-                    )
-                except Exception:
-                    try:
-                        if old_squad_bytes is not None:
-                            squad_path.write_bytes(old_squad_bytes)
-                        elif squad_path.exists():
-                            squad_path.unlink()
-                    except Exception:
-                        pass
-                    try:
-                        with closing(store._connect()) as conn, conn:
-                            if orig_decision_row is not None:
-                                conn.execute(
-                                    """
-                                    INSERT OR REPLACE INTO decisions (
-                                        id, team_id, season, gameweek, timestamp, chip_played, transfer_hits,
-                                        transfers_json, starting_ids_json, bench_ids_json, captain_id, vice_captain_id,
-                                        predicted_lineup_xp, predicted_floor_xp, predicted_ceiling_xp, actual_points, notes
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    """,
-                                    orig_decision_row,
-                                )
-                                if orig_recommendation_row is not None:
-                                    conn.execute(
-                                        """
-                                        INSERT OR REPLACE INTO decision_recommendations (
-                                            decision_id, recommended_lineup_json, recommended_transfers_json, recommended_plan_json
-                                        ) VALUES (?, ?, ?, ?)
-                                        """,
-                                        (orig_decision_row[0], *orig_recommendation_row),
-                                    )
-                                else:
-                                    conn.execute(
-                                        "DELETE FROM decision_recommendations WHERE decision_id = ?",
-                                        (orig_decision_row[0],),
-                                    )
-                            else:
-                                conn.execute(
-                                    """
-                                    DELETE FROM decision_recommendations
-                                    WHERE decision_id IN (
-                                        SELECT id FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?
-                                    )
-                                    """,
-                                    (tid, season_str, gw),
-                                )
-                                conn.execute(
-                                    "DELETE FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
-                                    (tid, season_str, gw),
-                                )
-                    except Exception:
-                        pass
-                    raise
-
-                self._send_json({
-                    "success": True,
-                    "team_id": tid,
-                    "gameweek": gw,
-                    "transfers": tx_res.get("transfers", []) if tx_res else [],
-                    "decision": dec_res,
-                })
+                service = self._application()
+                receipt = service.apply_live_plan_step(service.live_context(tid), body)
+                self._send_json(receipt.result)
             else:
                 self._send_error_json("Unknown endpoint", status=404)
+        except FPLError as err:
+            self._send_domain_error(err)
         except ValueError as err:
             err_str = str(err)
             err_type = "INFEASIBLE_CONSTRAINTS" if any(w in err_str.lower() for w in ("constraint", "budget", "quota", "locked", "exclude")) else "VALIDATION_ERROR"
@@ -2290,19 +2372,24 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
         try:
             if path.startswith("/api/teams/") and len(path.split("/")) == 4:
                 tid = path.split("/")[3]
-                result = delete_team(tid, self.config_dir)
+                result = delete_team(tid, self.config_dir, database_path=self.database_path)
                 self._send_json(result)
             elif path.startswith("/api/historical/simulations/"):
                 sid = path[len("/api/historical/simulations/"):].strip("/")
-                sim_dir = self.config_dir / "simulations"
-                sim_file = sim_dir / f"{sid}.json"
-                if sim_file.exists():
-                    sim_file.unlink()
-                    self._send_json({"success": True, "deleted_session_id": sid})
-                else:
-                    self._send_error_json(f"Simulation session '{sid}' not found", status=404)
+                service = self._application()
+                context = service.historical_context(sid)
+                sim = service.historical_session(sid)
+                sim.require_writable()
+                receipt = service.execute(
+                    context, "delete", {}, lambda: delete_state_file(
+                        self.config_dir / "simulations" / f"{sid}.json"
+                    ),
+                )
+                self._send_json({"success": True, "deleted_session_id": sid, "revision": receipt.revision_after})
             else:
                 self._send_error_json("Endpoint not found", status=404)
+        except FPLError as err:
+            self._send_domain_error(err)
         except Exception as err:
             self._send_error_json(str(err), status=400)
 
@@ -2322,7 +2409,7 @@ class FPLRequestHandler(BaseHTTPRequestHandler):
                 name = body.get("name")
                 if not name or not str(name).strip():
                     raise ValueError("Field 'name' is required.")
-                result = rename_team(tid, str(name).strip(), self.config_dir)
+                result = rename_team(tid, str(name).strip(), self.config_dir, database_path=self.database_path)
                 self._send_json(result)
             else:
                 self._send_error_json("Endpoint not found", status=404)
@@ -2389,21 +2476,7 @@ def create_gui_server(
     """Instantiate and configure the GUI ThreadingHTTPServer."""
     actual_port = find_available_port(host, port)
 
-    # Automatically check gameweek and finalize completed decision scores at server startup
-    try:
-        from ..scores import finalize_completed_gameweek_scores
-        finalize_completed_gameweek_scores(database_path=database_path)
-    except Exception:
-        pass
-
-    try:
-        from ..teams import sync_squad_with_current_gameweek, get_active_squad_path, get_active_team_id
-        active_tid = get_active_team_id(config_dir)
-        sq_path = get_active_squad_path(config_dir)
-        if sq_path.exists():
-            sync_squad_with_current_gameweek(sq_path, team_id=active_tid, config_dir=config_dir, database_path=database_path)
-    except Exception:
-        pass
+    ApplicationService(database_path, config_dir).recover()
 
     class CustomHandler(FPLRequestHandler):
         pass

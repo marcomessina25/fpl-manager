@@ -1,4 +1,4 @@
-"""Historical domain models ensuring point-in-time integrity for FPL Manager (V1.0.1)."""
+"""Historical decision views and immutable fixture-level outcome provenance."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -8,7 +8,11 @@ from ..models import Position
 
 @dataclass(frozen=True, slots=True)
 class HistoricalPlayerState:
-    """Player state strictly knowable before Gameweek deadline."""
+    """Archived player attributes and strictly prior performance in a deadline view.
+
+    Announcement-time evidence for archived price/status/ownership is assessed
+    separately; a normalized matchday row alone does not establish that evidence.
+    """
     player_id: int
     web_name: str
     position: Position
@@ -46,7 +50,7 @@ class HistoricalPlayerState:
 
 @dataclass(frozen=True, slots=True)
 class HistoricalFixture:
-    """Fixture representation as known at the decision deadline."""
+    """Score-masked fixture view; historical announcement timing is not verified."""
     fixture_id: int
     event: int
     team_h: int
@@ -66,7 +70,7 @@ class HistoricalFixture:
 
 @dataclass(frozen=True, slots=True)
 class HistoricalGameweekSnapshot:
-    """Complete immutable point-in-time data snapshot for a specific gameweek."""
+    """Immutable decision view whose source as-of evidence is assessed separately."""
     season: str
     gameweek: int
     deadline_time: str
@@ -77,10 +81,42 @@ class HistoricalGameweekSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class FixtureOutcome:
+    """One revealed fixture row, retaining identity rather than a fictitious GW opponent.
+
+    ``identity_source`` is ``record`` for an explicit source fixture ID,
+    ``fixture_schedule`` for a unique schedule match, or ``unidentified`` for a
+    compatible old single-row record. ``source_file`` identifies the outcome asset.
+    """
+    fixture_id: int | None
+    minutes: int
+    total_points: int
+    starts: int = 0
+    goals_scored: int = 0
+    assists: int = 0
+    clean_sheets: int = 0
+    goals_conceded: int = 0
+    bonus: int = 0
+    bps: int = 0
+    was_home: bool | None = None
+    opponent_team_id: int | None = None
+    team_id: int | None = None
+    kickoff_time: str | None = None
+    identity_source: str = "unidentified"
+    source_file: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class GameweekOutcome:
     """Revealed ground truth for a player in a completed gameweek.
-    
+
     MUST NEVER be accessed before or during gameweek decision making.
+
+    Corrected execution sums counting statistics across every fixture. The legacy
+    scalar ``was_home`` / ``opponent_team_id`` fields describe only a single-fixture
+    outcome; both are ``None`` for multiple fixtures, even if both were at home.
+    ``fixture_outcomes`` retains each fixture's identity, statistics and provenance.
+    Explicit legacy execution preserves the original last-row scalar semantics.
     """
     season: str
     gameweek: int
@@ -94,8 +130,9 @@ class GameweekOutcome:
     goals_conceded: int = 0
     bonus: int = 0
     bps: int = 0
-    was_home: bool = True
-    opponent_team_id: int = 0
+    was_home: bool | None = True
+    opponent_team_id: int | None = 0
+    fixture_outcomes: tuple[FixtureOutcome, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

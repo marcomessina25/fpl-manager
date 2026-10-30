@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.fpl_manager.historical.standings import (
+from fpl_manager.historical.standings import (
     compute_historical_standings,
     get_historical_matchday_overview,
     get_historical_past_results,

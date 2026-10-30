@@ -487,6 +487,8 @@ def generate_llm_advisory(
     model: str | None = None,
     custom_prompt: str | None = None,
     save_reports: bool = True,
+    team_id: str = "default",
+    season: str = "2026/27",
 ) -> dict[str, Any]:
     """Generate strategic LLM advisory analysis with deterministic guardrails."""
     store = SnapshotStore(database_path)
@@ -501,6 +503,8 @@ def generate_llm_advisory(
         gameweek=gameweek,
         database_path=database_path,
         save_reports=False,
+        team_id=team_id,
+        season=season,
     )
     gw = dossier.get("gameweek", state.gameweek or 1)
 

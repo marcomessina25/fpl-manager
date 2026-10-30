@@ -1,13 +1,13 @@
 """Deterministic transfer validation using current prices and saved squad state."""
 
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
 from .models import Player
 from .rules import ValidationResult, is_free_transfers_chip, validate_squad
-from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
+from .squad_state import CurrentSquadState, live_command, load_current_squad, save_current_squad, validate_current_squad
 from .storage import SnapshotStore
 
 
@@ -25,9 +25,51 @@ class TransferValidationResult(ValidationResult):
 
 def selling_price(purchase_price_tenths: int, current_price_tenths: int) -> int:
     """Calculate FPL selling price in tenths, including half of price rises."""
+    if any(type(value) is not int or value < 0 for value in (purchase_price_tenths, current_price_tenths)):
+        raise ValueError("Prices must be non-negative integer tenths.")
     if current_price_tenths <= purchase_price_tenths:
         return current_price_tenths
     return purchase_price_tenths + ((current_price_tenths - purchase_price_tenths) // 2)
+
+
+def prepare_transfer_finance(
+    state: CurrentSquadState,
+    players: Iterable[Player],
+    transfers: Iterable[Transfer],
+) -> tuple[CurrentSquadState, list[dict[str, Any]]]:
+    """Calculate a validated, conserved transfer settlement without any side effects."""
+    validate_current_squad(state)
+    player_list = list(players)
+    player_map = {player.id: player for player in player_list}
+    proposed = list(resolve_chained_transfers(transfers))
+    result = validate_transfers(state, player_list, proposed)
+    if not result.is_valid:
+        raise ValueError(f"Transfer validation failed: {'; '.join(result.errors)}")
+    ids = list(state.player_ids)
+    prices = dict(state.purchase_prices_tenths)
+    records = []
+    for tx in proposed:
+        outgoing = player_map[tx.outgoing_id]
+        incoming = player_map[tx.incoming_id]
+        purchase = state.purchase_price(outgoing.id)
+        records.append({
+            "outgoing_id": outgoing.id,
+            "outgoing_name": outgoing.name,
+            "outgoing_team": outgoing.team_id,
+            "incoming_id": incoming.id,
+            "incoming_name": incoming.name,
+            "incoming_team": incoming.team_id,
+            "selling_price_tenths": selling_price(purchase, outgoing.price_tenths),
+            "purchase_price_tenths": incoming.price_tenths,
+            "outgoing_purchase_price_tenths": purchase,
+        })
+    outgoing_ids = {tx.outgoing_id for tx in proposed}
+    ids = [pid for pid in ids if pid not in outgoing_ids] + [tx.incoming_id for tx in proposed]
+    prices = {pid: price for pid, price in prices.items() if pid not in outgoing_ids}
+    prices.update({tx.incoming_id: player_map[tx.incoming_id].price_tenths for tx in proposed})
+    updated = replace(state, player_ids=tuple(ids), purchase_prices_tenths=prices, bank_tenths=result.bank_after_tenths)
+    validate_current_squad(updated)
+    return updated, records
 
 
 def resolve_chained_transfers(
@@ -134,6 +176,7 @@ def validate_transfers(
     transfers: Iterable[Transfer],
 ) -> TransferValidationResult:
     """Validate a position-preserving transfer set against state, bank, and squad rules."""
+    validate_current_squad(state)
     player_by_id = {player.id: player for player in players}
     proposed = tuple(resolve_chained_transfers(transfers))
     errors: list[str] = []
@@ -212,15 +255,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_PATH = PROJECT_ROOT / "data" / "fpl.sqlite3"
 
 
+@live_command("execute_transfers")
 def execute_transfers(
     squad_path: Path,
     transfers: list[Transfer | dict[str, Any] | tuple[int, int]],
     database_path: Path = DATABASE_PATH,
     gameweek: int | None = None,
     chip_played: str | None = None,
+    team_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute and persist proposed transfers directly to the squad state file and decision records."""
-    orig_state_text = squad_path.read_text(encoding="utf-8") if squad_path.exists() else None
+    from .application.files import read_state_text
+    orig_state_text = read_state_text(squad_path) if squad_path.exists() else None
     state = load_current_squad(squad_path)
     store = SnapshotStore(database_path)
     store.initialize()
@@ -268,14 +314,13 @@ def execute_transfers(
     if not val_res.is_valid:
         raise ValueError(f"Transfer validation failed: {'; '.join(val_res.errors)}")
 
-    team_id = "default"
-    try:
+    if team_id is None:
         from .teams import get_team_id_from_squad_path
         team_id = get_team_id_from_squad_path(squad_path)
-    except Exception:
-        pass
 
     target_gw = gameweek or state.gameweek
+    if target_gw is not None and target_gw < (state.gameweek or 1):
+        raise ValueError("Cannot execute transfers against a past gameweek.")
     existing_dec = None
     existing_tx: list[dict[str, Any]] = []
     if target_gw is not None:
@@ -286,42 +331,15 @@ def execute_transfers(
                 existing_tx = existing_dec.get("transfers", [])
         except Exception:
             pass
+    from .decision_log import consume_chip
+    active_chip = chip_played or (existing_dec.get("chip_played") if existing_dec else None)
+    remaining_chips = consume_chip(
+        state, active_chip, target_gw or 1, existing_dec.get("chip_played") if existing_dec else None
+    )
 
-    player_map = {p.id: p for p in all_players}
-    new_ids = list(state.player_ids)
-    new_prices = dict(state.purchase_prices_tenths)
-    records = []
-
-    for tx in tx_objs:
-        out_p = player_map[tx.outgoing_id]
-        in_p = player_map[tx.incoming_id]
-
-        out_purchase = state.purchase_price(tx.outgoing_id)
-        sell_p = selling_price(out_purchase, out_p.price_tenths)
-
-        new_ids.remove(tx.outgoing_id)
-        new_ids.append(tx.incoming_id)
-
-        new_prices.pop(tx.outgoing_id, None)
-        # Restore pre-transfer purchase price if player is being re-acquired within the same gameweek
-        orig_p_purchase = None
-        for ptx in existing_tx:
-            if ptx.get("outgoing_id") == tx.incoming_id:
-                orig_p_purchase = ptx.get("outgoing_purchase_price_tenths")
-                break
-        new_prices[tx.incoming_id] = orig_p_purchase if orig_p_purchase is not None else in_p.price_tenths
-
-        records.append({
-            "outgoing_id": tx.outgoing_id,
-            "outgoing_name": out_p.name,
-            "outgoing_team": out_p.team_id,
-            "incoming_id": tx.incoming_id,
-            "incoming_name": in_p.name,
-            "incoming_team": in_p.team_id,
-            "selling_price_tenths": sell_p,
-            "purchase_price_tenths": in_p.price_tenths,
-            "outgoing_purchase_price_tenths": out_purchase,
-        })
+    settlement, records = prepare_transfer_finance(state, all_players, tx_objs)
+    new_ids = list(settlement.player_ids)
+    new_prices = dict(settlement.purchase_prices_tenths)
 
     num_tx = len(tx_objs)
     new_bank = val_res.bank_after_tenths if val_res.bank_after_tenths is not None else state.bank_tenths
@@ -427,9 +445,11 @@ def execute_transfers(
                     season=state.season,
                     gameweek=state.gameweek,
                 )
-                save_current_squad(squad_path, tmp_state)
                 from .lineup import select_starting_lineup
-                lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=target_gw)
+                lineup_sol = select_starting_lineup(
+                    squad_path=squad_path, database_path=database_path,
+                    gameweek=target_gw, report_path=None, state=tmp_state,
+                )
                 cur_starters = [p["id"] for p in lineup_sol["starters"]]
                 cur_bench = [p["id"] for p in lineup_sol["bench"]]
                 cur_cap = lineup_sol["captain"]["id"]
@@ -464,34 +484,7 @@ def execute_transfers(
             )
 
         new_ft = 1 if is_free_transfers_chip(chip_played) else max(0, starting_ft - len(merged_tx))
-        new_chips = list(state.chips_remaining)
-        if chip_played:
-            cp_norm = str(chip_played).lower().strip()
-            to_remove = None
-            for c in new_chips:
-                c_norm = str(c).lower().strip()
-                if c_norm == cp_norm:
-                    to_remove = c
-                    break
-                if cp_norm in ("wildcard", "wc"):
-                    gw_num = target_gw or state.gameweek or 1
-                    if gw_num <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
-                        to_remove = c
-                        break
-                    elif gw_num >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
-                        to_remove = c
-                        break
-                elif cp_norm in ("freehit", "free_hit", "fh") and c_norm in ("freehit", "free_hit"):
-                    to_remove = c
-                    break
-                elif cp_norm in ("benchboost", "bench_boost", "bb") and c_norm in ("benchboost", "bench_boost"):
-                    to_remove = c
-                    break
-                elif cp_norm in ("triplecaptain", "triple_captain", "tc") and c_norm in ("triplecaptain", "triple_captain"):
-                    to_remove = c
-                    break
-            if to_remove and to_remove in new_chips:
-                new_chips.remove(to_remove)
+        new_chips = remaining_chips
 
         updated_state = CurrentSquadState(
             player_ids=tuple(new_ids),
@@ -501,9 +494,13 @@ def execute_transfers(
             chips_remaining=tuple(new_chips),
             season=state.season,
             gameweek=max(state.gameweek or 1, target_gw or 1),
+            chip_segment=state.chip_segment,
         )
         save_current_squad(squad_path, updated_state)
     except Exception:
+        from .application import active_command
+        if active_command() is not None:
+            raise
         # Explicit compensating rollback across both persistence systems
         # 1. Restore squad state file
         try:

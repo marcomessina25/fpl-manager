@@ -66,7 +66,7 @@ def live_matchday_env(tmp_path: Path) -> tuple[Path, Path]:
         "season": "2026/27",
         "free_transfers": 1,
         "bank_tenths": 10,
-        "chips_remaining": ["wildcard", "bench_boost", "triple_captain"],
+        "chips_remaining": ["wildcard", "free_hit", "bench_boost", "triple_captain"],
         "player_ids": list(range(1, 16)),
         "purchase_prices_tenths": {str(i): 50 for i in range(1, 16)},
         "gameweek": 2,
@@ -360,7 +360,10 @@ def test_live_matchday_triple_captain_and_bench_boost(live_matchday_env: tuple[P
     assert all(b["counted_in_total"] is True for b in summary_bb["bench"])
 
 
-def test_live_matchday_wildcard_and_freehit_zeroes_hits(live_matchday_env: tuple[Path, Path]) -> None:
+@pytest.mark.parametrize(("chip_played", "transfer_hits"), [("wildcard", 8), ("free_hit", 10)])
+def test_live_matchday_wildcard_and_freehit_zeroes_hits(
+    live_matchday_env: tuple[Path, Path], chip_played: str, transfer_hits: int,
+) -> None:
     db_path, squad_path = live_matchday_env
     store = SnapshotStore(db_path)
 
@@ -384,7 +387,6 @@ def test_live_matchday_wildcard_and_freehit_zeroes_hits(live_matchday_env: tuple
     starters = [1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15]
     bench = [2, 6, 7, 12]
 
-    # Test Wildcard: transfer_hits=8 should result in 0 hits and 0 hit_cost
     log_decision_from_current_squad(
         gameweek=2,
         squad_path=squad_path,
@@ -393,44 +395,18 @@ def test_live_matchday_wildcard_and_freehit_zeroes_hits(live_matchday_env: tuple
         bench_player_ids=bench,
         captain_id=13,
         vice_captain_id=8,
-        chip_played="wildcard",
-        transfer_hits=8,
+        chip_played=chip_played,
+        transfer_hits=transfer_hits,
         overwrite=True,
     )
 
-    summary_wc = get_live_gameweek_matchday_summary(
+    summary = get_live_gameweek_matchday_summary(
         gameweek=2,
         squad_path=squad_path,
         database_path=db_path,
         save_reports=False,
     )
-    assert summary_wc["chip_played"] == "wildcard"
-    assert summary_wc["transfer_hits"] == 0
-    assert summary_wc["hit_cost"] == 0
-    assert summary_wc["net_points"] == summary_wc["gross_points"]
-
-    # Test Free Hit: transfer_hits=10 should also result in 0 hits and 0 hit_cost
-    log_decision_from_current_squad(
-        gameweek=2,
-        squad_path=squad_path,
-        database_path=db_path,
-        starting_player_ids=starters,
-        bench_player_ids=bench,
-        captain_id=13,
-        vice_captain_id=8,
-        chip_played="free_hit",
-        transfer_hits=10,
-        overwrite=True,
-    )
-
-    summary_fh = get_live_gameweek_matchday_summary(
-        gameweek=2,
-        squad_path=squad_path,
-        database_path=db_path,
-        save_reports=False,
-    )
-    assert summary_fh["chip_played"] == "free_hit"
-    assert summary_fh["transfer_hits"] == 0
-    assert summary_fh["hit_cost"] == 0
-    assert summary_fh["net_points"] == summary_fh["gross_points"]
-
+    assert summary["chip_played"] == chip_played
+    assert summary["transfer_hits"] == 0
+    assert summary["hit_cost"] == 0
+    assert summary["net_points"] == summary["gross_points"]

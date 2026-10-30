@@ -68,46 +68,30 @@ def generate_manager_briefing(
         lineup_data = build_logged_lineup(decision, database_path=database_path)
         is_logged = True
     else:
-        lineup_data = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
+        lineup_data = select_starting_lineup(
+            squad_path=squad_path, database_path=database_path, gameweek=gameweek, report_path=None,
+        )
         is_logged = False
 
     # 3. Strategic Risk & Ownership
-    risk_data = {}
-    try:
-        risk_data = analyze_squad_risk_profile(
-            squad_path=squad_path,
-            gameweek=gameweek,
-            database_path=database_path,
-            report_path=REPORTS_DIRECTORY / "temp_risk.json",
-        )
-    except Exception:
-        pass
+    risk_data = analyze_squad_risk_profile(
+        squad_path=squad_path, gameweek=gameweek,
+        database_path=database_path, report_path=None,
+    )
 
     # 4. Transfer Recommendations
-    transfer_opts = []
-    try:
-        from .suggest_transfers import suggest_transfers
-        tx_res = suggest_transfers(
-            num_transfers=1,
-            squad_path=squad_path,
-            database_path=database_path,
-            max_results=3,
-        )
-        transfer_opts = tx_res.get("top_suggestions", [])
-    except Exception:
-        pass
+    from .suggest_transfers import suggest_transfers
+    tx_res = suggest_transfers(
+        num_transfers=1, squad_path=squad_path, database_path=database_path,
+        gameweek=gameweek, team_id=team_id, max_results=3, report_path=None,
+    )
+    transfer_opts = tx_res.get("top_suggestions", [])
 
     # 5. Chip Strategy & Blank/Double Gameweek Radar
-    chip_data = {}
-    try:
-        chip_data = recommend_chip_strategy(
-            squad_path=squad_path,
-            current_gw=gameweek,
-            database_path=database_path,
-            report_path=REPORTS_DIRECTORY / "temp_chip.json",
-        )
-    except Exception:
-        pass
+    chip_data = recommend_chip_strategy(
+        squad_path=squad_path, start_gw=gameweek, team_id=team_id,
+        database_path=database_path, report_path=None,
+    )
 
     # 6. Injury, Suspension & Press Conference News
     squad_alerts = []

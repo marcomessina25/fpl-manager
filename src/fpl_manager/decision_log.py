@@ -9,7 +9,7 @@ Maintains an immutable historical record of all pre-deadline manager decisions:
 """
 
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
 from typing import Any
@@ -17,10 +17,10 @@ from typing import Any
 from .expected_points import project_gameweek
 from .fixtures import get_current_gameweek
 from .models import Player, Position
-from .rules import is_free_transfers_chip, validate_squad, validate_starting_lineup
-from .squad_state import CurrentSquadState, load_current_squad, save_current_squad
+from .rules import free_transfer_transition, is_free_transfers_chip, validate_squad, validate_starting_lineup
+from .squad_state import CurrentSquadState, live_command, load_current_squad, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
-from .transfers import resolve_chained_transfers
+from .transfers import Transfer, prepare_transfer_finance, resolve_chained_transfers, selling_price
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = PROJECT_ROOT / "data"
@@ -28,6 +28,73 @@ DATABASE_PATH = DATA_DIRECTORY / "fpl.sqlite3"
 DEFAULT_SQUAD_PATH = PROJECT_ROOT / "config" / "current_squad.json"
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionContext:
+    """Immutable pre-deadline ownership, finance and data identity for model capture."""
+    team_id: str
+    squad_player_ids: tuple[int, ...]
+    purchase_prices_tenths: tuple[tuple[int, int], ...]
+    bank_tenths: int
+    free_transfers: int
+    chips_remaining: tuple[str, ...]
+    season: str
+    gameweek: int
+    snapshot_id: int
+    chip_played: str | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "squad_player_ids", tuple(self.squad_player_ids))
+        object.__setattr__(self, "purchase_prices_tenths", tuple(tuple(item) for item in self.purchase_prices_tenths))
+        object.__setattr__(self, "chips_remaining", tuple(self.chips_remaining))
+        from .squad_state import validate_current_squad
+        validate_current_squad(self.state)
+
+    @classmethod
+    def from_state(cls, team_id, state, gameweek, snapshot_id, chip_played=None):
+        return cls(
+            team_id, tuple(state.player_ids), tuple(sorted(state.purchase_prices_tenths.items())),
+            state.bank_tenths, state.free_transfers, tuple(state.chips_remaining),
+            state.season, gameweek, snapshot_id, chip_played,
+        )
+
+    @property
+    def state(self) -> CurrentSquadState:
+        return CurrentSquadState(
+            self.squad_player_ids, dict(self.purchase_prices_tenths), self.bank_tenths,
+            self.free_transfers, self.chips_remaining, self.season, self.gameweek,
+        )
+
+
+def consume_chip(
+    state: CurrentSquadState, chip: str | None, gameweek: int,
+    already_played: str | None = None,
+) -> tuple[str, ...]:
+    if not chip or (already_played and normalize_chip(chip) == normalize_chip(already_played)):
+        return state.chips_remaining
+    normalized = normalize_chip(chip)
+    if normalized == "wildcard":
+        aliases = {"wildcard", f"wildcard_{1 if gameweek <= 19 else 2}"}
+    else:
+        aliases = {normalized}
+    remaining = list(state.chips_remaining)
+    match = next((item for item in remaining if normalize_chip(item) in aliases), None)
+    if match is None:
+        raise ValueError(f"Chip '{chip}' is not available in GW{gameweek}.")
+    remaining.remove(match)
+    return tuple(remaining)
+
+
+def normalize_chip(chip: str) -> str:
+    name = str(chip).strip().lower().replace("_", "").replace(" ", "")
+    return {
+        "wc": "wildcard", "wildcard1": "wildcard_1", "wildcard2": "wildcard_2",
+        "fh": "free_hit", "freehit": "free_hit", "bb": "bench_boost",
+        "benchboost": "bench_boost", "tc": "triple_captain", "3xc": "triple_captain",
+        "triplecaptain": "triple_captain",
+    }.get(name, name)
+
+
+@live_command("record_gameweek_decision")
 def record_gameweek_decision(
     gameweek: int,
     squad_player_ids: list[int],
@@ -44,6 +111,7 @@ def record_gameweek_decision(
     database_path: Path = DATABASE_PATH,
     capture_recommendations: bool = True,
     overwrite: bool = True,
+    decision_context: DecisionContext | None = None,
 ) -> dict[str, Any]:
     """Record and lock in a gameweek decision in the persistent audit database."""
     if len(squad_player_ids) != 15:
@@ -62,6 +130,10 @@ def record_gameweek_decision(
         raise ValueError(f"Vice-Captain ID {vice_captain_id} must be in the starting XI.")
     if captain_id == vice_captain_id:
         raise ValueError("Captain and Vice-Captain cannot be the same player.")
+    if type(gameweek) is not int or not 1 <= gameweek <= 38:
+        raise ValueError("Gameweek must be an integer between 1 and 38.")
+    if type(transfer_hits) is not int or transfer_hits < 0:
+        raise ValueError("Transfer hits must be a non-negative integer.")
 
     if is_free_transfers_chip(chip_played):
         transfer_hits = 0
@@ -96,6 +168,14 @@ def record_gameweek_decision(
         )
         for row in rows
     }
+    if decision_context is not None:
+        if (
+            decision_context.team_id != team_id or decision_context.gameweek != gameweek
+            or decision_context.state.season != season
+            or set(decision_context.state.player_ids) != set(squad_player_ids)
+            or decision_context.snapshot_id != snapshot_id
+        ):
+            raise ValueError("Decision context does not match the recorded team, squad, gameweek or snapshot.")
 
     # Verify rule validity (formation, 15 players, club limits; budget is None because price appreciation naturally increases squad value over time)
     squad_objs = [players_by_id[pid] for pid in squad_player_ids if pid in players_by_id]
@@ -111,7 +191,10 @@ def record_gameweek_decision(
         raise ValueError(f"Starting XI legality check failed: {'; '.join(lineup_val.errors)}")
 
     # Compute expected points projection for this lineup
-    projections = project_gameweek(gameweek=gameweek, player_ids=squad_player_ids, database_path=database_path)
+    point_in_time_unavailable = gameweek < get_current_gameweek(store)
+    projections = [] if point_in_time_unavailable else project_gameweek(
+        gameweek=gameweek, player_ids=squad_player_ids, database_path=database_path
+    )
     proj_map = {p.player_id: p for p in projections}
 
     starters_projs = [proj_map[pid] for pid in starting_player_ids if pid in proj_map]
@@ -133,19 +216,34 @@ def record_gameweek_decision(
     rec_plan_json = None
 
     if capture_recommendations:
-        try:
+        if decision_context is None or point_in_time_unavailable:
+            missing = {
+                "capture_status": "not_captured",
+                "reason": "point_in_time_snapshot_unavailable" if point_in_time_unavailable else "explicit_decision_context_required",
+            }
+            rec_lineup_json = json.dumps(missing)
+            rec_transfers_json = json.dumps(missing)
+        else:
             from .lineup import select_starting_lineup
-            lineup_res = select_starting_lineup(database_path=database_path, gameweek=gameweek)
+            lineup_res = select_starting_lineup(
+                database_path=database_path, gameweek=gameweek,
+                state=decision_context.state, report_path=None,
+            )
+            lineup_res["decision_context"] = {
+                "team_id": team_id, "season": season, "gameweek": gameweek,
+                "snapshot_id": decision_context.snapshot_id,
+                "bank_tenths": decision_context.bank_tenths,
+                "free_transfers": decision_context.free_transfers,
+                "chip_played": decision_context.chip_played,
+            }
             rec_lineup_json = json.dumps(lineup_res, ensure_ascii=False)
-        except Exception:
-            pass
-
-        try:
             from .suggest_transfers import suggest_transfers
-            tx_res = suggest_transfers(num_transfers=1, database_path=database_path, max_results=3)
-            rec_transfers_json = json.dumps(tx_res, ensure_ascii=False)
-        except Exception:
-            pass
+            transfer_res = suggest_transfers(
+                state=decision_context.state, gameweek=gameweek, team_id=team_id,
+                database_path=database_path, report_path=None,
+            )
+            transfer_res["decision_context"] = dict(lineup_res["decision_context"])
+            rec_transfers_json = json.dumps(transfer_res, ensure_ascii=False)
 
     with closing(store._connect()) as connection, connection:
         existing = connection.execute(
@@ -243,6 +341,7 @@ def record_gameweek_decision(
         "predicted_floor_xp": round(starters_floor, 2),
         "predicted_ceiling_xp": round(starters_ceil, 2),
         "notes": notes,
+        "prediction_status": "not_captured_point_in_time_unavailable" if point_in_time_unavailable else "captured",
     }
 
 
@@ -353,6 +452,7 @@ def list_decisions(
     return decisions
 
 
+@live_command("record_actual_gameweek_score")
 def record_actual_gameweek_score(
     gameweek: int,
     actual_points: int,
@@ -414,6 +514,7 @@ def parse_and_apply_transfers(
     current_player_ids: list[int],
     transfers_input: list[str] | list[dict[str, Any]] | None,
     allow_past_outgoing: bool = False,
+    already_applied_pairs: set[tuple[int, int]] | None = None,
 ) -> tuple[list[int], list[dict[str, Any]]]:
     """Parse transfer inputs (e.g. 'OUT:IN' or dicts), apply them to player IDs, and return new IDs and records."""
     if not transfers_input:
@@ -443,6 +544,8 @@ def parse_and_apply_transfers(
             squad_ids.remove(out_id)
             if in_id not in squad_ids:
                 squad_ids.append(in_id)
+        elif (out_id, in_id) in (already_applied_pairs or set()) and in_id in squad_ids:
+            pass
         elif allow_past_outgoing:
             # When logging a past gameweek:
             # If in_id is already in squad_ids (e.g. from current squad or post-transfer lineup),
@@ -513,8 +616,7 @@ def reconcile_squad_transfers(
         out_current_cost = o_meta.get("price", 50)
         in_current_cost = i_meta.get("price", 50)
         out_purchase = purchases.get(o_id, out_current_cost)
-        gain = max(0, (out_current_cost - out_purchase) // 2)
-        selling_price = out_purchase + gain
+        sell_price = selling_price(out_purchase, out_current_cost)
 
         tx_records.append({
             "outgoing_id": o_id,
@@ -523,13 +625,14 @@ def reconcile_squad_transfers(
             "incoming_id": i_id,
             "incoming_name": i_meta.get("name", f"ID {i_id}"),
             "incoming_team": i_meta.get("team", ""),
-            "selling_price_tenths": selling_price,
+            "selling_price_tenths": sell_price,
             "purchase_price_tenths": in_current_cost,
             "outgoing_purchase_price_tenths": out_purchase,
         })
     return tx_records
 
 
+@live_command("log_decision_from_current_squad")
 def log_decision_from_current_squad(
     gameweek: int | None = None,
     squad_path: Path = DEFAULT_SQUAD_PATH,
@@ -545,6 +648,7 @@ def log_decision_from_current_squad(
     notes: str = "",
     team_id: str | None = None,
     overwrite: bool = True,
+    season: str | None = None,
 ) -> dict[str, Any]:
     """Log decision using current squad, custom trades, and custom or optimized lineup.
 
@@ -554,6 +658,8 @@ def log_decision_from_current_squad(
     If gameweek is current, applies trades directly and updates current_squad.json.
     """
     state = load_current_squad(squad_path)
+    if season is not None and season != state.season:
+        raise ValueError("Decision season does not match the selected squad.")
     store = SnapshotStore(database_path)
     store.initialize()
 
@@ -598,12 +704,19 @@ def log_decision_from_current_squad(
     else:
         base_squad = list(state.player_ids)
 
+    existing_dec = get_gameweek_decision(gameweek, season=state.season, team_id=team_id, database_path=database_path)
+    existing_records = {
+        (tx["outgoing_id"], tx["incoming_id"]): tx for tx in existing_dec.get("transfers", [])
+    } if existing_dec else {}
     # 2. Parse and apply any trades (transfers)
     squad_ids, parsed_transfers = parse_and_apply_transfers(
-        store, base_squad, transfers, allow_past_outgoing=is_past
+        store, base_squad, transfers, allow_past_outgoing=is_past,
+        already_applied_pairs=set(existing_records),
     )
+    parsed_transfers = [
+        dict(existing_records.get((tx["outgoing_id"], tx["incoming_id"]), tx)) for tx in parsed_transfers
+    ]
 
-    existing_dec = get_gameweek_decision(gameweek, season=state.season, team_id=team_id, database_path=database_path)
     if chip_played is None and existing_dec is not None and existing_dec.get("chip_played"):
         chip_played = existing_dec["chip_played"]
 
@@ -779,10 +892,9 @@ def log_decision_from_current_squad(
                 out_current_cost = out_row[0] if out_row else state.purchase_prices_tenths.get(out_id, 50)
                 in_current_cost = in_row[0] if in_row else 50
                 out_purchase = state.purchase_prices_tenths.get(out_id, out_current_cost)
-                gain = max(0, (out_current_cost - out_purchase) // 2)
-                selling_price = out_purchase + gain
+                sell_price = selling_price(out_purchase, out_current_cost)
                 if "selling_price_tenths" not in tx:
-                    tx["selling_price_tenths"] = selling_price
+                    tx["selling_price_tenths"] = sell_price
                 if "purchase_price_tenths" not in tx:
                     tx["purchase_price_tenths"] = in_current_cost
                 if "outgoing_purchase_price_tenths" not in tx:
@@ -805,6 +917,47 @@ def log_decision_from_current_squad(
     else:
         computed_hits = transfer_hits
 
+    updated_state = None
+    capture_context = None
+    if not is_past:
+        players = store.latest_players()
+        player_map = {player.id: player for player in players}
+        outgoing = set(state.player_ids) - set(squad_ids)
+        incoming = set(squad_ids) - set(state.player_ids)
+        if len(outgoing) != len(incoming):
+            raise ValueError("Decision squad does not preserve full ownership.")
+        changed = reconcile_squad_transfers(
+            state.player_ids, squad_ids, store, state.purchase_prices_tenths
+        ) if outgoing else []
+        if outgoing and not changed:
+            raise ValueError("Cannot establish a complete transfer basis for decision squad.")
+        settlement = state
+        if changed:
+            settlement, priced = prepare_transfer_finance(
+                state, players, [Transfer(tx["outgoing_id"], tx["incoming_id"]) for tx in changed]
+            )
+            priced_by_pair = {(tx["outgoing_id"], tx["incoming_id"]): tx for tx in priced}
+            for tx in parsed_transfers:
+                match = priced_by_pair.get((tx["outgoing_id"], tx["incoming_id"]))
+                if match is not None:
+                    tx.update(match)
+        if any(pid not in player_map for pid in squad_ids):
+            raise ValueError("Decision squad includes unknown players.")
+        new_chips = consume_chip(
+            state, chip_played, gameweek, existing_dec.get("chip_played") if existing_dec else None
+        )
+        starting_ft = compute_expected_free_transfers(
+            gameweek, team_id=team_id, season=state.season, database_path=database_path
+        )
+        updated_state = replace(
+            settlement, player_ids=tuple(squad_ids), chips_remaining=new_chips,
+            free_transfers=1 if is_free_transfers_chip(chip_played) else max(0, starting_ft - len(parsed_transfers)),
+            gameweek=max(squad_gw, gameweek),
+        )
+        with closing(store._connect()) as conn:
+            snapshot_id = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()[0]
+        capture_context = DecisionContext.from_state(team_id, updated_state, gameweek, snapshot_id, chip_played)
+
     decision = record_gameweek_decision(
         gameweek=gameweek,
         season=state.season,
@@ -820,102 +973,13 @@ def log_decision_from_current_squad(
         notes=notes,
         database_path=database_path,
         overwrite=overwrite,
+        decision_context=capture_context,
     )
 
     decision["is_past_gameweek"] = is_past
     decision["current_squad_updated"] = not is_past
 
-    # 5. If logging NOW (not in the past), impact and update current_squad.json!
-    if not is_past:
-        from .squad_state import save_current_squad
-        new_player_ids = tuple(squad_ids)
-        new_prices = dict(state.purchase_prices_tenths)
-        new_bank = state.bank_tenths
-
-        with closing(store._connect()) as conn:
-            snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
-            snap_id = snap[0] if snap else 1
-
-            for tx in parsed_transfers:
-                out_id = tx["outgoing_id"]
-                in_id = tx["incoming_id"]
-
-                # Only adjust bank and purchase prices if outgoing player was still in the squad state!
-                if out_id in state.player_ids:
-                    out_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, out_id)).fetchone()
-                    in_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, in_id)).fetchone()
-
-                    out_current_cost = out_row[0] if out_row else new_prices.get(out_id, 50)
-                    in_current_cost = in_row[0] if in_row else 50
-                    out_purchase = new_prices.get(out_id, out_current_cost)
-
-                    gain = max(0, (out_current_cost - out_purchase) // 2)
-                    selling_price = out_purchase + gain
-
-                    new_prices.pop(out_id, None)
-                    new_prices[in_id] = in_current_cost
-                    new_bank += (selling_price - in_current_cost)
-
-                    tx["selling_price_tenths"] = selling_price
-                    tx["purchase_price_tenths"] = in_current_cost
-                    tx["outgoing_purchase_price_tenths"] = out_purchase
-        # Crossing into second segment (GW20–38) resets chips to Window 2 inventory
-        if gameweek >= 20 and (state.gameweek or 1) <= 19:
-            new_chips = ["wildcard_2", "free_hit", "bench_boost", "triple_captain"]
-        else:
-            new_chips = list(state.chips_remaining)
-        if chip_played:
-            cp_norm = str(chip_played).lower().strip()
-            to_remove = None
-            for c in new_chips:
-                c_norm = str(c).lower().strip()
-                if c_norm == cp_norm:
-                    to_remove = c
-                    break
-                if cp_norm in ("wildcard", "wc"):
-                    if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
-                        to_remove = c
-                        break
-                    elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
-                        to_remove = c
-                        break
-                elif cp_norm in ("freehit", "free_hit", "fh") and c_norm in ("freehit", "free_hit"):
-                    to_remove = c
-                    break
-                elif cp_norm in ("benchboost", "bench_boost", "bb") and c_norm in ("benchboost", "bench_boost"):
-                    to_remove = c
-                    break
-                elif cp_norm in ("triplecaptain", "triple_captain", "tc", "3xc") and c_norm in ("triplecaptain", "triple_captain"):
-                    to_remove = c
-                    break
-            if to_remove and to_remove in new_chips:
-                new_chips.remove(to_remove)
-
-        num_tx = len(parsed_transfers)
-        starting_ft = compute_expected_free_transfers(
-            gameweek,
-            team_id=team_id,
-            season=state.season,
-            database_path=database_path,
-        )
-        remaining_ft = max(0, starting_ft - num_tx)
-
-        if is_free_transfers_chip(chip_played):
-            new_ft = 1
-        else:
-            new_ft = remaining_ft
-
-        new_gw = max(squad_gw, gameweek)
-
-        updated_state = CurrentSquadState(
-            player_ids=new_player_ids,
-            purchase_prices_tenths=new_prices,
-            bank_tenths=max(0, new_bank),
-            free_transfers=new_ft,
-            chips_remaining=tuple(new_chips),
-            season=state.season,
-            gameweek=new_gw,
-        )
+    if updated_state is not None:
         save_current_squad(squad_path, updated_state)
 
     return decision
@@ -956,22 +1020,28 @@ def compute_expected_free_transfers(
                     ft = 1
                 else:
                     tx_count = len(resolve_chained_transfers(tx_list))
-                    ft = min(5, max(0, ft - tx_count) + 1)
+                    _, ft = free_transfer_transition(gw, ft, tx_count, max_free_transfers=5)
             else:
                 ft = 1
 
     return max(1, min(5, ft))
 
 
+@live_command("undo_gameweek_changes")
 def undo_gameweek_changes(
     squad_path: Path,
     gameweek: int | None = None,
-    team_id: str = "default",
-    season: str = "2026/27",
+    team_id: str | None = None,
+    season: str | None = None,
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
     """Reset changes for the target gameweek and revert squad to the status of the previous gameweek."""
     cur_state = load_current_squad(squad_path)
+    from .teams import get_team_id_from_squad_path
+    team_id = team_id or get_team_id_from_squad_path(squad_path)
+    season = season or cur_state.season
+    if season != cur_state.season:
+        raise ValueError("Undo season does not match the selected squad.")
     target_gw = gameweek or cur_state.gameweek or 1
 
     store = SnapshotStore(database_path)
@@ -1013,7 +1083,6 @@ def undo_gameweek_changes(
         if cur_dec_row:
             cur_tx = json.loads(cur_dec_row[1]) if cur_dec_row[1] else []
             cur_chip = cur_dec_row[2]
-            conn.execute("DELETE FROM decisions WHERE id = ?", (cur_dec_row[0],))
 
     # Calculate price reconstruction and cash impact
     legacy_squad_path = squad_path.parent.parent / "current_squad.json"
@@ -1094,11 +1163,12 @@ def undo_gameweek_changes(
                 snap_id = snap_row[0] if snap_row else 1
                 p_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, s_pid)).fetchone()
                 cur_cost = p_row[0] if p_row else s_purchase
-            gain = max(0, (cur_cost - s_purchase) // 2)
-            sell_p = s_purchase + gain
+            sell_p = selling_price(s_purchase, cur_cost)
             net_cash_impact += sell_p
 
-    reverted_bank = max(0, cur_state.bank_tenths - net_cash_impact)
+    reverted_bank = cur_state.bank_tenths - net_cash_impact
+    if reverted_bank < 0:
+        raise ValueError("Cannot undo: recorded transfers do not conserve available funds.")
 
     # Restore chips
     reverted_chips = list(cur_state.chips_remaining)
@@ -1121,8 +1191,13 @@ def undo_gameweek_changes(
         chips_remaining=tuple(reverted_chips),
         season=season,
         gameweek=target_gw,
+        chip_segment=cur_state.chip_segment,
     )
     save_current_squad(squad_path, reverted_state)
+    if cur_dec_row:
+        with closing(store._connect()) as conn, conn:
+            conn.execute("DELETE FROM decision_recommendations WHERE decision_id = ?", (cur_dec_row[0],))
+            conn.execute("DELETE FROM decisions WHERE id = ?", (cur_dec_row[0],))
 
     return {
         "success": True,
@@ -1137,6 +1212,7 @@ def undo_gameweek_changes(
     }
 
 
+@live_command("apply_wildcard_or_freehit")
 def apply_wildcard_or_freehit(
     squad_path: Path,
     gameweek: int,
@@ -1147,8 +1223,8 @@ def apply_wildcard_or_freehit(
     captain_id: int,
     vice_captain_id: int,
     bank_tenths: int,
-    team_id: str = "default",
-    season: str = "2026/27",
+    team_id: str | None = None,
+    season: str | None = None,
     database_path: Path = DATABASE_PATH,
 ) -> dict[str, Any]:
     """Apply a Wildcard or Free Hit squad overhaul directly to squad state and decision log."""
@@ -1160,10 +1236,36 @@ def apply_wildcard_or_freehit(
         raise ValueError(f"Bench must contain exactly 4 players; got {len(bench_ids)}.")
     if captain_id not in starter_ids:
         raise ValueError("Captain must be in the starting XI.")
+    if vice_captain_id not in starter_ids:
+        raise ValueError("Vice-Captain must be in the starting XI.")
+    if captain_id == vice_captain_id:
+        raise ValueError("Captain and Vice-Captain cannot be the same player.")
+    if set(starter_ids) & set(bench_ids) or set(starter_ids + bench_ids) != set(squad_ids):
+        raise ValueError("Starting XI and bench must partition the squad.")
+    if type(bank_tenths) is not int or bank_tenths < 0:
+        raise ValueError("Bank must be a non-negative integer.")
+    if mode.lower().strip() not in ("initial", "init", "start", "wildcard", "wc", "freehit", "free_hit", "fh"):
+        raise ValueError(f"Unknown strategic squad mode '{mode}'.")
 
     store = SnapshotStore(database_path)
     store.initialize()
     state = load_current_squad(squad_path)
+    from .teams import get_team_id_from_squad_path
+    team_id = team_id or get_team_id_from_squad_path(squad_path)
+    season = season or state.season
+    if season != state.season:
+        raise ValueError("Strategic squad season does not match the selected squad.")
+    if gameweek < (state.gameweek or 1):
+        raise ValueError("Cannot apply a strategic squad to a past gameweek.")
+    all_players = store.latest_players()
+    player_map = {player.id: player for player in all_players}
+    if any(pid not in player_map for pid in squad_ids):
+        raise ValueError("Strategic squad contains unknown players.")
+    squad_players = [player_map[pid] for pid in squad_ids]
+    legality = validate_squad(squad_players, budget_tenths=None)
+    lineup_legality = validate_starting_lineup(squad_players, starter_ids)
+    if not legality.is_valid or not lineup_legality.is_valid:
+        raise ValueError("; ".join((*legality.errors, *lineup_legality.errors)))
 
     with closing(store._connect()) as conn:
         snap = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
@@ -1191,6 +1293,9 @@ def apply_wildcard_or_freehit(
     else:
         chip_norm = "freehit"
 
+    existing = get_gameweek_decision(gameweek, team_id=team_id, season=state.season, database_path=database_path)
+    rem_chips = consume_chip(state, chip_norm, gameweek, existing.get("chip_played") if existing else None)
+
     if chip_norm in ("wildcard", "freehit") and state.player_ids:
         from .transfers import selling_price as _calc_sell
         old_set = set(state.player_ids)
@@ -1207,38 +1312,18 @@ def apply_wildcard_or_freehit(
         if req_cost > avail_budget:
             raise ValueError(f"Strategic squad cost ({req_cost} tenths) exceeds available budget ({avail_budget} tenths).")
         bank_tenths = avail_budget - req_cost
-
-    # Deduct chip from chips_remaining if a chip was used
-    if gameweek >= 20 and (state.gameweek or 1) <= 19:
-        rem_chips = ["wildcard_2", "free_hit", "bench_boost", "triple_captain"]
-    else:
-        rem_chips = list(state.chips_remaining)
-    to_remove = None
-    if chip_norm:
-        for c in rem_chips:
-            c_norm = str(c).lower().strip()
-            if chip_norm == "wildcard":
-                if gameweek <= 19 and c_norm in ("wildcard_1", "wildcard1", "wildcard"):
-                    to_remove = c
-                    break
-                elif gameweek >= 20 and c_norm in ("wildcard_2", "wildcard2", "wildcard"):
-                    to_remove = c
-                    break
-            elif chip_norm == "freehit" and c_norm in ("freehit", "free_hit", "fh"):
-                to_remove = c
-                break
-
-        if to_remove and to_remove in rem_chips:
-            rem_chips.remove(to_remove)
+    elif sum(costs[pid] for pid in squad_ids) + bank_tenths > 1000:
+        raise ValueError("Initial squad and bank exceed the starting budget.")
 
     updated_state = CurrentSquadState(
         player_ids=tuple(squad_ids),
         purchase_prices_tenths=new_prices,
-        bank_tenths=max(0, bank_tenths),
+        bank_tenths=bank_tenths,
         free_transfers=1,
         chips_remaining=tuple(rem_chips),
         season=state.season,
         gameweek=max(state.gameweek or 1, gameweek),
+        chip_segment=state.chip_segment,
     )
     save_current_squad(squad_path, updated_state)
     # If default team, also sync legacy current_squad.json if present
@@ -1288,7 +1373,5 @@ def apply_wildcard_or_freehit(
         "gameweek": gameweek,
         "message": f"Successfully applied {mode_label} squad for GW{gameweek}!",
         "squad_player_ids": squad_ids,
-        "bank_tenths": max(0, bank_tenths),
+        "bank_tenths": bank_tenths,
     }
-
-

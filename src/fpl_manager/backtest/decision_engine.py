@@ -13,6 +13,15 @@ from typing import Any
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import HistoricalGameweekSnapshot, Position
 from ..models import is_departed_from_premier_league, is_long_term_unavailable
+from ..execution import ExecutionVersion, resolve_execution_version
+from ..transfers import selling_price
+
+
+def _execution_selling_price(purchase_price: int, current_price: int) -> int:
+    """Keep replay-only legacy accounting explicit and scoped, not engine-version inferred."""
+    if resolve_execution_version() == ExecutionVersion.LEGACY_V146:
+        return purchase_price + max(0, (current_price - purchase_price) // 2)
+    return selling_price(purchase_price, current_price)
 
 LEGAL_FORMATIONS = (
     (3, 5, 2),
@@ -275,7 +284,7 @@ class DecisionEngineV08(BaseDecisionEngine):
                 p = proj_by_id.get(pid)
                 cur_price = p.price_tenths if p else 50
                 bought_price = purchase_prices.get(pid, cur_price)
-                selling_prices[pid] = bought_price + max(0, (cur_price - bought_price) // 2)
+                selling_prices[pid] = _execution_selling_price(bought_price, cur_price)
 
             squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
             squad_projs.sort(key=lambda p: p.expected_points)
@@ -332,7 +341,7 @@ class DecisionEngineV08(BaseDecisionEngine):
             cur_p = opt_map.get(pid)
             cur_price = cur_p.price_tenths if cur_p else 50
             bought = purchase_prices.get(pid, cur_price)
-            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+            selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
         fdr_map: dict[str, float] = {}
         ticker_map: dict[str, str] = {}
@@ -653,7 +662,7 @@ class DecisionEngineV09(BaseDecisionEngine):
                 p = proj_by_id.get(pid)
                 cur_price = p.price_tenths if p else 50
                 bought_price = purchase_prices.get(pid, cur_price)
-                selling_prices[pid] = bought_price + max(0, (cur_price - bought_price) // 2)
+                selling_prices[pid] = _execution_selling_price(bought_price, cur_price)
 
             squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
             # In V0.9, replace squad players with lowest risk-adjusted points
@@ -717,7 +726,7 @@ class DecisionEngineV09(BaseDecisionEngine):
             cur_p = opt_map.get(pid)
             cur_price = cur_p.price_tenths if cur_p else 50
             bought = purchase_prices.get(pid, cur_price)
-            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+            selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
         fdr_map = {}
         ticker_map = {}
@@ -1042,7 +1051,7 @@ class DecisionEngineV115(DecisionEngineV11):
                 p = proj_by_id.get(pid)
                 cur_price = p.price_tenths if p else 50
                 bought_price = purchase_prices.get(pid, cur_price)
-                selling_prices[pid] = bought_price + max(0, (cur_price - bought_price) // 2)
+                selling_prices[pid] = _execution_selling_price(bought_price, cur_price)
 
             squad_projs = [proj_by_id[pid] for pid in current_squad_ids if pid in proj_by_id]
             # Prioritize selling dead-capital players first
@@ -1118,7 +1127,7 @@ class DecisionEngineV115(DecisionEngineV11):
             cur_p = opt_map.get(pid)
             cur_price = cur_p.price_tenths if cur_p else 50
             bought = purchase_prices.get(pid, cur_price)
-            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+            selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
         fdr_map = {}
         ticker_map = {}
@@ -1342,11 +1351,14 @@ def _get_forward_projections(
         team_m14[fix.team_h] = fix.matches_14d_h
         team_m14[fix.team_a] = fix.matches_14d_a
 
-    eval_season = season_dir.name if season_dir else getattr(snapshot, "season", None)
-
-    predictor_version = "v1.0.1"
-    if projections and projections[0].model_metadata:
-        predictor_version = projections[0].model_metadata.get("predictor_version", "v1.0.1")
+    eval_season = snapshot.season
+    from ..model_registry import predictor_version_from_metadata
+    identities = {
+        predictor_version_from_metadata(p.model_metadata or {}) for p in projections
+    }
+    if len(identities) != 1:
+        raise ValueError("Forward projections require one consistent predictor identity.")
+    predictor_version = identities.pop()
 
     is_gbdt = predictor_version.lower() in ("v1.3", "v13", "gbdt")
     players_to_project = snapshot.players
@@ -1617,7 +1629,7 @@ class DecisionEngineV12(DecisionEngineV115):
             cur_p = opt_map.get(pid)
             cur_price = cur_p.price_tenths if cur_p else 50
             bought = purchase_prices.get(pid, cur_price)
-            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+            selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
         fdr_map = {}
         ticker_map = {}
@@ -1903,7 +1915,7 @@ class DecisionEngineV125(DecisionEngineV12):
             cur_p = opt_map.get(pid)
             cur_price = cur_p.price_tenths if cur_p else 50
             bought = purchase_prices.get(pid, cur_price)
-            selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+            selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
         fdr_map = {}
         ticker_map = {}

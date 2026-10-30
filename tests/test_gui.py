@@ -757,7 +757,7 @@ def test_plan_apply_restores_existing_decision_after_execution_failure(
         raise RuntimeError("Injected failure after executing transfers")
 
     monkeypatch.setattr(
-        "fpl_manager.gui.server.log_decision_from_current_squad", fail_after_transfers
+        "fpl_manager.decision_log.log_decision_from_current_squad", fail_after_transfers
     )
     with pytest.raises(urllib.error.HTTPError):
         post("/api/plan/apply-step", [{"outgoing_id": 16, "incoming_id": 15}])

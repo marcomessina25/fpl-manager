@@ -126,3 +126,18 @@ def test_generate_manager_briefing(briefing_test_env: tuple[Path, Path]) -> None
     )
     assert dossier_logged["is_decision_logged"] is True
     assert dossier_logged["lineup"]["captain"]["id"] == 13
+
+
+def test_pure_briefing_does_not_export_nested_calculation_reports(briefing_test_env, monkeypatch):
+    database, squad = briefing_test_env
+    before = squad.read_bytes()
+
+    def reject_export(*args, **kwargs):
+        raise AssertionError("A calculation-only briefing attempted to export a file.")
+
+    monkeypatch.setattr(Path, "write_text", reject_export)
+    result = generate_manager_briefing(
+        squad_path=squad, gameweek=3, database_path=database, save_reports=False,
+    )
+    assert result["gameweek"] == 3
+    assert squad.read_bytes() == before

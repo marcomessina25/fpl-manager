@@ -191,6 +191,107 @@ def test_delete_team(teams_test_env: tuple[Path, Path]) -> None:
         delete_team("disposable", config_dir=config_dir)
 
 
+def test_team_commands_use_configured_database(teams_test_env: tuple[Path, Path]) -> None:
+    config_dir, db_path = teams_test_env
+    derived_database = config_dir.parent / "data" / "fpl.sqlite3"
+    create_team("Journal Team", team_id="journal", config_dir=config_dir, set_as_active=False, database_path=db_path)
+    set_active_team("journal", config_dir=config_dir, database_path=db_path)
+    rename_team("journal", "Journal Renamed", config_dir=config_dir, database_path=db_path)
+    delete_team("journal", config_dir=config_dir, database_path=db_path)
+    assert not derived_database.exists()
+    with SnapshotStore(db_path)._connect() as connection:
+        operations = connection.execute(
+            "SELECT operation FROM application_commands ORDER BY sequence"
+        ).fetchall()
+    assert [row[0] for row in operations] == [
+        "create_team", "set_active_team", "rename_team", "delete_team",
+    ]
+
+
+@pytest.mark.parametrize("explicit_id", [False, True])
+def test_deleted_team_id_can_be_recreated(teams_test_env, explicit_id):
+    config_dir, db_path = teams_test_env
+    arguments = {"team_id": "reusable-team"} if explicit_id else {}
+    first = create_team("Reusable Team", config_dir=config_dir, database_path=db_path, **arguments)
+    delete_team(first["team_id"], config_dir=config_dir, database_path=db_path)
+    assert (config_dir / "teams" / "reusable-team").is_dir()
+    recreated = create_team("Reusable Team", config_dir=config_dir, database_path=db_path, **arguments)
+    assert recreated["team_id"] == first["team_id"] == "reusable-team"
+    assert get_active_team_id(config_dir) == "reusable-team"
+
+
+@pytest.mark.parametrize("explicit_id", [False, True])
+def test_failed_create_can_retry_same_team_id(teams_test_env, monkeypatch, explicit_id):
+    from fpl_manager import teams
+    config_dir, db_path = teams_test_env
+    ensure_teams_initialized(config_dir)
+    original_write = teams.write_state_text
+    def fail_metadata(path, text):
+        if path.parent.name == "retry-team" and path.name == "metadata.json":
+            raise OSError("injected team metadata failure")
+        return original_write(path, text)
+    arguments = {"team_id": "retry-team"} if explicit_id else {}
+    with monkeypatch.context() as patch:
+        patch.setattr(teams, "write_state_text", fail_metadata)
+        with pytest.raises(OSError, match="injected"):
+            create_team("Retry Team", config_dir=config_dir, database_path=db_path, **arguments)
+    leftover = config_dir / "teams" / "retry-team"
+    assert leftover.is_dir()
+    assert not (leftover / "squad.json").exists()
+    assert not (leftover / "metadata.json").exists()
+    retried = create_team("Retry Team", config_dir=config_dir, database_path=db_path, **arguments)
+    assert retried["team_id"] == "retry-team"
+
+
+def test_workspace_existence_honors_staged_metadata(teams_test_env):
+    from fpl_manager.application import CommandBus, LiveContext
+    from fpl_manager.application.files import delete_state_file, write_state_text
+    from fpl_manager.teams import team_workspace_exists
+    config_dir, db_path = teams_test_env
+    metadata = config_dir / "teams" / "reserved" / "metadata.json"
+    def action():
+        assert not team_workspace_exists("reserved", config_dir)
+        write_state_text(metadata, '{"team_id": "reserved"}')
+        assert team_workspace_exists("reserved", config_dir)
+        delete_state_file(metadata)
+        assert not team_workspace_exists("reserved", config_dir)
+        return {}
+    CommandBus(db_path).execute(LiveContext("reserved", "2026/27", 2), "fixture", {}, action)
+    assert not metadata.exists()
+
+
+@pytest.mark.parametrize("source", ["legacy", "example"])
+@pytest.mark.parametrize("content", ["{", '{"player_ids": []}'])
+def test_invalid_initial_squad_raises_actionable_error(teams_test_env, source, content):
+    config_dir, _ = teams_test_env
+    legacy = config_dir / "current_squad.json"
+    initial = legacy if source == "legacy" else config_dir / "current_squad.example.json"
+    if source == "example":
+        legacy.unlink()
+    initial.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match="Cannot initialize teams.*Repair"):
+        ensure_teams_initialized(config_dir)
+    assert initial.read_text(encoding="utf-8") == content
+    assert not (config_dir / "teams" / "default" / "squad.json").exists()
+    assert not (config_dir / "active_team.json").exists()
+
+
+@pytest.mark.parametrize("content", [
+    "{", "[]", "{}", '{"active_team_id": null}', '{"active_team_id": 17}',
+    '{"active_team_id": "../other"}',
+])
+def test_corrupt_active_team_pointer_never_falls_back_to_default(teams_test_env, content):
+    config_dir, _ = teams_test_env
+    active = config_dir / "active_team.json"
+    active.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid active team.*Repair"):
+        get_active_team_id(config_dir)
+    with pytest.raises(ValueError, match="Invalid active team.*Repair"):
+        ensure_teams_initialized(config_dir)
+    assert active.read_text(encoding="utf-8") == content
+    assert not (config_dir / "teams" / "default" / "squad.json").exists()
+
+
 def test_get_team_info(teams_test_env: tuple[Path, Path]) -> None:
     config_dir, _ = teams_test_env
 

@@ -1,4 +1,4 @@
-"""Point-in-time snapshot generator ensuring zero future leakage for FPL Manager (V1.0.1)."""
+"""Historical decision views, versioned outcomes and validated registry loading."""
 
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..errors import DataIntegrityError
+from ..execution import ExecutionVersion, resolve_execution_version
 from ..models import _reference_datetime, evaluate_long_term_unavailable
 from .models import (
+    FixtureOutcome,
     GameweekOutcome,
     HistoricalFixture,
     HistoricalGameweekSnapshot,
@@ -90,9 +93,9 @@ def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
     resolved = data_dir.resolve()
     if _UNAVAILABILITY_REGISTRY_CACHE is not None and _UNAVAILABILITY_CACHE_PATH == resolved:
         return _UNAVAILABILITY_REGISTRY_CACHE
-    _UNAVAILABILITY_CACHE_PATH = resolved
     reg_file = data_dir / "unavailability_registry.json"
     if not reg_file.exists():
+        _UNAVAILABILITY_CACHE_PATH = resolved
         _UNAVAILABILITY_REGISTRY_CACHE = {}
         return _UNAVAILABILITY_REGISTRY_CACHE
 
@@ -127,6 +130,8 @@ def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
             start_gw_raw = entry.get("start_gw", 1)
             end_gw_raw = entry.get("end_gw", 38)
             try:
+                if type(start_gw_raw) not in (int, str) or type(end_gw_raw) not in (int, str):
+                    raise ValueError("start_gw/end_gw must be integers or integer strings")
                 start_gw = int(start_gw_raw)
                 end_gw = int(end_gw_raw)
             except (TypeError, ValueError) as exc:
@@ -152,6 +157,7 @@ def load_unavailability_registry(data_dir: Path) -> dict[str, dict[str, Any]]:
             validated_season[player_id] = coerced_entry
         validated[season] = validated_season
 
+    _UNAVAILABILITY_CACHE_PATH = resolved
     _UNAVAILABILITY_REGISTRY_CACHE = validated
     return _UNAVAILABILITY_REGISTRY_CACHE
 
@@ -166,14 +172,17 @@ def build_historical_snapshot(
     apply_unavailability: bool = False,
     include_prior_players: bool = False,
 ) -> HistoricalGameweekSnapshot:
-    """Reconstruct an immutable, point-in-time snapshot for Gameweek N.
+    """Reconstruct an immutable decision view for Gameweek N.
 
-    Zero future-leakage invariant:
-    For Gameweek N, the snapshot contains strictly:
-    - Players, teams, and fixture schedules known before GW N deadline.
+    Performance masking invariants:
     - Cumulative performance stats (minutes, starts, xG, xA) strictly from GW 1..N-1.
     - Rotation, trend, and turnaround indicators strictly from completed GW 1..N-1.
-    - Current GW N matchday outcome files are NEVER referenced.
+    - Current GW N statistics are never copied into cumulative performance features.
+
+    The current GW archive supplies player metadata, and the final fixture archive
+    supplies the schedule. These sources do not independently establish pre-deadline
+    announcement timing for prices, status, ownership or fixture rearrangements.
+    ``validate_season_dataset`` reports that missing as-of evidence separately.
     """
     manifest_path = season_dir / "season_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -465,20 +474,148 @@ def build_historical_snapshot(
     )
 
 
+def _identify_gameweek_rows(
+    raw_players: list[dict[str, Any]],
+    fixtures: list[dict[str, Any]],
+    gameweek: int,
+) -> dict[int, list[tuple[dict[str, Any], int | None, str]]]:
+    """Resolve source rows to fixture identities without guessing a DGW row's match."""
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for row in raw_players:
+        if not isinstance(row, dict):
+            raise DataIntegrityError(f"GW{gameweek} outcome rows must be JSON objects.")
+        pid = row.get("player_id")
+        if type(pid) is not int or pid <= 0:
+            raise DataIntegrityError(f"GW{gameweek} outcome row has invalid player_id: {pid!r}.")
+        groups.setdefault(pid, []).append(row)
+
+    identified: dict[int, list[tuple[dict[str, Any], int | None, str]]] = {}
+    for pid, rows in groups.items():
+        seen: set[int] = set()
+        resolved_rows: list[tuple[dict[str, Any], int | None, str]] = []
+        for row in rows:
+            fid = row.get("fixture_id", row.get("fixture"))
+            if row.get("fixture_id") is not None and row.get("fixture") is not None and row["fixture_id"] != row["fixture"]:
+                raise DataIntegrityError(f"GW{gameweek} player {pid} has conflicting fixture identities.")
+            identity_source = "record" if fid is not None else "unidentified"
+            if fid is not None and (type(fid) is not int or fid <= 0):
+                raise DataIntegrityError(f"GW{gameweek} player {pid} has invalid fixture ID: {fid!r}.")
+            if fid is None and (
+                type(row.get("team_id")) is int
+                and type(row.get("opponent_team_id")) is int
+                and type(row.get("was_home")) is bool
+            ):
+                team_h, team_a = (
+                    (row["team_id"], row["opponent_team_id"])
+                    if row["was_home"] else (row["opponent_team_id"], row["team_id"])
+                )
+                matches = [
+                    f for f in fixtures
+                    if f.get("event") == gameweek and f.get("team_h") == team_h and f.get("team_a") == team_a
+                ]
+                if len(matches) > 1:
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} has ambiguous fixture identity.")
+                if not matches and fixtures and row["opponent_team_id"] > 0:
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} references an unknown fixture pairing.")
+                if matches:
+                    fid = matches[0]["fixture_id"]
+                    identity_source = "fixture_schedule"
+            if fid is None and len(rows) > 1:
+                raise DataIntegrityError(
+                    f"GW{gameweek} player {pid} has multiple rows without unambiguous fixture identities."
+                )
+            if fid is not None:
+                if fid in seen:
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} has duplicate fixture {fid}.")
+                seen.add(fid)
+            resolved_rows.append((row, fid, identity_source))
+        identified[pid] = sorted(resolved_rows, key=lambda item: item[1] or 0)
+    return identified
+
+
+def _read_outcome_asset(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DataIntegrityError(f"Cannot load historical outcome asset {path}: {exc}", details={"path": str(path)}) from exc
+
+
 def load_gameweek_outcomes(
     season_dir: Path,
     gameweek: int,
+    execution_version: str | ExecutionVersion | None = None,
 ) -> dict[int, GameweekOutcome]:
     """Extract authoritative revealed ground truth outcomes for Gameweek N.
 
     MUST be used ONLY during post-gameweek evaluation and scoring.
+
+    The active execution policy defaults to corrected V1.4.7: every fixture row
+    contributes once to a player's GW totals. Missing source fixture IDs may be
+    resolved only through a unique match against the season fixture schedule.
+    Explicit V1.4.6 execution retains last-row semantics for legacy research replay.
     """
+    version = resolve_execution_version(execution_version)
     manifest_path = season_dir / "season_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    corrected = version is ExecutionVersion.CORRECTED_V147
+    manifest = _read_outcome_asset(manifest_path) if corrected else json.loads(manifest_path.read_text(encoding="utf-8"))
+    if corrected and (
+        not isinstance(manifest, dict) or not isinstance(manifest.get("season"), str) or not manifest["season"]
+    ):
+        raise DataIntegrityError(f"Historical outcome manifest {manifest_path} must contain a season string.")
     season = manifest["season"]
 
-    raw_players = load_gameweek_raw_data(season_dir, gameweek)
+    raw_players = (
+        _read_outcome_asset(season_dir / "gws" / f"gw{gameweek}.json")
+        if corrected else load_gameweek_raw_data(season_dir, gameweek)
+    )
     outcomes: dict[int, GameweekOutcome] = {}
+
+    if corrected:
+        fixtures_path = season_dir / "fixtures.json"
+        fixtures = _read_outcome_asset(fixtures_path) if fixtures_path.exists() else []
+        if not isinstance(raw_players, list) or not isinstance(fixtures, list) or any(
+            not isinstance(f, dict) for f in fixtures
+        ):
+            raise DataIntegrityError(f"GW{gameweek} outcomes and fixtures must contain lists of objects.")
+        groups = _identify_gameweek_rows(raw_players, fixtures, gameweek)
+        fixtures_by_id = {f.get("fixture_id"): f for f in fixtures}
+        count_fields = (
+            "minutes", "total_points", "starts", "goals_scored", "assists",
+            "clean_sheets", "goals_conceded", "bonus", "bps",
+        )
+        for pid, rows in groups.items():
+            fixture_outcomes: list[FixtureOutcome] = []
+            for p, fid, identity_source in rows:
+                counts = {field: p.get(field, 0) for field in count_fields}
+                if any(type(value) is not int for value in counts.values()):
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} fixture statistics must be integers.")
+                if any(value < 0 for field, value in counts.items() if field not in ("total_points", "bps")):
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} has negative fixture counting statistics.")
+                counts["starts"] = p.get("starts", 1 if counts["minutes"] >= 60 else 0)
+                if p.get("was_home") is not None and type(p["was_home"]) is not bool:
+                    raise DataIntegrityError(f"GW{gameweek} player {pid} fixture was_home must be a boolean.")
+                for field in ("team_id", "opponent_team_id"):
+                    if p.get(field) is not None and type(p[field]) is not int:
+                        raise DataIntegrityError(f"GW{gameweek} player {pid} fixture {field} must be an integer.")
+                fixture_outcomes.append(FixtureOutcome(
+                    fixture_id=fid,
+                    **counts,
+                    was_home=p.get("was_home"),
+                    opponent_team_id=p.get("opponent_team_id"),
+                    team_id=p.get("team_id"),
+                    kickoff_time=fixtures_by_id.get(fid, {}).get("kickoff_time"),
+                    identity_source=identity_source,
+                    source_file=str(season_dir / "gws" / f"gw{gameweek}.json"),
+                ))
+            sole = fixture_outcomes[0] if len(fixture_outcomes) == 1 else None
+            outcomes[pid] = GameweekOutcome(
+                season=season, gameweek=gameweek, player_id=pid,
+                **{field: sum(getattr(f, field) for f in fixture_outcomes) for field in count_fields},
+                was_home=(sole.was_home if sole.was_home is not None else True) if sole else None,
+                opponent_team_id=(sole.opponent_team_id if sole.opponent_team_id is not None else 0) if sole else None,
+                fixture_outcomes=tuple(fixture_outcomes),
+            )
+        return outcomes
 
     for p in raw_players:
         pid = p["player_id"]

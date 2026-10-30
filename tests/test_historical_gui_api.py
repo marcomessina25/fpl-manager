@@ -9,7 +9,8 @@ import time
 import urllib.request
 import pytest
 
-from src.fpl_manager.gui.server import FPLRequestHandler, ThreadingHTTPServer
+from fpl_manager.gui.server import FPLRequestHandler, ThreadingHTTPServer
+from fpl_manager.execution import ExecutionVersion
 
 
 def _get_free_port() -> int:
@@ -118,7 +119,7 @@ def test_api_new_simulation_uses_latest_default_but_keeps_explicit_strategy(
     test_server, monkeypatch: pytest.MonkeyPatch, strategy: str | None
 ) -> None:
     from types import SimpleNamespace
-    from src.fpl_manager.backtest.decision_engine import resolve_decision_engine
+    from fpl_manager.backtest.decision_engine import resolve_decision_engine
 
     received = []
     resolved = []
@@ -135,8 +136,8 @@ def test_api_new_simulation_uses_latest_default_but_keeps_explicit_strategy(
             free_transfers=1, chips_remaining=[], history=[],
         )
 
-    monkeypatch.setattr("src.fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
-    monkeypatch.setattr("src.fpl_manager.gui.server.HistoricalSimulationSession.create", create)
+    monkeypatch.setattr("fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
+    monkeypatch.setattr("fpl_manager.gui.server.HistoricalSimulationSession.create", create)
     base_url, _ = test_server
     body = {"session_id": "default-engine-test", "season": "2023-24", "start_gw": 5}
     if strategy:
@@ -153,7 +154,7 @@ def test_api_new_simulation_uses_latest_default_but_keeps_explicit_strategy(
 
 
 def test_gui_historical_load_preserves_saved_legacy_baseline(test_server) -> None:
-    from src.fpl_manager.simulation import HistoricalSimulationSession
+    from fpl_manager.simulation import HistoricalSimulationSession
 
     base_url, config_dir = test_server
     sim = HistoricalSimulationSession(
@@ -1002,8 +1003,8 @@ def test_historical_studio_preserves_retained_prices_with_budget(
 ) -> None:
     from types import SimpleNamespace
     from urllib.parse import urlencode
-    from src.fpl_manager.models import Position
-    from src.fpl_manager.suggest_transfers import PlayerInfo
+    from fpl_manager.models import Position
+    from fpl_manager.suggest_transfers import PlayerInfo
 
     positions = (
         [Position.GOALKEEPER] * 2 + [Position.DEFENDER] * 5
@@ -1019,15 +1020,17 @@ def test_historical_studio_preserves_retained_prices_with_budget(
         for i, position in enumerate(positions, 1)
     }
     session = SimpleNamespace(
+        session_id="retained-price-test", current_gw=5,
+        execution_version=ExecutionVersion.CORRECTED_V147, read_only=False,
         season="2023-24", squad_ids=list(players),
         purchase_prices_tenths={str(i): 40 for i in players}, bank_tenths=100,
     )
-    monkeypatch.setattr("src.fpl_manager.gui.server.build_historical_snapshot", lambda *a, **k: None)
+    monkeypatch.setattr("fpl_manager.gui.server.build_historical_snapshot", lambda *a, **k: None)
     monkeypatch.setattr(
-        "src.fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
+        "fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
     )
     monkeypatch.setattr(
-        "src.fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
+        "fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
     )
     base_url, _ = test_server
     body = {
@@ -1058,8 +1061,8 @@ def test_historical_transfer_api_honors_risk_after_rescoring(
     test_server, monkeypatch: pytest.MonkeyPatch, risk: str, expected_id: int
 ) -> None:
     from types import SimpleNamespace
-    from src.fpl_manager.models import Position
-    from src.fpl_manager.suggest_transfers import PlayerInfo
+    from fpl_manager.models import Position
+    from fpl_manager.suggest_transfers import PlayerInfo
 
     positions = (
         [Position.GOALKEEPER] * 2 + [Position.DEFENDER] * 5
@@ -1085,27 +1088,28 @@ def test_historical_transfer_api_honors_risk_after_rescoring(
         )
     session = SimpleNamespace(
         session_id="risk-test", season="2023-24", current_gw=5, is_completed=False,
+        execution_version=ExecutionVersion.CORRECTED_V147, read_only=False,
         historical_dir=Path("data") / "historical", squad_ids=list(range(1, 16)),
         purchase_prices_tenths={str(i): 50 for i in range(1, 16)},
         bank_tenths=0, free_transfers=1, transfers_staged=[], get_current_snapshot=lambda: None,
     )
     monkeypatch.setattr(
-        "src.fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
+        "fpl_manager.gui.server.HistoricalSimulationSession.load", lambda *a, **k: session
     )
     monkeypatch.setattr(
-        "src.fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
+        "fpl_manager.gui.server.load_historical_players_meta", lambda *a, **k: (players, {})
     )
     monkeypatch.setattr(
-        "src.fpl_manager.gui.server.analyze_historical_fixtures", lambda *a, **k: ({}, {})
+        "fpl_manager.gui.server.analyze_historical_fixtures", lambda *a, **k: ({}, {})
     )
-    from src.fpl_manager.backtest.decision_engine import resolve_decision_engine
+    from fpl_manager.backtest.decision_engine import resolve_decision_engine
     resolved = []
 
     def resolve(version):
         resolved.append(version)
         return resolve_decision_engine(version)
 
-    monkeypatch.setattr("src.fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
+    monkeypatch.setattr("fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
     base_url, _ = test_server
     with urllib.request.urlopen(
         f"{base_url}/api/transfers?session_id=risk-test&gameweeks=1&risk={risk}"

@@ -521,7 +521,24 @@ def optimizer_chip_candidates(
                     break
 
             gw_type = matching_base.get("gw_type", "STANDARD") if matching_base else "STANDARD"
-            base_reasoning = matching_base.get("reasoning", "") if matching_base else ""
+            # The shared optimizer's guard placeholders predate explicit eligibility
+            # metadata. Reproduce its guards, never infer eligibility from utility.
+            guard_metadata = getattr(opp_val, "metadata", {}) or {}
+            topology = topo_map.get(gw)
+            blocked = bool(guard_metadata.get("blocked")) or guard_metadata.get("eligible") is False
+            blocked = blocked or (gw == 1 and canon_chip in ("free_hit", "wildcard", "bench_boost"))
+            fixture_count = topology.total_fixtures if topology is not None else len(dummy_snapshot.fixtures)
+            blocked = blocked or fixture_count < 4
+            blocked = blocked or (
+                recent_wildcard_gw is not None
+                and 1 <= gw - recent_wildcard_gw <= opt.cooldown_gameweeks
+                and canon_chip in ("free_hit", "wildcard")
+            )
+            if canon_chip == "wildcard" and gw in (2, 3, 4):
+                proj_map = {p.player_id: p for p in projections}
+                blocked = blocked or opt._count_collapsed_squad_players(
+                    squad_ids, proj_map, dummy_snapshot
+                ) < 3
 
             candidate_dict = {
                 "gameweek": gw,
@@ -532,6 +549,9 @@ def optimizer_chip_candidates(
                 "net_utility": opp_val.net_utility,
                 "confidence": opp_val.confidence,
                 "reasoning": opp_val.reasoning,
+                "eligible": not blocked,
+                "blocked": blocked,
+                "blocked_reason": opp_val.reasoning if blocked else None,
             }
             if matching_base:
                 for k, v in matching_base.items():
@@ -547,13 +567,67 @@ def optimizer_chip_candidates(
     return candidates
 
 
+def _schedule_chip_candidates(
+    available: list[str],
+    candidates: dict[str, list[dict[str, Any]]],
+    recent_wildcard_gw: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Match at most four chips to eligible dates with joint FH/WC cooldowns."""
+    chips = [c for c in ("freehit", "triplecaptain", "benchboost", "wildcard") if c in available]
+    best: list[dict[str, Any]] = []
+    best_key = (-1, float("-inf"))
+
+    def search(index: int, chosen: list[dict[str, Any]], value: float) -> None:
+        nonlocal best, best_key
+        if len(chosen) + len(chips) - index < best_key[0]:
+            return
+        if index == len(chips):
+            key = (len(chosen), value)
+            if key > best_key:
+                best, best_key = list(chosen), key
+            return
+        chip = chips[index]
+        for cand in candidates.get(chip, []):
+            if cand.get("blocked", False) or cand.get("eligible") is False:
+                continue
+            gw = int(cand["gameweek"])
+            if chip in ("freehit", "wildcard") and recent_wildcard_gw is not None:
+                if 1 <= gw - recent_wildcard_gw <= 2:
+                    continue
+            if any(
+                gw == other["gameweek"]
+                or ({chip, other["chip"]} == {"freehit", "wildcard"} and abs(gw - other["gameweek"]) <= 2)
+                for other in chosen
+            ):
+                continue
+            recommendation = {
+                **cand, "chip": chip, "details": cand,
+                "immediate_ev": cand.get("immediate_ev", cand["rating"]),
+                "future_opportunity": cand.get("future_opportunity", round(cand["rating"] * 0.8, 1)),
+                "net_utility": cand.get("net_utility", round(cand["rating"] * 0.2, 1)),
+                "confidence": cand.get("confidence", 0.9),
+            }
+            chosen.append(recommendation)
+            search(index + 1, chosen, value + float(recommendation["immediate_ev"]))
+            chosen.pop()
+        search(index + 1, chosen, value)
+
+    search(0, [], 0.0)
+    scheduled = {c["chip"] for c in best}
+    unscheduled = {
+        chip: "No eligible deployment date satisfies guardrails, date conflicts and cooldowns."
+        for chip in chips if chip not in scheduled
+    }
+    return sorted(best, key=lambda c: c["gameweek"]), unscheduled
+
+
 def recommend_chip_strategy(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
     start_gw: int | None = None,
     end_gw: int | None = None,
     used_chips: list[str] | None = None,
-    report_path: Path = CHIP_STRATEGY_REPORT_PATH,
+    report_path: Path | None = CHIP_STRATEGY_REPORT_PATH,
     team_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate an optimal conflict-free multi-gameweek chip deployment roadmap.
@@ -642,8 +716,6 @@ def recommend_chip_strategy(
     except Exception:
         pass
 
-    cooldown_gws = {recent_wc_gw + 1, recent_wc_gw + 2} if recent_wc_gw is not None else set()
-
     candidates = optimizer_chip_candidates(
         start_gw=start_gw,
         end_gw=end_gw,
@@ -654,46 +726,9 @@ def recommend_chip_strategy(
         recent_wildcard_gw=recent_wc_gw,
     )
 
-    assigned_gws: set[int] = set()
-    recommendations: list[dict[str, Any]] = []
-
-    chip_priority = ["freehit", "triplecaptain", "benchboost", "wildcard"]
-    sorted_available = [c for c in chip_priority if c in available]
-
-    for chip in sorted_available:
-        chip_cand_list = candidates.get(chip, [])
-        for cand in chip_cand_list:
-            gw = cand["gameweek"]
-            if gw in assigned_gws:
-                continue
-
-            # Anti-pathology cooldown: prevent Free Hit or Wildcard immediately following a recent Wildcard
-            if gw in cooldown_gws and chip in ("freehit", "wildcard"):
-                continue
-
-            # Threshold/immediate guards removed in V1.4.5: candidates come from ChipOpportunityOptimizer,
-            # which applies guardrails and (at start_gw) the same decision as the simulator.
-
-            assigned_gws.add(gw)
-            imm_ev = cand.get("immediate_ev", cand["rating"])
-            fut_ev = cand.get("future_opportunity", round(cand["rating"] * 0.8, 1))
-            net_u = cand.get("net_utility", round(cand["rating"] * 0.2, 1))
-            conf = cand.get("confidence", 0.9)
-            recommendations.append({
-                "chip": chip,
-                "gameweek": gw,
-                "gw_type": cand["gw_type"],
-                "rating": cand["rating"],
-                "reasoning": cand["reasoning"],
-                "immediate_ev": imm_ev,
-                "future_opportunity": fut_ev,
-                "net_utility": net_u,
-                "confidence": conf,
-                "details": cand,
-            })
-            break
-
-    recommendations.sort(key=lambda x: x["gameweek"])
+    recommendations, unscheduled = _schedule_chip_candidates(
+        available, candidates, recent_wildcard_gw=recent_wc_gw,
+    )
 
     result = {
         "segment": segment_name,
@@ -707,13 +742,15 @@ def recommend_chip_strategy(
         "has_confirmed_blank_gameweeks": calendar_info["has_confirmed_blank_gameweeks"],
         "has_confirmed_double_gameweeks": calendar_info["has_confirmed_double_gameweeks"],
         "recommended_schedule": recommendations,
+        "unscheduled_chips": unscheduled,
         "candidate_rankings": {
             chip: candidates.get(chip, [])[:3] for chip in AVAILABLE_CHIPS
         },
     }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return result
 
 
@@ -989,4 +1026,3 @@ class SeasonalChipPolicy:
                     return "wildcard"
 
         return None
-

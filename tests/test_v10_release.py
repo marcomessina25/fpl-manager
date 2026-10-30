@@ -13,6 +13,7 @@ Tests:
 
 from dataclasses import replace
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -141,7 +142,8 @@ def _make_sample_snapshot(gameweek: int = 2, finished_gws: int = 1) -> Historica
 
 def test_p0_version_and_frozen_v09_baseline() -> None:
     """Verify V1.0.1 version bump, lineup_penalty_weight = 0.0, and frozen V0.9 baseline report."""
-    assert __version__ in ("1.0.1", "1.1.0", "1.1.5", "1.3.5", "1.4.0", "1.4.5", "1.4.6")
+    manifest = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    assert __version__ == manifest["project"]["version"]
 
     eng_v09 = DecisionEngineV09()
     eng_v10 = resolve_decision_engine("v1.0.1")
@@ -722,4 +724,3 @@ def test_p0_3_and_p1_1_to_p1_4_lineup_attribution_metadata_and_pit_scope() -> No
     assert "reference_comparative_checks" in PIT_LEAKAGE_VERIFICATION_SCOPE
     assert len(PIT_LEAKAGE_VERIFICATION_SCOPE["intrinsic_snapshot_invariants"]["categories"]) == 2
     assert len(PIT_LEAKAGE_VERIFICATION_SCOPE["reference_comparative_checks"]["categories"]) == 5
-

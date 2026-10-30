@@ -23,6 +23,49 @@ and AI Advisor & Briefing are intentionally live-only and already hidden in
 Historical mode. New GUI calculations use the central latest decision-engine
 policy without a version menu; frozen research provenance remains explicit.
 
+### Version and execution policy (V1.4.7)
+
+**Current version:** 1.4.7 candidate; GUI uses latest decision engine only.
+LLM provider/model choices retained in live advisory workspace. Historical mode
+continues to hide Live Matchday and AI Advisor & Briefing tabs.
+
+**Execution policy:**
+- **New sessions:** record corrected execution identity `v147`, separately from the decision-engine version.
+- **Missing, null, unknown or legacy-marked sessions:** readable, read-only archives. Unknown raw identities are retained in fork provenance rather than admitted as corrected execution.
+- **Corrected fork:** explicit GUI 'Create corrected fork' or CLI `fpl sim fork --id OLD --new-id NEW` starts at a recoverable clean boundary. Preserves source bytes, outcome records, bank/purchase basis/provenance. Resets comparative history and seeds both squads equally. Completed archives need a new replay.
+- **DGW correction:** per-fixture sum and provenance; canonical sale arithmetic and pre-write affordability validation.
+- **No ongoing 100m cap:** affordability depends on available bank and legal sale proceeds, not initial squad construction budget.
+- **Version-preserved research:** `run_sequential_simulation`/`run_decision_backtest` library defaults to execution `v146` for recorded compatibility; CLI `backtest-decisions` defaults to `v147` with `--execution-version v146` opt-in.
+- **Original frozen benchmarks:** retained and not relabelled; corrected runs are new execution records.
+
+**Command architecture:**
+- Application contexts, CommandBus, receipts, read models and services.
+- SQL and journal same live SQLite transaction; historical journal separate (`config/simulations/command_journal.sqlite3`).
+- JSON staged, durable commit then atomic publication.
+- Explicit roll-forward after crash; external conflicts not overwritten.
+- Duplicate IDs and stale revisions protected.
+- Errors `RECOVERY_REQUIRED`/`RECOVERY_CONFLICT` mean committed state needs recovery—not rolled back.
+- Startup GUI calls explicit recover; CLI `fpl recover` or `fpl recover --historical`; do not retry committed work as fresh action.
+- Root CLI options `--expected-revision` and `--command-id` appear BEFORE subcommand and apply to sim mutations, team advance, log-decision; other commands reject these.
+- Live lifecycle no longer advances in reads; GUI Advance Deadline button or CLI `fpl team advance [TEAM_ID]` is explicit and idempotent.
+- Commands explicitly targeting a later GW invoke `teams.advance_current_squad` in the same transaction before applying the mutation. Planner/session FT transitions share `rules.free_transfer_transition`.
+- Query calculations do not write report files; CLI exports keep defaults.
+- Evaluation no longer auto-finalizes scores from GET; explicit Scores/update-scores workflow.
+- Exact team prospective state, GW, snapshot, finance and chips captured for recommendations; no default squad fallback.
+- Typed revision-tagged squad, valuation, staged move, lineup, plan, decision and chip read models.
+- HTTP and CLI consume shared command services; not every legacy HTTP calculation has moved from server.py—generic application query boundary wraps remaining orchestration.
+
+**Validation and cache:**
+- Data validation and cache; predictor identity with no GBDT fallback.
+- Admissible search bonus; signed regret with honest bounded shortlist.
+- Blocked chip scheduling and shared early FT planner transitions fixed.
+- Tests use canonical `fpl_manager` imports.
+
+**CI and distribution:**
+- Linux Python 3.11/12/13 + Windows 3.13; builds and installs wheel.
+- `scripts/smoke_installed.py` verifies packaged resources, isolated command smoke and CLI outside checkout.
+- Structured logs contain operation/context/revision IDs, not payload/notes/secrets.
+
 The V1.1.5 diagram below describes the foundational responsibilities, not proof
 that every current module already satisfies those boundaries.
 

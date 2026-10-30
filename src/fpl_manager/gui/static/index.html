@@ -80,6 +80,7 @@
         <span id="hud-chips" class="hud-val">4</span>
       </div>
       <div class="header-actions">
+        <button id="btn-advance-team" class="btn btn-outline btn-sm" style="display: none;">Advance Deadline</button>
         <button id="btn-sync-data" class="btn btn-primary btn-sm" title="Fetch latest official FPL bootstrap & fixtures">🔄 Sync Data</button>
         <button id="btn-sync-scores" class="btn btn-outline btn-sm" title="Fetch live matchday player scores">⚡ Scores</button>
       </div>
@@ -112,10 +113,17 @@
         <span id="hist-hud-chip" class="hud-val">None</span>
       </div>
       <div class="header-actions">
+        <button id="btn-hist-fork" class="btn btn-outline btn-sm" style="display: none;">Create corrected fork</button>
         <button id="btn-hist-run-gw-top" class="btn btn-primary btn-sm" title="Advance gameweek, resolve autosubs, and play matchday">▶ Run Matchday</button>
       </div>
     </div>
   </header>
+  <div id="hist-archive-notice" class="panel card" role="status" style="display: none; margin: 1rem;">
+    <strong>Read-only execution archive.</strong>
+    This trial predates corrected scoring. Recorded results are preserved, not rescored.
+    Create a corrected fork from an unfinished trial to continue with the current rules,
+    or create a new replay for a completed season.
+  </div>
 
   <!-- Navigation Tabs Bar -->
   <nav class="tabs-nav">

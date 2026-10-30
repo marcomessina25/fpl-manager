@@ -6,6 +6,7 @@ Provides synthetic season generation for hermetic, fast testing.
 """
 
 import csv
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from pathlib import Path
@@ -269,7 +270,7 @@ def parse_gw_csv(gw_csv_path: Path, team_name_to_id: dict[str, int] | None = Non
             was_home = str(row.get("was_home", "True")).lower() in ("true", "1")
             opp_team = _safe_int(row.get("opponent_team", 0))
 
-            records.append({
+            record = {
                 "player_id": element,
                 "name": name,
                 "position": int(pos),
@@ -292,7 +293,17 @@ def parse_gw_csv(gw_csv_path: Path, team_name_to_id: dict[str, int] | None = Non
                 "ict_index": ict,
                 "was_home": was_home,
                 "opponent_team_id": opp_team,
-            })
+            }
+            fixture_raw = row.get("fixture_id", row.get("fixture"))
+            if fixture_raw not in (None, ""):
+                try:
+                    fixture_id = int(fixture_raw)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{gw_csv_path}: invalid fixture identity {fixture_raw!r}") from exc
+                if fixture_id <= 0:
+                    raise ValueError(f"{gw_csv_path}: invalid fixture identity {fixture_raw!r}")
+                record["fixture_id"] = fixture_id
+            records.append(record)
     records.sort(key=lambda r: r["player_id"])
     return records
 
@@ -443,7 +454,9 @@ def generate_mock_season(
     f_id = 1
     deadlines = {}
     for gw in range(1, num_gameweeks + 1):
-        deadlines[gw] = f"2023-09-0{gw}T11:00:00Z"
+        game_day = datetime(2023, 9, 1, tzinfo=timezone.utc) + timedelta(days=gw - 1)
+        date_text = game_day.strftime("%Y-%m-%d")
+        deadlines[gw] = f"{date_text}T11:00:00Z"
         for i in range(0, num_teams, 2):
             h_team = i + 1
             a_team = i + 2
@@ -454,7 +467,7 @@ def generate_mock_season(
                 "team_a": a_team,
                 "team_h_difficulty": 3,
                 "team_a_difficulty": 3,
-                "kickoff_time": f"2023-09-0{gw}T12:30:00Z",
+                "kickoff_time": f"{date_text}T12:30:00Z",
                 "finished": 1,
             })
             f_id += 1

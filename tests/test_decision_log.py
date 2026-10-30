@@ -79,6 +79,7 @@ def decision_test_env(tmp_path: Path) -> tuple[Path, Path]:
         "season": "2026/27",
         "free_transfers": 1,
         "bank_tenths": 15,
+        "chips_remaining": ["wildcard_1", "free_hit", "bench_boost", "triple_captain"],
         "player_ids": list(range(1, 16)),
         "purchase_prices_tenths": {str(i): 50 for i in range(1, 16)},
     }
@@ -1159,7 +1160,6 @@ def test_record_gameweek_decision_allows_squad_value_exceeding_100m(decision_tes
     )
     assert res_squad is not None
     assert res_squad["gameweek"] == 2
-
 
 
 

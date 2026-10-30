@@ -363,7 +363,9 @@ def get_live_gameweek_matchday_summary(
         transfer_hits = 0 if is_free_transfers_chip(chip_played) else decision.get("transfer_hits", 0)
     else:
         from .lineup import select_starting_lineup
-        lineup_sol = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
+        lineup_sol = select_starting_lineup(
+            squad_path=squad_path, database_path=database_path, gameweek=gameweek, report_path=None,
+        )
         starting_ids = [p["id"] for p in lineup_sol["starters"]]
         bench_ids = [p["id"] for p in lineup_sol["bench"]]
         captain_id = lineup_sol["captain"]["id"]

@@ -1,6 +1,6 @@
 # PyQt6 Migration Plan and Effort Estimate
 
-**Status:** Design proposal only; no PyQt6 port or dependency installation performed.
+**Status:** Design proposal only; no PyQt6 port or dependency installation performed. **Qt implementation explicitly gated.**
 **Assessment date:** 2026-10-29.
 **Baseline:** merged V1.4.6, `38595a7fd6946fe64a9c8047761728cb6e348722`.
 **Related documents:** [Repository assessment](repository_analysis.md), [V1.4.7 delivery plan](v147_plan.md).
@@ -163,7 +163,7 @@ Shutdown must reject new jobs, invalidate late results, complete or recover
 committed writes, and dispose workers correctly. Do not destroy a running thread
 and hope queued callbacks are harmless.
 
-Proposed performance gates, **not measured current performance**:
+**Proposed performance gates** (reference, not current measured performance):
 
 - Simple local interactions should visibly acknowledge input within 100 ms.
 - Long work should show progress/loading feedback rather than freeze the UI.
@@ -171,6 +171,19 @@ Proposed performance gates, **not measured current performance**:
   any safe completion boundary.
 - Establish measured median/p95 solve times on representative datasets and a
   specified machine before setting solver time budgets.
+
+**Exploratory HTTP latency sample** (V1.4.7 candidate, small sample with caveats):
+Testing Public 2023-24/GW5 historical session, loopback HTTP, Windows/Python 3.13,
+concurrent regression load, n=3 per measurement (NOT real-browser paint time or
+unloaded single-request benchmark):
+- Historical squad query: median **77.25 ms**
+- 1 transfer / horizon 3: median **136.03 ms**
+- 3 transfers / horizon 5: median **257.19 ms**
+- Planner horizon 3: median **812.19 ms**
+
+Do not use these to infer p95, set worker budgets, or approve visual acceptance.
+Establish complete measured performance on representative unloaded datasets and
+your target deployment before finalizing GUI performance assumptions.
 
 ## 6. Persistence, Resources and Distribution
 
@@ -185,19 +198,28 @@ strategy. Introduce injectable paths and resource access:
 - Preserve existing CLI database/config overrides and headless workflows.
 - No Qt import requirement for domain tests or non-GUI CLI use.
 
-Plan an optional desktop dependency group only when implementation is approved.
-No PyQt6 dependency or native GUI module is added by this planning task.
+## 7. Qt Implementation Gate
 
-Start packaging with a directory-based Windows build for easier diagnosis.
-Validate frozen model/resource discovery on a clean machine without a repository
-checkout. Consider one-file packaging only after correctness and startup behavior
-are understood.
+**Status:** Explicitly gated. This plan is design and estimation only.
 
-PyInstaller bundles are specific to their build OS/interpreter; it is not a
-cross-compiler [S5]. macOS signing/notarization and additional native installers
-must be estimated separately rather than assumed free.
+Before authorizing a PyQt6 implementation:
 
-## 7. Licensing Gate
+1. **Licensing approval:** Resolve PyQt6/Qt licensing strategy (GPLv3, commercial,
+   or PySide6 evaluation) and obtain necessary approvals and procurement leads.
+2. **Foundation validation:** Confirm V1.4.7 packages V147-04 (revisioned commands),
+   V147-05 (lifecycle), and V147-08 (application boundary) are passing targeted
+   acceptance tests. Do not attempt GUI work on unstable state/command contracts.
+3. **Shared-workflow wireframe approval:** Stakeholders agree on shared Live/Historical
+   layouts, terminology and interaction patterns before implementation.
+4. **Resource/deployment proof:** Demonstrate that packaged resources, data paths
+   and writable locations work correctly on a clean Windows machine.
+
+Qt supplies native interaction mechanisms and widget libraries, but does not
+automatically guarantee correct state or calculation semantics. Approve those
+foundations first. Once approved, implement in vertical slices matching the phase
+gates below.
+
+## 8. Licensing and Technical Considerations
 
 The repository is MIT-licensed (`LICENSE:1`). **PyQt6 is GPLv3 or commercially
 licensed, not LGPL**; Qt's own licensing is a separate consideration [S1].
@@ -215,7 +237,7 @@ but that is a decision gate, not a change to the requested PyQt6 plan.
 This is a technical planning constraint, not legal advice. License review and
 procurement lead time are external calendar risks.
 
-## 8. Migration Phases and Acceptance Gates
+## 10. Migration Phases and Acceptance Gates
 
 | Phase | Deliverable | Exit gate |
 |---|---|---|
@@ -232,7 +254,7 @@ Keep the web client available during implementation. A proposed future
 `--ui qt` development option is only an option to design later; it does not exist
 as a result of this document. Do not switch the default until Q7 is complete.
 
-## 9. Testing Strategy
+## 11. Testing Strategy
 
 - Keep calculation/rules/solver tests independent of Qt.
 - Reuse service-level contract fixtures across CLI, HTTP and native adapters.
@@ -251,7 +273,7 @@ as a result of this document. Do not switch the default until Q7 is complete.
 - Manual visual/high-DPI/accessibility acceptance remains distinct from unit
   counts and screenshots generated by a test runner.
 
-## 10. Work Estimate
+## 12. Work Estimate
 
 ### Assumptions
 
