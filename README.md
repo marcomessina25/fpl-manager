@@ -343,6 +343,10 @@ file publication. `RECOVERY_REQUIRED` means the command **committed**, not that
 it rolled back. Restart the GUI or run `fpl recover` (`--historical` for the
 isolated simulation journal); do not resubmit it as a new action. External
 recovery conflicts are reported without overwriting conflicting files.
+Writers hold a per-database cross-process lock through SQL commit and JSON
+publication. Runtime `*.command.lock` sidecars remain in place; do not delete
+them while the application is running. A crashed writer releases its OS lock,
+but its committed journal entry still requires recovery.
 
 The PR review follow-up strengthens that boundary: pending recovery and revision
 lookups share a read transaction, persisted sessions are checked against

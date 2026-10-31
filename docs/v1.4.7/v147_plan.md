@@ -3,7 +3,7 @@
 **Status:** V147-01 through V147-09 core implementation complete on branch; V147-10 (Qt) explicitly gated.
 **Branch:** `v147`, based on merged `master` at `38595a7`.
 **Date:** 2026-10-29.
-**Status Update:** 2026-10-31 — V147-02 through V147-07 and the PR review corrections are implemented; V147-08 application foundation retains legacy HTTP orchestration. The final review-fix suite passes all 1,017 tests without failures/errors/skips, including the 46-case controller harness. V147-10 (Qt) remains explicitly gated.
+**Status Update:** 2026-10-31 — V147-02 through V147-07, review corrections and cross-process publication locking are implemented; V147-08 retains legacy HTTP orchestration. The latest full suite passes all 1,021 tests without failures/errors/skips, including the 46-case controller harness. V147-10 (Qt) remains explicitly gated.
 **Inputs:** [Repository assessment](repository_analysis.md), [native PyQt6 plan](pyqt6_migration_plan.md).
 
 ## 1. Release Goal
@@ -83,6 +83,21 @@ failures, errors or skips. The included Node wrapper executes **46 actual
 controller cases**, not browser/visual tests. The built `1.4.7` wheel also passes
 resource, isolated-command and CLI smoke checks outside the editable checkout.
 Candidate CI and manual/native acceptance remain separate gates.
+
+### Cross-process publication race follow-up
+
+The PR pipeline exposed an intermittent Windows race: after a writer committed
+SQL, another process could acquire SQLite's write lock before JSON publication
+and incorrectly report ordinary in-flight work as `RECOVERY_REQUIRED`.
+
+- [x] Hold a per-database OS lock across SQL commit and file publication,
+  with reentrant thread protection and automatic OS release on process exit.
+- [x] Reproduce the commit/publication gap deterministically and preserve
+  explicit recovery for an actually terminated publisher.
+- [x] Stress the exact three-process team-creation regression for 20 fresh runs.
+- [x] Complete local full-suite and installed-artifact verification: 1,021 tests
+  pass with no failures/errors/skips; the built wheel passes outside the checkout.
+- [ ] Verify both the pushed-branch and PR candidate CI after publication.
 
 ## 3. Delivery Principles
 

@@ -42,6 +42,13 @@ continues to hide Live Matchday and AI Advisor & Briefing tabs.
 - Application contexts, CommandBus, receipts, read models and services.
 - SQL and journal same live SQLite transaction; historical journal separate (`config/simulations/command_journal.sqlite3`).
 - JSON staged, durable commit then atomic publication.
+- A per-database OS file lock spans both SQL transactions and file publication,
+  so another process cannot mistake an active publisher's pending row for a
+  crashed command. The thread lock remains reentrant; Windows uses `msvcrt`
+  byte-range locking and POSIX uses `flock`.
+- Runtime `*.command.lock` sidecars are retained, not unlinked after release.
+  The OS releases ownership on process exit; genuine interrupted publication
+  still requires explicit recovery.
 - Explicit roll-forward after crash; external conflicts not overwritten.
 - Duplicate IDs and stale revisions protected.
 - Errors `RECOVERY_REQUIRED`/`RECOVERY_CONFLICT` mean committed state needs recovery—not rolled back.

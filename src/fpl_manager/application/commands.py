@@ -1,9 +1,9 @@
 """Synchronous command boundary for mixed SQLite and existing JSON state.
 
 Actions take no arguments and use their ordinary SnapshotStore/state-file APIs.
-Only the outer command owns commit/rollback. SQLite's write lock serializes
-independent buses and processes; ContextVar state never shares a connection
-between threads.
+Only the outer command owns commit/rollback. A per-database OS lock serializes
+writers through SQL commit and file publication; ContextVar state never shares
+a connection between threads.
 """
 
 import hashlib
@@ -11,7 +11,6 @@ import json
 import logging
 import sqlite3
 import threading
-from _thread import RLock
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -29,18 +28,19 @@ from .errors import (
 )
 from .files import FileStaging, publish_file
 from .journal import SCHEMA, CommandReceipt, has_schema, json_text
+from .locks import CommandWriteLock
 
 
 _active: ContextVar["CommandScope | None"] = ContextVar("fpl_active_command", default=None)
 LOGGER = logging.getLogger(__name__)
-_locks: dict[Path, RLock] = {}
+_locks: dict[Path, CommandWriteLock] = {}
 _locks_guard = threading.Lock()
 SQLParameters = Sequence[Any] | Mapping[str, Any]
 
 
-def _database_lock(path: Path) -> RLock:
+def _database_lock(path: Path) -> CommandWriteLock:
     with _locks_guard:
-        return _locks.setdefault(path, RLock())
+        return _locks.setdefault(path, CommandWriteLock(path))
 
 
 class BorrowedCursor:

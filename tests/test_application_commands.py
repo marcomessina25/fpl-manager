@@ -3,7 +3,10 @@
 import json
 import multiprocessing
 import sqlite3
+import subprocess
+import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass, replace
@@ -93,6 +96,148 @@ def competing_process(database, squad, barrier, queue, index):
         queue.put(("committed", receipt.revision_after))
     except (StaleRevisionError, RecoveryRequiredError) as error:
         queue.put((error.code, error.details["revision"]))
+
+
+_POST_COMMIT_PROCESS = """
+import json, sqlite3, sys, time
+from pathlib import Path
+from fpl_manager.application import CommandBus, LiveContext, active_command, read_state_text, write_state_text
+database, squad, gate = (Path(value) for value in sys.argv[1:4])
+role = sys.argv[4]
+
+class PausedCommit(sqlite3.Connection):
+    paused = False
+    def commit(self):
+        super().commit()
+        if role == "publisher" and not self.paused:
+            self.paused = True
+            (gate / "sql-committed").touch()
+            deadline = time.monotonic() + 30
+            while not (gate / "publish").exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("fixture publication gate")
+                time.sleep(0.02)
+
+bus = CommandBus(database)
+bus._connect = lambda path, **kwargs: sqlite3.connect(path, factory=PausedCommit, timeout=30)
+def action():
+    active_command().connection.execute("INSERT INTO snapshots(fetched_at) VALUES (?)", (role,))
+    value = json.loads(read_state_text(squad))["bank"] + 1
+    write_state_text(squad, json.dumps({"bank": value}))
+    return {"bank": value}
+(gate / (role + "-started")).touch()
+receipt = bus.execute(LiveContext("fixture-team", "2026-27", 1), role, {}, action, command_id=role)
+print(json.dumps(receipt.to_dict()))
+"""
+
+
+def _start_post_commit_process(database, squad, gate, role):
+    return subprocess.Popen(
+        [sys.executable, "-c", _POST_COMMIT_PROCESS, str(database), str(squad), str(gate), role],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+def _wait_for_process_marker(path):
+    deadline = time.monotonic() + 30
+    while not path.exists():
+        assert time.monotonic() < deadline, f"Fixture subprocess did not reach {path.name}."
+        time.sleep(0.02)
+
+
+def test_other_process_waits_between_sql_commit_and_file_publication(state, context):
+    database, squad = state
+    CommandBus(database).initialize(context)
+    gate = squad.parent / "post-commit-gate"
+    gate.mkdir()
+    publisher = _start_post_commit_process(database, squad, gate, "publisher")
+    follower = None
+    try:
+        _wait_for_process_marker(gate / "sql-committed")
+        assert snapshot_count(database) == 1
+        assert json.loads(squad.read_text()) == {"bank": 100}
+        follower = _start_post_commit_process(database, squad, gate, "follower")
+        _wait_for_process_marker(gate / "follower-started")
+        with pytest.raises(subprocess.TimeoutExpired):
+            follower.communicate(timeout=1)
+        (gate / "publish").touch()
+        receipts = []
+        for process in (publisher, follower):
+            stdout, stderr = process.communicate(timeout=30)
+            assert process.returncode == 0, stderr
+            receipts.append(json.loads(stdout))
+    finally:
+        (gate / "publish").touch()
+        for process in (publisher, follower):
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
+    assert [receipt["revision_after"] for receipt in receipts] == [1, 2]
+    assert snapshot_count(database) == 2
+    assert json.loads(squad.read_text()) == {"bank": 102}
+    assert CommandBus(database).revision(context) == 2
+
+
+def test_publisher_process_crash_releases_lock_but_still_requires_recovery(state, context):
+    database, squad = state
+    CommandBus(database).initialize(context)
+    gate = squad.parent / "crash-gate"
+    gate.mkdir()
+    publisher = _start_post_commit_process(database, squad, gate, "publisher")
+    try:
+        _wait_for_process_marker(gate / "sql-committed")
+        publisher.kill()
+        publisher.communicate(timeout=10)
+    finally:
+        if publisher.poll() is None:
+            publisher.kill()
+            publisher.communicate(timeout=10)
+    fresh = CommandBus(database)
+    with pytest.raises(RecoveryRequiredError):
+        fresh.execute(context, "follower", {}, lambda: pytest.fail("Recovery must precede the action."))
+    assert json.loads(squad.read_text()) == {"bank": 100}
+    assert snapshot_count(database) == 1
+    assert [receipt.command_id for receipt in fresh.recover()] == ["publisher"]
+    receipt = fresh.execute(context, "after-recovery", {}, lambda: increment(database, squad))
+    assert receipt.revision_after == 2
+    assert snapshot_count(database) == 2
+    assert json.loads(squad.read_text()) == {"bank": 102}
+
+
+def test_command_file_lock_is_reentrant_and_timeout_does_not_leak_ownership(tmp_path):
+    from fpl_manager.application.locks import CommandWriteLock
+
+    database = tmp_path / "state.sqlite3"
+    first = CommandWriteLock(database, timeout=0.05)
+    second = CommandWriteLock(database, timeout=0.05)
+    first.acquire()
+    first.acquire()
+    try:
+        first.release()
+        with pytest.raises(sqlite3.OperationalError, match="command write lock"):
+            second.acquire()
+    finally:
+        first.release()
+    second.acquire()
+    second.release()
+    assert first.path.is_file()
+    assert not database.exists()
+
+
+def test_command_file_lock_failure_releases_thread_lock(tmp_path, monkeypatch):
+    from fpl_manager.application.locks import CommandWriteLock
+
+    lock = CommandWriteLock(tmp_path / "state.sqlite3")
+
+    def fail(_descriptor):
+        raise OSError("injected file-lock failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(lock, "_acquire_file", fail)
+        with pytest.raises(OSError, match="injected"):
+            lock.acquire()
+    lock.acquire()
+    lock.release()
 
 
 def test_contexts_are_explicit_frozen_and_revisions_exclude_gameweek(context):
