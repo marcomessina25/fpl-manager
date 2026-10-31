@@ -3,7 +3,7 @@
 **Status:** V147-01 through V147-09 core implementation complete on branch; V147-10 (Qt) explicitly gated.
 **Branch:** `v147`, based on merged `master` at `38595a7`.
 **Date:** 2026-10-29.
-**Status Update:** 2026-10-30 — V147-02 through V147-07 implemented; V147-08 application foundation extracted with legacy HTTP orchestration retained; V147-09 automated gates in place. All 961 local tests pass with no skips or failures, including the GUI-controller wrapper. V147-10 (Qt) remains explicitly gated.
+**Status Update:** 2026-10-31 — V147-02 through V147-07 and the PR review corrections are implemented; V147-08 application foundation retains legacy HTTP orchestration. The final review-fix suite passes all 1,017 tests without failures/errors/skips, including the 46-case controller harness. V147-10 (Qt) remains explicitly gated.
 **Inputs:** [Repository assessment](repository_analysis.md), [native PyQt6 plan](pyqt6_migration_plan.md).
 
 ## 1. Release Goal
@@ -42,13 +42,13 @@ The native client remains a separately gated proposal. In particular:
 Validation of this scoped branch change: **655 pytest cases passed** locally
 on Python 3.13 during preparatory cleanup phase (28adb72).
 
-**Final local full suite:** 961 tests passed on Windows/Python 3.13, with zero
+**Foundation full suite (`c830ade`):** 961 tests passed on Windows/Python 3.13, with zero
 failures, errors or skips. This includes the required historical GUI/API and
 simulation regressions, recovery/concurrency tests, and frozen benchmark assertions.
 
 **Focused last review suite:** 105 tests passed.
 
-**Node controller cases:** 42 actual-handler cases, including calculation-revision
+**Foundation Node controller cases:** 42 actual-handler cases, including calculation-revision
 and archive-control regressions. Nested Python report exports have separate
 pytest regressions; Node tests are not real-browser or visual acceptance.
 
@@ -58,6 +58,31 @@ and CLI smoke checks outside the source checkout. CI runs Linux/Python
 the installed-wheel checks. Remote acceptance is the candidate commit's
 [CI checks](https://github.com/marcomessina25/fpl-manager/actions/workflows/ci.yml?query=branch%3Av147);
 local results do not stand in for remote or manual visual acceptance.
+
+### PR review follow-up (2026-10-31)
+
+- [x] Keep pending-publication and revision reads in one SQLite snapshot; guard
+  persisted session bytes against concurrent revision changes.
+- [x] Persist clean-deadline Free Hit ownership and restore it atomically on
+  advancement, including earlier same-week trades, skipped GWs and segment renewal.
+- [x] Restore trusted Undo acquisition prices, cash and saved FTs; reject
+  unverifiable legacy basis without changing state or decisions.
+- [x] Pin generated team identity and creation source to the same context,
+  including collision retries, source switches and cross-process requests.
+- [x] Reject older same-context committed responses without lowering HUD revisions
+  or running successful continuations; accept equal-revision retries.
+- [x] Admit partial historical coverage without validating unavailable future
+  registry timing; retain strict structure and covered-deadline checks.
+- [x] Wire saved Free Hit state into live planning and avoid replaying earlier
+  chips in a later planning window.
+- [x] Complete integrated full-suite and installed-artifact validation for this
+  follow-up and record the final results in local `pr_text.txt`.
+
+The final review-fix suite passes **1,017 tests** on Windows/Python 3.13 with no
+failures, errors or skips. The included Node wrapper executes **46 actual
+controller cases**, not browser/visual tests. The built `1.4.7` wheel also passes
+resource, isolated-command and CLI smoke checks outside the editable checkout.
+Candidate CI and manual/native acceptance remain separate gates.
 
 ## 3. Delivery Principles
 

@@ -280,6 +280,7 @@ class CommandBus:
             return 0
         connection = self._connect(path, readonly=True)
         try:
+            connection.execute("BEGIN")
             if not has_schema(connection):
                 return 0
             pending = self._pending(connection)
@@ -290,7 +291,11 @@ class CommandBus:
             ).fetchone()
             return int(row[0]) if row is not None else 0
         finally:
-            connection.close()
+            try:
+                if connection.in_transaction:
+                    connection.rollback()
+            finally:
+                connection.close()
 
     def _publish(self, connection: sqlite3.Connection, row: tuple[Any, ...]) -> CommandReceipt:
         receipt = CommandReceipt.from_json(row[2])

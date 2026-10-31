@@ -361,3 +361,337 @@ def test_offline_execution_policy_is_explicit_and_scoped(tmp_path, monkeypatch):
     assert corrected.execution_version == "v147" and set(observed) == {"v147"}
     assert resolve_execution_version().value == "v147"
     assert corrected.configuration_hash != legacy.configuration_hash
+
+
+def _appreciated_state(finance_env, gameweek=2):
+    _, squad, store = finance_env
+    with store._connect() as connection, connection:
+        connection.execute("UPDATE players SET price_tenths = 70 WHERE player_id = 15")
+        connection.execute("UPDATE players SET price_tenths = 50 WHERE player_id = 16")
+    state = replace(
+        load_current_squad(squad), bank_tenths=100, gameweek=gameweek,
+        purchase_prices_tenths={pid: 65 if pid == 15 else 50 for pid in range(1, 16)},
+    )
+    save_current_squad(squad, state)
+    return state
+
+
+@pytest.mark.parametrize("entry", ["strategic", "execute", "manual"])
+@pytest.mark.parametrize("source_gw,target_gw", [(2, 3), (2, 5), (19, 20)])
+def test_free_hit_restores_authoritative_ownership_after_restart(finance_env, entry, source_gw, target_gw):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env, source_gw)
+    if entry == "strategic":
+        apply_wildcard_or_freehit(
+            squad, source_gw, "freehit", list(range(1, 15)) + [16],
+            STARTERS, [2, 6, 7, 16], 13, 8, 0, team_id="alpha", database_path=database,
+        )
+    elif entry == "execute":
+        execute_transfers(squad, [(15, 16)], database_path=database, gameweek=source_gw,
+                          chip_played="FH", team_id="alpha")
+    else:
+        log_decision_from_current_squad(
+            gameweek=source_gw, squad_path=squad, database_path=database, team_id="alpha",
+            transfers=["15:16"], chip_played="FH",
+        )
+    temporary = load_current_squad(squad)
+    assert temporary.bank_tenths == 117 and 16 in temporary.player_ids
+    assert temporary.pre_free_hit_state.purchase_prices_tenths[15] == 65
+    for _ in range(2):
+        log_decision_from_current_squad(
+            gameweek=source_gw, squad_path=squad, database_path=database, team_id="alpha",
+        )
+    # Loading through a new bus/state reader models a service restart.
+    advance_current_squad(squad, target_gw, team_id="alpha", database_path=database)
+    restored = load_current_squad(squad)
+    assert restored.player_ids == original.player_ids
+    assert restored.purchase_prices_tenths == original.purchase_prices_tenths
+    assert restored.bank_tenths == 100 and restored.pre_free_hit_state is None
+    assert restored.free_transfers == 1
+    if target_gw < 20:
+        assert "free_hit" not in restored.chips_remaining
+    else:
+        assert restored.chip_segment == 2 and "free_hit" in restored.chips_remaining
+    assert get_gameweek_decision(source_gw, team_id="alpha", database_path=database)["chip_played"] is not None
+
+
+def test_free_hit_later_transfer_and_undo_preserve_first_snapshot(finance_env):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    record_gameweek_decision(1, list(original.player_ids), STARTERS, BENCH, 13, 8,
+                            team_id="alpha", database_path=database, capture_recommendations=False)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    execute_transfers(squad, [(16, 15)], database_path=database, gameweek=2, team_id="alpha")
+    assert load_current_squad(squad).pre_free_hit_state.bank_tenths == 100
+    undo_gameweek_changes(squad, 2, team_id="alpha", database_path=database)
+    reverted = load_current_squad(squad)
+    assert reverted.purchase_price(15) == 65 and reverted.bank_tenths == 100
+    assert reverted.pre_free_hit_state is None and "free_hit" in reverted.chips_remaining
+
+
+@pytest.mark.parametrize("activation", ["manual", "strategic", "execute"])
+def test_late_free_hit_activation_reverts_all_same_deadline_transfers(finance_env, activation):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], gameweek=2, team_id="alpha", database_path=database)
+    traded = load_current_squad(squad)
+    if activation == "manual":
+        log_decision_from_current_squad(
+            gameweek=2, squad_path=squad, team_id="alpha", database_path=database, chip_played="FH",
+        )
+    elif activation == "strategic":
+        apply_wildcard_or_freehit(
+            squad, 2, "freehit", list(traded.player_ids), STARTERS, [2, 6, 7, 16],
+            13, 8, 0, team_id="alpha", database_path=database,
+        )
+    else:
+        execute_transfers(
+            squad, [(16, 15)], gameweek=2, team_id="alpha", database_path=database, chip_played="FH",
+        )
+    temporary = load_current_squad(squad)
+    assert temporary.pre_free_hit_state.player_ids == original.player_ids
+    assert temporary.pre_free_hit_state.purchase_prices_tenths == original.purchase_prices_tenths
+    assert temporary.pre_free_hit_state.bank_tenths == original.bank_tenths
+    advance_current_squad(squad, 3, team_id="alpha", database_path=database)
+    restored = load_current_squad(squad)
+    assert restored.player_ids == original.player_ids
+    assert restored.purchase_prices_tenths == original.purchase_prices_tenths
+    assert restored.bank_tenths == original.bank_tenths
+
+
+@pytest.mark.parametrize("price", [60, 70])
+def test_undo_recovers_legacy_human_acquisition_not_selling_quote(finance_env, price):
+    database, squad, store = finance_env
+    original = _appreciated_state(finance_env)
+    with store._connect() as connection, connection:
+        connection.execute("UPDATE players SET price_tenths = ? WHERE player_id = 15", (price,))
+    record_gameweek_decision(
+        1, list(original.player_ids), STARTERS, BENCH, 13, 8, team_id="alpha",
+        transfers=[{"outgoing_id": 16, "incoming_id": 15, "purchase_price_tenths": 65}],
+        database_path=database, capture_recommendations=False,
+    )
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2, team_id="alpha")
+    raw = json.loads(squad.read_text(encoding="utf-8"))
+    raw.pop("gameweek_start_state", None)
+    squad.write_text(json.dumps(raw), encoding="utf-8")
+    with store._connect() as connection, connection:
+        row = connection.execute("SELECT id, transfers_json FROM decisions WHERE gameweek=2").fetchone()
+        txs = json.loads(row[1])
+        txs[0].pop("outgoing_purchase_price_tenths")
+        connection.execute("UPDATE decisions SET transfers_json=? WHERE id=?", (json.dumps(txs), row[0]))
+    undo_gameweek_changes(squad, 2, team_id="alpha", database_path=database)
+    assert load_current_squad(squad).purchase_price(15) == 65
+    assert load_current_squad(squad).bank_tenths == 100
+
+
+def test_undo_unverified_legacy_basis_rejects_without_effect(finance_env):
+    database, squad, store = finance_env
+    original = _appreciated_state(finance_env)
+    record_gameweek_decision(1, list(original.player_ids), STARTERS, BENCH, 13, 8,
+                            team_id="alpha", database_path=database, capture_recommendations=False)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2, team_id="alpha")
+    raw = json.loads(squad.read_text(encoding="utf-8"))
+    raw.pop("gameweek_start_state", None)
+    squad.write_text(json.dumps(raw), encoding="utf-8")
+    # A mutable legacy/default portfolio is not this team's acquisition record.
+    save_current_squad(squad.parent.parent / "current_squad.json", replace(original, bank_tenths=999))
+    with store._connect() as connection, connection:
+        row = connection.execute("SELECT id, transfers_json FROM decisions WHERE gameweek=2").fetchone()
+        txs = json.loads(row[1])
+        txs[0].pop("outgoing_purchase_price_tenths")
+        connection.execute("UPDATE decisions SET transfers_json=? WHERE id=?", (json.dumps(txs), row[0]))
+        before_recs = connection.execute("SELECT * FROM decision_recommendations").fetchall()
+    before = squad.read_bytes()
+    decision = get_gameweek_decision(2, team_id="alpha", database_path=database)
+    with pytest.raises(ValueError, match="authoritative.*purchase|purchase.*basis"):
+        undo_gameweek_changes(squad, 2, team_id="alpha", database_path=database)
+    assert squad.read_bytes() == before
+    assert get_gameweek_decision(2, team_id="alpha", database_path=database) == decision
+    with store._connect() as connection:
+        assert connection.execute("SELECT * FROM decision_recommendations").fetchall() == before_recs
+
+
+def test_legacy_free_hit_without_snapshot_cannot_advance(finance_env):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    record_gameweek_decision(2, list(original.player_ids), STARTERS, BENCH, 13, 8,
+                            chip_played="FH", team_id="alpha", database_path=database,
+                            capture_recommendations=False)
+    before = squad.read_bytes()
+    with pytest.raises(ValueError, match="Free Hit.*authoritative|Free Hit.*snapshot"):
+        advance_current_squad(squad, 3, team_id="alpha", database_path=database)
+    assert squad.read_bytes() == before
+
+
+def test_free_hit_clone_keeps_isolated_restoration_state(finance_env):
+    from fpl_manager.teams import create_team
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    clone = create_team("Clone", copy_from_team_id="alpha", config_dir=squad.parents[2],
+                        database_path=database, set_as_active=False)
+    cloned_path = Path(clone["squad_path"])
+    advance_current_squad(cloned_path, 3, team_id="clone", database_path=database)
+    assert load_current_squad(cloned_path).player_ids == original.player_ids
+    assert load_current_squad(cloned_path).bank_tenths == 100
+    assert load_current_squad(cloned_path).purchase_price(15) == 65
+    assert load_current_squad(squad).bank_tenths == 117
+
+
+def test_free_hit_undo_without_previous_decision_uses_saved_human_state(finance_env):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    undo_gameweek_changes(squad, 2, team_id="alpha", database_path=database)
+    reverted = load_current_squad(squad)
+    assert reverted.player_ids == original.player_ids and reverted.bank_tenths == 100
+    assert reverted.purchase_price(15) == 65 and reverted.pre_free_hit_state is None
+
+
+def test_snapshot_backed_undo_preserves_free_transfers_without_sql_history(finance_env):
+    database, squad, _ = finance_env
+    original = replace(_appreciated_state(finance_env, gameweek=10), free_transfers=4)
+    save_current_squad(squad, original)
+    execute_transfers(
+        squad, [(15, 16)], database_path=database, gameweek=10, chip_played="FH", team_id="alpha",
+    )
+    assert load_current_squad(squad).gameweek_start_state.free_transfers == 4
+    undo_gameweek_changes(squad, 10, team_id="alpha", database_path=database)
+    restored = load_current_squad(squad)
+    assert restored.free_transfers == 4
+    assert restored.player_ids == original.player_ids
+    assert restored.purchase_prices_tenths == original.purchase_prices_tenths
+    assert restored.bank_tenths == original.bank_tenths
+
+
+def test_undo_sale_reacquisition_preserves_original_basis_and_integer_cash(finance_env):
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    record_gameweek_decision(1, list(original.player_ids), STARTERS, BENCH, 13, 8,
+                            team_id="alpha", database_path=database, capture_recommendations=False)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2, team_id="alpha")
+    execute_transfers(squad, [(16, 15)], database_path=database, gameweek=2, team_id="alpha")
+    assert load_current_squad(squad).purchase_price(15) == 70
+    assert load_current_squad(squad).bank_tenths == 97
+    undo_gameweek_changes(squad, 2, team_id="alpha", database_path=database)
+    assert load_current_squad(squad).purchase_price(15) == 65
+    assert load_current_squad(squad).bank_tenths == 100
+
+
+@pytest.mark.parametrize("stage", ["activation", "restoration"])
+def test_free_hit_precommit_fault_keeps_both_stores_unchanged(finance_env, monkeypatch, stage):
+    from fpl_manager.application import CommandBus, LiveContext
+    database, squad, store = finance_env
+    _appreciated_state(finance_env)
+    CommandBus(database).initialize(LiveContext("alpha", "2026/27", 2))
+    if stage == "restoration":
+        execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                          chip_played="FH", team_id="alpha")
+    before = squad.read_bytes()
+    with store._connect() as connection:
+        decisions = connection.execute("SELECT * FROM decisions").fetchall()
+        recommendations = connection.execute("SELECT * FROM decision_recommendations").fetchall()
+        revisions = connection.execute("SELECT * FROM application_revisions").fetchall()
+
+    def reject_commit(self):
+        raise OSError("injected Free Hit precommit failure")
+
+    monkeypatch.setattr(CommandBus, "_before_commit", reject_commit)
+    with pytest.raises(OSError, match="precommit failure"):
+        if stage == "activation":
+            execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                              chip_played="FH", team_id="alpha")
+        else:
+            advance_current_squad(squad, 3, team_id="alpha", database_path=database)
+    assert squad.read_bytes() == before
+    with store._connect() as connection:
+        assert connection.execute("SELECT * FROM decisions").fetchall() == decisions
+        assert connection.execute("SELECT * FROM decision_recommendations").fetchall() == recommendations
+        assert connection.execute("SELECT * FROM application_revisions").fetchall() == revisions
+
+
+@pytest.mark.parametrize("field,value", [
+    ("bank_tenths", 100.5), ("gameweek", "2"), ("free_transfers", True),
+    ("purchase_prices_tenths", {"15": 65}), ("chips_remaining", None),
+])
+def test_nested_lifecycle_snapshot_is_strictly_validated(finance_env, field, value):
+    database, squad, _ = finance_env
+    _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    raw = json.loads(squad.read_text(encoding="utf-8"))
+    raw["pre_free_hit_state"][field] = value
+    squad.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_current_squad(squad)
+
+
+def test_free_hit_restore_publication_failure_recovers_after_restart(finance_env, monkeypatch):
+    from fpl_manager.application import CommandBus, LiveContext, RecoveryRequiredError
+    from fpl_manager.application import commands
+    database, squad, _ = finance_env
+    original = _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    temporary = squad.read_bytes()
+
+    def fail_publication(*args, **kwargs):
+        raise OSError("injected FH restoration publication failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(commands, "publish_file", fail_publication)
+        with pytest.raises(RecoveryRequiredError):
+            advance_current_squad(squad, 3, team_id="alpha", database_path=database)
+    assert squad.read_bytes() == temporary
+    CommandBus(database).recover(LiveContext("alpha", "2026/27", 3))
+    restored = load_current_squad(squad)
+    assert restored.player_ids == original.player_ids and restored.bank_tenths == 100
+    assert restored.purchase_price(15) == 65 and restored.pre_free_hit_state is None
+    assert get_gameweek_decision(2, team_id="alpha", database_path=database)["chip_played"] == "FH"
+
+
+def test_legacy_undo_uses_latest_acquisition_after_prior_sale(finance_env):
+    database, squad, store = finance_env
+    original = _appreciated_state(finance_env, gameweek=3)
+    # The GW2 human reacquisition at 65 supersedes their earlier acquisition at 55.
+    for gw, price in ((1, 55), (2, 65)):
+        record_gameweek_decision(
+            gw, list(original.player_ids), STARTERS, BENCH, 13, 8, team_id="alpha",
+            transfers=[{"outgoing_id": 16, "incoming_id": 15, "purchase_price_tenths": price}],
+            database_path=database, capture_recommendations=False,
+        )
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=3, team_id="alpha")
+    raw = json.loads(squad.read_text(encoding="utf-8"))
+    raw.pop("gameweek_start_state")
+    squad.write_text(json.dumps(raw), encoding="utf-8")
+    with store._connect() as connection, connection:
+        row = connection.execute("SELECT id, transfers_json FROM decisions WHERE gameweek=3").fetchone()
+        txs = json.loads(row[1])
+        txs[0].pop("outgoing_purchase_price_tenths")
+        connection.execute("UPDATE decisions SET transfers_json=? WHERE id=?", (json.dumps(txs), row[0]))
+    undo_gameweek_changes(squad, 3, team_id="alpha", database_path=database)
+    assert load_current_squad(squad).purchase_price(15) == 65
+    assert load_current_squad(squad).bank_tenths == 100
+
+
+@pytest.mark.parametrize("entry", ["lineup", "manual"])
+def test_next_deadline_decision_does_not_log_free_hit_restoration_as_transfer(finance_env, entry):
+    database, squad, _ = finance_env
+    _appreciated_state(finance_env)
+    execute_transfers(squad, [(15, 16)], database_path=database, gameweek=2,
+                      chip_played="FH", team_id="alpha")
+    decision = log_decision_from_current_squad(
+        gameweek=3, squad_path=squad, database_path=database, team_id="alpha",
+        transfers=["15:16"] if entry == "manual" else None,
+    )
+    restored = load_current_squad(squad)
+    if entry == "lineup":
+        assert decision["transfers"] == []
+        assert restored.bank_tenths == 100 and restored.free_transfers == 1
+    else:
+        assert [(tx["outgoing_id"], tx["incoming_id"]) for tx in decision["transfers"]] == [(15, 16)]
+        assert restored.bank_tenths == 117 and restored.purchase_price(16) == 50
+    assert restored.pre_free_hit_state is None and decision["chip_played"] is None

@@ -86,6 +86,17 @@ function formatMarkdown(str) {
 // API Request Wrapper
 let commandSequence = 0;
 
+class StaleCommandResponseError extends Error {
+  constructor(command) {
+    super("This command already committed, but newer changes superseded its response. The older response was ignored.");
+    this.name = "StaleCommandResponseError";
+    this.code = "STALE_COMMAND_RESPONSE";
+    this.committed = true;
+    this.commandId = command.command_id;
+    this.revision = command.revision_after;
+  }
+}
+
 async function api(endpoint, options = {}) {
   const requestContext = captureAppContext();
   const isPost = (options.method || "GET").toUpperCase() === "POST";
@@ -134,12 +145,19 @@ async function api(endpoint, options = {}) {
       const identity = selected?.command_context;
       if (identity?.mode === target.mode &&
           (target.mode === "historical" ? identity.session_id === target.session_id : identity.team_id === target.team_id)) {
+        if (Number.isInteger(selected.revision) && data.command.revision_after < selected.revision) {
+          throw new StaleCommandResponseError(data.command);
+        }
         selected.revision = data.command.revision_after;
       }
     }
     return data;
   } catch (err) {
-    console.error(`API Error on ${endpoint}:`, err);
+    if (err instanceof StaleCommandResponseError) {
+      console.warn("Superseded committed command response", { commandId: err.commandId, revision: err.revision });
+    } else {
+      console.error(`API Error on ${endpoint}:`, err);
+    }
     throw err;
   }
 }

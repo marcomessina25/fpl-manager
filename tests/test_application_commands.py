@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -501,6 +501,84 @@ def test_revision_reads_do_not_create_initialize_migrate_or_recover(state, conte
     assert database.read_bytes() == before
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [("unrelated",)]
+
+
+def test_query_revision_uses_one_snapshot_across_a_concurrent_commit(tmp_path, monkeypatch):
+    from fpl_manager.application.services import ApplicationService
+    from fpl_manager.squad_state import CurrentSquadState, load_current_squad, save_current_squad
+
+    database = tmp_path / "state.sqlite3"
+    config = tmp_path / "config"
+    squad = config / "teams" / "fixture" / "squad.json"
+    context = LiveContext("fixture", "2026/27", 1)
+    initial = CurrentSquadState(
+        tuple(range(1, 16)), {pid: 50 for pid in range(1, 16)},
+        0, 1, (), context.season, 1, 1,
+    )
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+    CommandBus(database).execute(context, "seed", {}, lambda: save_current_squad(squad, initial))
+    committed = threading.Event()
+    allow_publication = threading.Event()
+    finished = threading.Event()
+    errors = []
+
+    class DelayedPublisher(CommandBus):
+        def _publish(self, connection, row):
+            committed.set()
+            if not allow_publication.wait(10):
+                raise RuntimeError("Fixture publication gate timed out.")
+            return super()._publish(connection, row)
+
+    writer = DelayedPublisher(database)
+    writer.initialize(context)
+
+    def mutate():
+        try:
+            writer.execute(
+                context, "change", {},
+                lambda: save_current_squad(squad, replace(initial, bank_tenths=1)),
+            )
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=mutate)
+    service = ApplicationService(database, config)
+    original_pending = service.commands._pending
+    started = False
+
+    def commit_after_pending_read(connection):
+        nonlocal started
+        pending = original_pending(connection)
+        if pending is None and not started:
+            started = True
+            thread.start()
+            assert committed.wait(10), "Fixture commit gate timed out."
+        return pending
+
+    monkeypatch.setattr(service.commands, "_pending", commit_after_pending_read)
+
+    def calculate():
+        observed = load_current_squad(squad).bank_tenths
+        allow_publication.set()
+        assert finished.wait(10), "Fixture completion gate timed out."
+        return {"bank_tenths": observed}
+
+    try:
+        with pytest.raises(StaleRevisionError) as error:
+            service.query(context, "/api/squad", calculate)
+        assert error.value.details["expected_revision"] == 1
+        assert error.value.details["revision"] == 2
+    finally:
+        allow_publication.set()
+        if started:
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+    assert errors == []
+    assert load_current_squad(squad).bank_tenths == 1
+    assert CommandBus(database).revision(context) == 2
 
 
 def test_historical_routes_to_control_database_without_opening_live_sql(tmp_path, monkeypatch):

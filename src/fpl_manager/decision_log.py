@@ -18,7 +18,7 @@ from .expected_points import project_gameweek
 from .fixtures import get_current_gameweek
 from .models import Player, Position
 from .rules import free_transfer_transition, is_free_transfers_chip, validate_squad, validate_starting_lineup
-from .squad_state import CurrentSquadState, live_command, load_current_squad, save_current_squad
+from .squad_state import CurrentSquadState, live_command, load_current_squad, prepare_live_lifecycle, save_current_squad
 from .storage import SnapshotStore, utc_timestamp
 from .transfers import Transfer, prepare_transfer_finance, resolve_chained_transfers, selling_price
 
@@ -690,7 +690,10 @@ def log_decision_from_current_squad(
     if gameweek > 1:
         prev_dec = get_gameweek_decision(gameweek - 1, season=state.season, team_id=team_id, database_path=database_path)
 
-    if prev_dec:
+    if not is_past and prev_dec and prev_dec.get("chip_played") and normalize_chip(prev_dec["chip_played"]) == "free_hit":
+        baseline = state.gameweek_start_state
+        prev_squad_ids = list(baseline.player_ids if baseline else state.player_ids)
+    elif prev_dec:
         prev_squad_ids = list(prev_dec.get("squad_player_ids") or (prev_dec.get("starting_player_ids", []) + prev_dec.get("bench_player_ids", [])))
     else:
         prev_squad_ids = list(state.player_ids)
@@ -920,6 +923,9 @@ def log_decision_from_current_squad(
     updated_state = None
     capture_context = None
     if not is_past:
+        state = prepare_live_lifecycle(
+            state, gameweek, chip_played, existing_dec.get("chip_played") if existing_dec else None,
+        )
         players = store.latest_players()
         player_map = {player.id: player for player in players}
         outgoing = set(state.player_ids) - set(squad_ids)
@@ -1058,13 +1064,15 @@ def undo_gameweek_changes(
             (team_id, season, target_gw),
         ).fetchone()
 
-    if not row:
-        raise ValueError(f"No previous gameweek is available to revert to (prior to GW{target_gw}).")
-
-    prev_gw, prev_starters_json, prev_bench_json, prev_tx_json, prev_chip, prev_hits = row
-    prev_starters = json.loads(prev_starters_json)
-    prev_bench = json.loads(prev_bench_json)
-    prev_squad_ids = tuple(prev_starters + prev_bench)
+    if row:
+        prev_gw, prev_starters_json, prev_bench_json, _, prev_chip, _ = row
+        prev_squad_ids = tuple(json.loads(prev_starters_json) + json.loads(prev_bench_json))
+    else:
+        saved = cur_state.gameweek_start_state or cur_state.pre_free_hit_state
+        if saved is None or saved.gameweek != target_gw:
+            raise ValueError(f"No previous gameweek is available to revert to (prior to GW{target_gw}).")
+        prev_gw, prev_chip = max(1, target_gw - 1), None
+        prev_squad_ids = saved.player_ids
 
     if len(prev_squad_ids) != 15:
         raise ValueError(f"Previous gameweek (GW{prev_gw}) decision does not contain 15 players.")
@@ -1084,103 +1092,79 @@ def undo_gameweek_changes(
             cur_tx = json.loads(cur_dec_row[1]) if cur_dec_row[1] else []
             cur_chip = cur_dec_row[2]
 
-    # Calculate price reconstruction and cash impact
-    legacy_squad_path = squad_path.parent.parent / "current_squad.json"
-    legacy_prices: dict[int, int] = {}
-    if legacy_squad_path.exists():
-        try:
-            with open(legacy_squad_path, "r", encoding="utf-8") as f:
-                legacy_data = json.load(f)
-                legacy_prices = {int(k): int(v) for k, v in legacy_data.get("purchase_prices_tenths", {}).items()}
-        except Exception:
-            pass
-
-    with closing(store._connect()) as conn:
-        reverted_prices: dict[int, int] = {}
+    if target_gw != (cur_state.gameweek or 1):
+        raise ValueError("Undo must target the current squad gameweek.")
+    baseline = cur_state.gameweek_start_state
+    if baseline is None and cur_state.pre_free_hit_state is not None:
+        baseline = cur_state.pre_free_hit_state
+    if baseline is not None:
+        prev_squad_ids = baseline.player_ids
+        reverted_prices = dict(baseline.purchase_prices_tenths)
+        reverted_bank = baseline.bank_tenths
+    else:
+        if cur_chip and normalize_chip(cur_chip) == "free_hit":
+            raise ValueError("Legacy Free Hit has no authoritative pre-chip ownership snapshot; cannot undo.")
+        if prev_chip and normalize_chip(prev_chip) == "free_hit":
+            # A previous FH decision describes temporary ownership, not the next GW's team.
+            prev_squad_ids = cur_state.player_ids
+        with closing(store._connect()) as conn:
+            past_rows = conn.execute(
+                "SELECT transfers_json, chip_played FROM decisions WHERE team_id = ? "
+                "AND season = ? AND gameweek <= ? ORDER BY gameweek DESC",
+                (team_id, season, prev_gw),
+            ).fetchall()
+        reverted_prices = {}
         for pid in prev_squad_ids:
-            if pid in cur_state.purchase_prices_tenths:
-                reverted_prices[pid] = cur_state.purchase_prices_tenths[pid]
-            elif pid in legacy_prices:
-                reverted_prices[pid] = legacy_prices[pid]
-            else:
-                found_tx_price = None
-                if cur_tx:
-                    for tx in cur_tx:
-                        if tx.get("outgoing_id") == pid:
-                            if "outgoing_purchase_price_tenths" in tx:
-                                found_tx_price = tx["outgoing_purchase_price_tenths"]
-                                break
-                            elif "selling_price_tenths" in tx:
-                                found_tx_price = tx["selling_price_tenths"]
-                                break
-                if found_tx_price is None:
-                    past_rows = conn.execute(
-                        """
-                        SELECT transfers_json FROM decisions
-                        WHERE team_id = ? AND season = ? AND gameweek <= ?
-                        ORDER BY gameweek DESC
-                        """,
-                        (team_id, season, prev_gw),
-                    ).fetchall()
-                    for pr in past_rows:
-                        if pr[0]:
-                            try:
-                                past_txs = json.loads(pr[0])
-                                for ptx in past_txs:
-                                    if ptx.get("incoming_id") == pid and "purchase_price_tenths" in ptx:
-                                        found_tx_price = ptx["purchase_price_tenths"]
-                                        break
-                            except Exception:
-                                pass
-                        if found_tx_price is not None:
-                            break
+            outgoing = [tx for tx in cur_tx if tx.get("outgoing_id") == pid]
+            price = next((tx["outgoing_purchase_price_tenths"] for tx in outgoing
+                          if "outgoing_purchase_price_tenths" in tx), None)
+            reacquired = any(tx.get("incoming_id") == pid for tx in cur_tx)
+            if price is None and not outgoing and not reacquired and pid in cur_state.purchase_prices_tenths:
+                price = cur_state.purchase_price(pid)
+            if price is None:
+                for text, chip in past_rows:
+                    if chip and normalize_chip(chip) == "free_hit":
+                        continue
+                    transactions = json.loads(text) if text else []
+                    latest = next((tx for tx in reversed(transactions)
+                                   if pid in (tx.get("incoming_id"), tx.get("outgoing_id"))), None)
+                    if latest is not None:
+                        if latest.get("incoming_id") == pid:
+                            price = latest.get("purchase_price_tenths")
+                        break
+            if type(price) is not int or price < 0:
+                raise ValueError(f"Cannot undo: no authoritative purchase-price basis for player {pid}.")
+            reverted_prices[pid] = price
 
-                if found_tx_price is not None:
-                    reverted_prices[pid] = found_tx_price
-                else:
-                    p_row = conn.execute(
-                        "SELECT price_tenths FROM players WHERE player_id = ? ORDER BY snapshot_id ASC LIMIT 1",
-                        (pid,),
-                    ).fetchone()
-                    reverted_prices[pid] = p_row[0] if p_row else 50
-
-    bought_pids = set(cur_state.player_ids) - set(prev_squad_ids)
-    sold_pids = set(prev_squad_ids) - set(cur_state.player_ids)
-
-    net_cash_impact = 0
-    if cur_tx:
-        for tx in cur_tx:
-            sell_p = tx.get("selling_price_tenths", 0)
-            buy_p = tx.get("purchase_price_tenths", 0)
-            net_cash_impact += (sell_p - buy_p)
-    elif bought_pids and sold_pids:
-        for b_pid in bought_pids:
-            net_cash_impact -= cur_state.purchase_prices_tenths.get(b_pid, 50)
-        for s_pid in sold_pids:
-            s_purchase = reverted_prices.get(s_pid, 50)
-            with closing(store._connect()) as conn:
-                snap_row = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
-                snap_id = snap_row[0] if snap_row else 1
-                p_row = conn.execute("SELECT price_tenths FROM players WHERE snapshot_id = ? AND player_id = ?", (snap_id, s_pid)).fetchone()
-                cur_cost = p_row[0] if p_row else s_purchase
-            sell_p = selling_price(s_purchase, cur_cost)
-            net_cash_impact += sell_p
-
-    reverted_bank = cur_state.bank_tenths - net_cash_impact
+        net_cash_impact = 0
+        if cur_tx:
+            for tx in cur_tx:
+                sell_p = tx.get("selling_price_tenths")
+                buy_p = tx.get("purchase_price_tenths")
+                if any(type(amount) is not int or amount < 0 for amount in (sell_p, buy_p)):
+                    raise ValueError("Cannot undo: recorded transfers lack exact integer cash settlement.")
+                net_cash_impact += sell_p - buy_p
+        elif set(cur_state.player_ids) != set(prev_squad_ids):
+            raise ValueError("Cannot undo: ownership changes lack an authoritative saved cash settlement.")
+        reverted_bank = cur_state.bank_tenths - net_cash_impact
     if reverted_bank < 0:
         raise ValueError("Cannot undo: recorded transfers do not conserve available funds.")
 
     # Restore chips
-    reverted_chips = list(cur_state.chips_remaining)
-    if cur_chip and cur_chip not in reverted_chips:
+    reverted_chips = list(baseline.chips_remaining if baseline else cur_state.chips_remaining)
+    if baseline is None and cur_chip and not any(
+        normalize_chip(cur_chip) == normalize_chip(chip) for chip in reverted_chips
+    ):
         reverted_chips.append(cur_chip)
 
     # Restore free transfers: compute expected free transfers entering target_gw
-    reverted_ft = compute_expected_free_transfers(
-        target_gw=target_gw,
-        team_id=team_id,
-        season=season,
-        database_path=database_path,
+    reverted_ft = (
+        baseline.free_transfers if baseline is not None else compute_expected_free_transfers(
+            target_gw=target_gw,
+            team_id=team_id,
+            season=season,
+            database_path=database_path,
+        )
     )
 
     reverted_state = CurrentSquadState(
@@ -1192,6 +1176,7 @@ def undo_gameweek_changes(
         season=season,
         gameweek=target_gw,
         chip_segment=cur_state.chip_segment,
+        gameweek_start_state=baseline,
     )
     save_current_squad(squad_path, reverted_state)
     if cur_dec_row:
@@ -1295,6 +1280,9 @@ def apply_wildcard_or_freehit(
 
     existing = get_gameweek_decision(gameweek, team_id=team_id, season=state.season, database_path=database_path)
     rem_chips = consume_chip(state, chip_norm, gameweek, existing.get("chip_played") if existing else None)
+    state = prepare_live_lifecycle(
+        state, gameweek, chip_norm, existing.get("chip_played") if existing else None,
+    )
 
     if chip_norm in ("wildcard", "freehit") and state.player_ids:
         from .transfers import selling_price as _calc_sell
@@ -1315,7 +1303,8 @@ def apply_wildcard_or_freehit(
     elif sum(costs[pid] for pid in squad_ids) + bank_tenths > 1000:
         raise ValueError("Initial squad and bank exceed the starting budget.")
 
-    updated_state = CurrentSquadState(
+    updated_state = replace(
+        state,
         player_ids=tuple(squad_ids),
         purchase_prices_tenths=new_prices,
         bank_tenths=bank_tenths,
@@ -1323,7 +1312,6 @@ def apply_wildcard_or_freehit(
         chips_remaining=tuple(rem_chips),
         season=state.season,
         gameweek=max(state.gameweek or 1, gameweek),
-        chip_segment=state.chip_segment,
     )
     save_current_squad(squad_path, updated_state)
     # If default team, also sync legacy current_squad.json if present
@@ -1337,7 +1325,9 @@ def apply_wildcard_or_freehit(
 
     # Reconcile transfers made from previous gameweek decision or previous squad state
     prev_dec = get_gameweek_decision(gameweek - 1, season=season or state.season, team_id=team_id, database_path=database_path) if gameweek > 1 else None
-    if prev_dec:
+    if prev_dec and prev_dec.get("chip_played") and normalize_chip(prev_dec["chip_played"]) == "free_hit":
+        baseline_ids = list(state.player_ids)
+    elif prev_dec:
         baseline_ids = list(prev_dec.get("squad_player_ids") or (prev_dec.get("starting_player_ids", []) + prev_dec.get("bench_player_ids", [])))
     else:
         baseline_ids = list(state.player_ids)

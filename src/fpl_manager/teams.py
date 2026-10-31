@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .squad_state import CurrentSquadState, live_command, load_current_squad, save_current_squad
+from .squad_state import CurrentSquadState, OwnershipSnapshot, live_command, load_current_squad, save_current_squad
 from .application.files import delete_state_file, read_state_text, state_file_exists, write_state_text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +17,10 @@ TEAMS_DIR = CONFIG_DIR / "teams"
 DEFAULT_SQUAD_PATH = CONFIG_DIR / "current_squad.json"
 EXAMPLE_SQUAD_PATH = CONFIG_DIR / "current_squad.example.json"
 ACTIVE_TEAM_PATH = CONFIG_DIR / "active_team.json"
+
+
+class TeamIDCollision(ValueError):
+    """An authoritative team ID was occupied when the locked create began."""
 
 
 def slugify_team_id(name: str) -> str:
@@ -176,6 +180,29 @@ def get_team_id_from_squad_path(squad_path: Path, config_dir: Path | None = None
     return get_active_team_id(config_dir)
 
 
+def resolve_creation_squad(
+    squad_state: CurrentSquadState | None,
+    copy_from_team_id: str | None,
+    config_dir: Path | None = None,
+) -> CurrentSquadState:
+    """Resolve the creation source once, independently of the new team's target."""
+    config_dir = config_dir or CONFIG_DIR
+    if squad_state is not None:
+        return squad_state
+    if copy_from_team_id:
+        copy_path = get_team_squad_path(copy_from_team_id, config_dir)
+        if not state_file_exists(copy_path):
+            raise ValueError(f"Team to copy from '{copy_from_team_id}' not found.")
+        return load_current_squad(copy_path)
+    active_path = get_active_squad_path(config_dir)
+    if state_file_exists(active_path):
+        return load_current_squad(active_path)
+    example = config_dir / "current_squad.example.json"
+    if state_file_exists(example):
+        return load_current_squad(example)
+    raise RuntimeError("No template squad available to initialize new team.")
+
+
 @live_command("create_team")
 def create_team(
     name: str,
@@ -200,7 +227,7 @@ def create_team(
     if team_id:
         tid = slugify_team_id(team_id)
         if team_workspace_exists(tid, config_dir):
-            raise ValueError(f"Team '{tid}' already exists.")
+            raise TeamIDCollision(f"Team '{tid}' already exists.")
     else:
         base_tid = slugify_team_id(clean_name)
         tid = base_tid
@@ -209,22 +236,7 @@ def create_team(
             tid = f"{base_tid}-{counter}"
             counter += 1
 
-    # Determine initial squad state
-    if squad_state is not None:
-        initial_squad = squad_state
-    elif copy_from_team_id:
-        copy_path = get_team_squad_path(copy_from_team_id, config_dir)
-        if not state_file_exists(copy_path):
-            raise ValueError(f"Team to copy from '{copy_from_team_id}' not found.")
-        initial_squad = load_current_squad(copy_path)
-    else:
-        active_path = get_active_squad_path(config_dir)
-        if state_file_exists(active_path):
-            initial_squad = load_current_squad(active_path)
-        elif state_file_exists(config_dir / "current_squad.example.json"):
-            initial_squad = load_current_squad(config_dir / "current_squad.example.json")
-        else:
-            raise RuntimeError("No template squad available to initialize new team.")
+    initial_squad = resolve_creation_squad(squad_state, copy_from_team_id, config_dir)
 
     team_dir = teams_dir / tid
     team_dir.mkdir(parents=True, exist_ok=True)
@@ -287,6 +299,16 @@ def advance_current_squad(
         raise ValueError("Target gameweek must be an integer between 1 and 38.")
     if target_gameweek < (state.gameweek or 1):
         raise ValueError("Cannot advance a squad backwards.")
+    if target_gameweek > (state.gameweek or 1) and state.pre_free_hit_state is None:
+        store = SnapshotStore(database_path)
+        store.initialize()
+        with closing(store._connect()) as connection:
+            row = connection.execute(
+                "SELECT chip_played FROM decisions WHERE team_id = ? AND season = ? AND gameweek = ?",
+                (team_id, state.season, state.gameweek or 1),
+            ).fetchone()
+        if row and row[0] and normalize_chip(row[0]) == "free_hit":
+            raise ValueError("Legacy Free Hit has no authoritative pre-chip ownership snapshot; reconcile before advancing.")
     segment = 1 if target_gameweek <= 19 else 2
     previous_segment = state.chip_segment
     if previous_segment is None:
@@ -316,6 +338,8 @@ def advance_current_squad(
         chips = tuple(chip for chip in chips if normalize_chip(chip) not in used_names)
     changed = target_gameweek != state.gameweek or state.chip_segment != segment
     if changed:
+        if state.pre_free_hit_state is not None and target_gameweek > state.pre_free_hit_state.gameweek:
+            state = replace(state.pre_free_hit_state.restore(state), pre_free_hit_state=None)
         updated = replace(
             state, gameweek=target_gameweek, chip_segment=segment,
             chips_remaining=chips,
@@ -323,6 +347,10 @@ def advance_current_squad(
                 target_gameweek, team_id=team_id, season=state.season, database_path=database_path
             ) if target_gameweek != state.gameweek else state.free_transfers,
         )
+        if target_gameweek != state.gameweek:
+            updated = replace(
+                updated, gameweek_start_state=OwnershipSnapshot.capture(updated, target_gameweek),
+            )
         save_current_squad(squad_path, updated)
     else:
         updated = state

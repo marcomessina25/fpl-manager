@@ -154,6 +154,72 @@ def test_generate_multi_gameweek_plan_no_hits(tmp_path: Path, planner_test_db: t
         assert step["transfer_hits"] == 0
 
 
+@pytest.mark.parametrize("start_gw", [None, 3])
+def test_live_free_hit_planner_uses_permanent_ownership_after_temporary_deadline(
+    planner_test_db, monkeypatch, start_gw,
+):
+    from fpl_manager.decision_log import apply_wildcard_or_freehit
+    from fpl_manager.squad_state import load_current_squad
+
+    database, squad = planner_test_db
+    original = load_current_squad(squad)
+    apply_wildcard_or_freehit(
+        squad, 2, "freehit", list(range(1, 15)) + [127],
+        [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14], [2, 6, 7, 127],
+        13, 8, 0, team_id="default", database_path=database,
+    )
+    before = squad.read_bytes()
+    temporary = load_current_squad(squad)
+    monkeypatch.setattr("fpl_manager.planner.solve_transfers", lambda **kwargs: ([], None))
+    result = generate_multi_gameweek_plan(
+        squad_path=squad, database_path=database, horizon=2,
+        start_gw=start_gw, report_path=None,
+    )
+    steps = result["best_plan"]["gameweek_steps"]
+    if start_gw is None:
+        assert set(steps[0]["starting_ids"] + steps[0]["bench_ids"]) == set(temporary.player_ids)
+        assert steps[0]["free_transfers_after"] == 1
+        assert steps[0]["bank_after_tenths"] == temporary.bank_tenths
+    for step in steps[1:] if start_gw is None else steps:
+        assert set(step["starting_ids"] + step["bench_ids"]) == set(original.player_ids)
+        assert step["bank_after_tenths"] == original.bank_tenths
+    assert squad.read_bytes() == before
+
+
+@pytest.mark.parametrize("chip", ["bench_boost", "triple_captain", "wildcard"])
+def test_future_live_plan_does_not_replay_an_earlier_chip(planner_test_db, monkeypatch, chip):
+    from contextlib import closing
+    from dataclasses import replace
+    from fpl_manager.decision_log import record_gameweek_decision
+    from fpl_manager.squad_state import load_current_squad, save_current_squad
+
+    database, squad = planner_test_db
+    with closing(SnapshotStore(database)._connect()) as connection, connection:
+        connection.execute("UPDATE fixtures SET event = event + 8 WHERE event >= 2")
+    state = replace(load_current_squad(squad), gameweek=10, chip_segment=1, free_transfers=4)
+    save_current_squad(squad, state)
+    record_gameweek_decision(
+        10, list(state.player_ids), [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14], [2, 6, 7, 15],
+        13, 8, chip_played=chip, database_path=database, capture_recommendations=False,
+    )
+    monkeypatch.setattr("fpl_manager.planner.solve_transfers", lambda **kwargs: ([], None))
+    expected = generate_multi_gameweek_plan(
+        database_path=database, horizon=1, start_gw=11, report_path=None,
+        initial_squad_ids=list(state.player_ids), initial_bank_tenths=state.bank_tenths,
+        initial_purchase_prices=state.purchase_prices_tenths, initial_free_transfers=4, season=state.season,
+    )
+    before = squad.read_bytes()
+    actual = generate_multi_gameweek_plan(
+        squad_path=squad, database_path=database, horizon=1, start_gw=11, report_path=None,
+    )
+    actual_step = actual["best_plan"]["gameweek_steps"][0]
+    expected_step = expected["best_plan"]["gameweek_steps"][0]
+    assert actual_step["lineup_xp"] == expected_step["lineup_xp"]
+    assert actual_step["net_profile_utility"] == expected_step["net_profile_utility"]
+    assert actual_step["free_transfers_after"] == expected_step["free_transfers_after"] == 5
+    assert squad.read_bytes() == before
+
+
 def test_generate_multi_gameweek_plan_validation_and_risk(planner_test_db: tuple[Path, Path]) -> None:
     db_path, squad_path = planner_test_db
 
@@ -352,6 +418,7 @@ def test_beam_search_ranks_net_requested_profile_utility(
     import fpl_manager.historical.snapshots as snapshots
     import fpl_manager.planner as planner
     from fpl_manager.models import Position
+    from fpl_manager.squad_state import CurrentSquadState
     from fpl_manager.suggest_transfers import PlayerInfo
 
     players = {
@@ -370,9 +437,9 @@ def test_beam_search_ranks_net_requested_profile_utility(
         gw_xp=mean, gw_breakdown_xp={2: mean},
     )
     ids = list(range(1, 16))
-    state = SimpleNamespace(
-        player_ids=ids, bank_tenths=0, free_transfers=free_transfers,
-        purchase_price=lambda pid: 50,
+    state = CurrentSquadState(
+        tuple(ids), {pid: 50 for pid in ids}, 0, free_transfers, (),
+        "2026/27", 2, 1,
     )
     monkeypatch.setattr(planner, "load_current_squad", lambda path: state)
     monkeypatch.setattr(planner, "load_all_players_meta", lambda *args: (players, {}))
@@ -404,6 +471,7 @@ def test_beam_search_ranks_net_requested_profile_utility(
         )
     else:
         result = planner.generate_multi_gameweek_plan(
+            squad_path=tmp_path / "synthetic-squad.json",
             database_path=tmp_path / "unused.sqlite3", start_gw=2, horizon=1,
             risk_profile=risk_profile, allow_hits=True, report_path=tmp_path / "plan.json",
         )

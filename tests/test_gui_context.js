@@ -232,6 +232,66 @@ test("a delayed command receipt cannot replace another team's revision", async (
   h.assertNoErrors();
 });
 
+for (const mode of ["live", "historical"]) {
+  test(`older ${mode} receipts cannot regress revisions or run successful continuations`, async () => {
+    const h = await harness();
+    h.state.appMode = mode;
+    h.hist.sessionId = mode === "historical" ? "A" : null;
+    const context = mode === "historical"
+      ? { mode, session_id: "A", season: "2023-24", gameweek: 5 }
+      : { mode, team_id: "live", season: "2026/27", gameweek: 12 };
+    const setState = revision => {
+      const data = { revision, command_context: context };
+      if (mode === "historical") h.hist.sessionData = data;
+      else h.state.currentSquad = data;
+    };
+    setState(4);
+    const response = deferred();
+    h.route(() => response.promise);
+    const endpoint = mode === "historical" ? "/api/historical/simulations/A/chip" : "/api/decisions";
+    const body = mode === "historical" ? { chip: null } : { team_id: "live", gameweek: 12 };
+    const pending = h.run(`(async () => {
+      await api(${JSON.stringify(endpoint)}, {method:"POST",body:${JSON.stringify(JSON.stringify(body))}});
+      document.getElementById("stale-continuation").textContent = "ran";
+    })()`);
+    setState(6);
+    response.resolve({
+      success: true,
+      command: { context, command_id: "older-command", revision_after: 5 },
+    });
+    await assert.rejects(pending, error =>
+      error.code === "STALE_COMMAND_RESPONSE" && error.committed === true);
+    const selected = mode === "historical" ? h.hist.sessionData : h.state.currentSquad;
+    assert.equal(selected.revision, 6);
+    assert.equal(h.element("stale-continuation").textContent, "");
+    assert.equal(h.requests.length, 1);
+  });
+
+  test(`equal ${mode} idempotency receipts remain usable`, async () => {
+    const h = await harness();
+    h.state.appMode = mode;
+    h.hist.sessionId = mode === "historical" ? "A" : null;
+    const context = mode === "historical"
+      ? { mode, session_id: "A", season: "2023-24", gameweek: 5 }
+      : { mode, team_id: "live", season: "2026/27", gameweek: 12 };
+    const selected = { revision: 6, command_context: context };
+    if (mode === "historical") h.hist.sessionData = selected;
+    else h.state.currentSquad = selected;
+    h.route(() => ({
+      success: true, command: { context, command_id: "replayed-command", revision_after: 6 },
+    }));
+    const endpoint = mode === "historical" ? "/api/historical/simulations/A/chip" : "/api/decisions";
+    const body = { expected_revision: 5, command_id: "replayed-command" };
+    if (mode === "live") body.team_id = "live";
+    const result = await h.run(`api(${JSON.stringify(endpoint)}, {
+      method:"POST",body:${JSON.stringify(JSON.stringify(body))}
+    })`);
+    assert.equal(result.success, true);
+    assert.equal(selected.revision, 6);
+    h.assertNoErrors();
+  });
+}
+
 test("a calculation's original revision is not replaced by a newer HUD revision", async () => {
   const h = await harness();
   h.state.currentSquad = {

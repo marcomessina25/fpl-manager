@@ -20,7 +20,7 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from ..application import CommandBus, HistoricalContext
 from ..application.commands import active_command
-from ..application.errors import RecoveryRequiredError
+from ..application.errors import RecoveryRequiredError, StaleRevisionError
 from ..application.files import read_state_text, state_file_exists, write_state_text
 from ..backtest.decision_engine import BaseDecisionEngine, resolve_decision_engine
 from ..backtest.engine import select_best_lineup, simulate_autosubs_and_score
@@ -797,6 +797,15 @@ class HistoricalSimulationSession:
         c_dir = config_dir or DEFAULT_SIMULATIONS_DIR
         file_path = c_dir / f"{session_id}.json"
         data = json.loads(read_state_text(file_path))
+        read_revision: tuple[CommandBus, HistoricalContext, int] | None = None
+        if active_command() is None:
+            context = HistoricalContext(data["session_id"], data["season"], data.get("current_gw", 1))
+            bus = CommandBus(
+                c_dir / "command_journal.sqlite3",
+                historical_database_path=c_dir / "command_journal.sqlite3",
+            )
+            read_revision = (bus, context, bus.revision(context))
+            data = json.loads(read_state_text(file_path))
         session = cls(
             session_id=data["session_id"],
             season=data["season"],
@@ -833,6 +842,12 @@ class HistoricalSimulationSession:
                 data.get("execution_version", LEGACY_EXECUTION_VERSION.value)
             ),
         )
+        if read_revision is not None:
+            bus, context, before = read_revision
+            after = bus.revision(context)
+            if before != after:
+                raise StaleRevisionError(context.to_dict(), before, after)
+            session._revision = after
         session.recorded_execution_version = data.get("execution_version")
         if not session.read_only and session.current_gw <= 2 and session.free_transfers > 1:
             session.free_transfers = 1

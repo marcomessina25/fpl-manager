@@ -1,6 +1,7 @@
 """V1.4.7 historical execution and truthful dataset-validation regressions."""
 
 from dataclasses import FrozenInstanceError, replace
+from datetime import datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -291,6 +292,85 @@ def test_other_season_registry_problem_does_not_fail_valid_season(tmp_path: Path
     _write(path.parent / "unavailability_registry.json", {"2022-23": []})
     report = validate_season_dataset(path)
     assert report["valid"] is True, report
+
+
+def _future_registry_entry(path: Path, *, start: int = 3) -> dict:
+    manifest = json.loads((path / "season_manifest.json").read_text(encoding="utf-8"))
+    last = max(datetime.fromisoformat(value) for value in manifest["deadlines"].values())
+    return {
+        "start_gw": start, "end_gw": 38,
+        "known_from": (last + timedelta(hours=1)).isoformat(), "reason": "Fixture unavailability",
+    }
+
+
+def test_partial_registry_future_timing_is_unchecked_not_invalid(tmp_path: Path) -> None:
+    from fpl_manager.historical.validation import validate_unavailability_registry
+
+    path = _season(tmp_path)
+    registry = path.parent / "unavailability_registry.json"
+    _write(registry, {"2023-24": {"1": _future_registry_entry(path)}})
+    before = {p: p.read_bytes() for p in path.rglob("*.json")}
+    report = validate_season_dataset(path)
+    assert report["valid"] is True, report["issues"]
+    assert report["gameweeks_verified"] == 2
+    stage = report["stages"]["unavailability_registry"]
+    assert stage["status"] == "passed"
+    assert stage["deadline_timing"]["status"] == "not_checked"
+    assert stage["deadline_timing"]["checks"][0]["status"] == "not_checked"
+    assert "coverage" in stage["deadline_timing"]["checks"][0]["reason"]
+    assert validate_unavailability_registry(registry, path.parent) == []
+    assert before == {p: p.read_bytes() for p in path.rglob("*.json")}
+
+
+def test_registry_future_announcement_cannot_affect_covered_deadlines(tmp_path: Path) -> None:
+    path = _season(tmp_path)
+    _write(path.parent / "unavailability_registry.json", {
+        "2023-24": {"1": _future_registry_entry(path, start=2)},
+    })
+    report = validate_season_dataset(path)
+    assert report["valid"] is False
+    assert report["stages"]["unavailability_registry"]["deadline_timing"]["status"] == "failed"
+    assert any("no supplied deadline" in issue for issue in report["issues"])
+
+
+def test_full_registry_after_season_announcement_still_fails(tmp_path: Path) -> None:
+    path = tmp_path / "2023-24"
+    generate_mock_season(path, num_gameweeks=38, num_teams=4)
+    _write(path.parent / "unavailability_registry.json", {
+        "2023-24": {"1": _future_registry_entry(path, start=38)},
+    })
+    report = validate_season_dataset(path)
+    assert report["valid"] is False
+    assert report["stages"]["unavailability_registry"]["deadline_timing"]["status"] == "failed"
+
+
+def test_partial_registry_uses_a_supplied_full_calendar(tmp_path: Path) -> None:
+    path = tmp_path / "2023-24"
+    generate_mock_season(path, num_gameweeks=3, num_teams=4)
+    manifest_path = path / "season_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    second = datetime.fromisoformat(manifest["deadlines"]["2"])
+    manifest["total_gameweeks"] = 2
+    _write(manifest_path, manifest)
+    _write(path.parent / "unavailability_registry.json", {
+        "2023-24": {"1": {
+            "start_gw": 3, "end_gw": 38, "known_from": (second + timedelta(hours=1)).isoformat(),
+        }},
+    })
+    report = validate_season_dataset(path)
+    assert report["valid"] is True, report["issues"]
+    assert report["stages"]["unavailability_registry"]["deadline_timing"]["status"] == "passed"
+    assert report["point_in_time_evidence"]["deadline_provenance"]["status"] == "not_available"
+
+
+@pytest.mark.parametrize("invalid", [{"start_gw": 0}, {"reason": 42}, {"known_from": "not-a-date"}])
+def test_future_registry_entries_still_require_valid_structure(tmp_path: Path, invalid: dict) -> None:
+    path = _season(tmp_path)
+    entry = {**_future_registry_entry(path), **invalid}
+    _write(path.parent / "unavailability_registry.json", {"2023-24": {"1": entry}})
+    report = validate_season_dataset(path)
+    assert report["valid"] is False
+    assert report["stages"]["unavailability_registry"]["status"] == "failed"
 
 
 @pytest.mark.parametrize("start", [True, 1.5, float("inf")])

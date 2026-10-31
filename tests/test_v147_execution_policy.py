@@ -77,6 +77,34 @@ def test_direct_mutation_rejects_a_stale_loaded_session(trial):
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize("interleaved_read", [1, 2])
+def test_load_never_pairs_old_session_bytes_with_a_new_revision(trial, monkeypatch, interleaved_read):
+    from fpl_manager.simulation import session as session_module
+
+    path = trial.save()
+    original_read = session_module.read_state_text
+    reads = 0
+
+    def change_lineup_after_read(target):
+        nonlocal reads
+        text = original_read(target)
+        reads += 1
+        if reads == interleaved_read:
+            trial.set_lineup(trial.starting_ids, trial.bench_ids, 14, 13)
+        return text
+
+    monkeypatch.setattr(session_module, "read_state_text", change_lineup_after_read)
+    if interleaved_read == 1:
+        loaded = HistoricalSimulationSession.load("source", config_dir=trial.config_dir)
+        assert loaded.captain_id == 14
+        assert loaded._revision == trial._revision
+        loaded.save()
+    else:
+        with pytest.raises(StaleRevisionError):
+            HistoricalSimulationSession.load("source", config_dir=trial.config_dir)
+    assert json.loads(path.read_text(encoding="utf-8"))["captain_id"] == 14
+
+
 @pytest.mark.parametrize("marker", [None, "", "future-version", 147, {"version": "v147"}])
 def test_unverified_persisted_markers_remain_readable_archives(trial, marker):
     path = trial.save()

@@ -344,6 +344,24 @@ it rolled back. Restart the GUI or run `fpl recover` (`--historical` for the
 isolated simulation journal); do not resubmit it as a new action. External
 recovery conflicts are reported without overwriting conflicting files.
 
+The PR review follow-up strengthens that boundary: pending recovery and revision
+lookups share a read transaction, persisted sessions are checked against
+before/after revisions, and older committed HTTP responses cannot regress the
+HUD or run successful continuations. Generated team IDs and their source
+portfolios are pinned to the same command identity.
+
+Live squads can contain optional `gameweek_start_state` and
+`pre_free_hit_state` ownership snapshots. Free Hit restores the clean deadline
+portfolio, including trades made before chip activation, when explicitly
+advancing; future plans use permanent ownership after the temporary week.
+Undo restores authoritative bank, purchase prices and free transfers.
+Unverifiable legacy purchase/Free Hit state is rejected rather than priced
+from sale quotes, market snapshots or another team's portfolio.
+
+For partial historical imports, registry announcements outside supplied
+deadline coverage are marked `not_checked`, not rejected as corruption.
+Structural errors and entries leaking into covered deadlines still fail.
+
 - [Full repository assessment: strengths, weaknesses and evidence](docs/v1.4.7/repository_analysis.md)
 - [Prioritized V1.4.7 delivery plan and acceptance gates](docs/v1.4.7/v147_plan.md)
 - [PyQt6 architecture, licensing, phased port and effort estimate](docs/v1.4.7/pyqt6_migration_plan.md)

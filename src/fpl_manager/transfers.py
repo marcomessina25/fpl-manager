@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 from .models import Player
 from .rules import ValidationResult, is_free_transfers_chip, validate_squad
-from .squad_state import CurrentSquadState, live_command, load_current_squad, save_current_squad, validate_current_squad
+from .squad_state import CurrentSquadState, live_command, load_current_squad, prepare_live_lifecycle, save_current_squad, validate_current_squad
 from .storage import SnapshotStore
 
 
@@ -336,6 +336,9 @@ def execute_transfers(
     remaining_chips = consume_chip(
         state, active_chip, target_gw or 1, existing_dec.get("chip_played") if existing_dec else None
     )
+    state = prepare_live_lifecycle(
+        state, target_gw or 1, active_chip, existing_dec.get("chip_played") if existing_dec else None,
+    )
 
     settlement, records = prepare_transfer_finance(state, all_players, tx_objs)
     new_ids = list(settlement.player_ids)
@@ -436,7 +439,8 @@ def execute_transfers(
             is_free_chip = is_free_transfers_chip(chip_played)
 
             if set(cur_starters + cur_bench) != set(new_ids) or len(cur_starters) != 11 or len(cur_bench) != 4:
-                tmp_state = CurrentSquadState(
+                tmp_state = replace(
+                    state,
                     player_ids=tuple(new_ids),
                     purchase_prices_tenths=new_prices,
                     bank_tenths=new_bank,
@@ -486,7 +490,8 @@ def execute_transfers(
         new_ft = 1 if is_free_transfers_chip(chip_played) else max(0, starting_ft - len(merged_tx))
         new_chips = remaining_chips
 
-        updated_state = CurrentSquadState(
+        updated_state = replace(
+            state,
             player_ids=tuple(new_ids),
             purchase_prices_tenths=new_prices,
             bank_tenths=new_bank,

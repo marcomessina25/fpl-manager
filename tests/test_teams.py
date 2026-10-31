@@ -2,6 +2,12 @@
 
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+import subprocess
+import sys
+import time
+from dataclasses import replace
 import pytest
 
 from fpl_manager.cli import main
@@ -90,6 +96,194 @@ def test_slugify_team_id() -> None:
     assert slugify_team_id("  Arsenal XI #1  ") == "arsenal-xi-1"
     assert slugify_team_id("$$$") == "team"
     assert slugify_team_id("") == "team"
+
+
+def test_auto_created_team_id_is_pinned_under_interleaving(teams_test_env, monkeypatch):
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    ensure_teams_initialized(config)
+    execute = CommandBus.execute
+    barrier = Barrier(2)
+
+    def interleave(self, context, operation, payload, action, *args, **kwargs):
+        if operation == "create_team" and context.team_id == "same-name":
+            barrier.wait(timeout=10)
+        return execute(self, context, operation, payload, action, *args, **kwargs)
+
+    monkeypatch.setattr(CommandBus, "execute", interleave)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(create_team, "Same Name", config_dir=config,
+                               database_path=database, set_as_active=False) for _ in range(2)]
+        results = [future.result(timeout=30) for future in futures]
+    assert {result["team_id"] for result in results} == {"same-name", "same-name-2"}
+    for result in results:
+        assert Path(result["squad_path"]).parent.name == result["team_id"]
+        assert CommandBus(database).revision(LiveContext(result["team_id"], "2026/27", 2)) == 1
+    with SnapshotStore(database)._connect() as connection:
+        rows = connection.execute(
+            "SELECT context_json, receipt_json FROM application_commands WHERE operation='create_team'"
+        ).fetchall()
+    assert len(rows) == 2
+    for context, receipt in rows:
+        assert json.loads(context)["team_id"] == json.loads(receipt)["result"]["team_id"]
+
+
+def test_auto_creation_ids_and_revisions_are_cross_process_safe(teams_test_env):
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    ensure_teams_initialized(config)
+    gate = config / "create-gate"
+    gate.mkdir()
+    script = (
+        "import json, os, sys, time\n"
+        "from pathlib import Path\n"
+        "from fpl_manager.teams import create_team\n"
+        "gate = Path(sys.argv[3])\n"
+        "(gate / (str(os.getpid()) + '.ready')).touch()\n"
+        "deadline = time.monotonic() + 30\n"
+        "while not (gate / 'go').exists():\n"
+        "    if time.monotonic() >= deadline: raise TimeoutError('start gate')\n"
+        "    time.sleep(0.02)\n"
+        "result = create_team('Process Team', config_dir=Path(sys.argv[1]), "
+        "database_path=Path(sys.argv[2]), set_as_active=False)\n"
+        "print(json.dumps(result))\n"
+    )
+    processes = [subprocess.Popen(
+        [sys.executable, "-c", script, str(config), str(database), str(gate)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ) for _ in range(3)]
+    try:
+        deadline = time.monotonic() + 30
+        while len(list(gate.glob("*.ready"))) != 3:
+            assert time.monotonic() < deadline, "Subprocess startup timed out"
+            time.sleep(0.02)
+        (gate / "go").touch()
+        results = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=60)
+            assert process.returncode == 0, stderr
+            results.append(json.loads(stdout))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
+    assert {result["team_id"] for result in results} == {
+        "process-team", "process-team-2", "process-team-3",
+    }
+    for result in results:
+        tid = result["team_id"]
+        assert Path(result["squad_path"]).parent.name == tid
+        assert CommandBus(database).revision(LiveContext(tid, "2026/27", 2)) == 1
+
+
+def test_explicit_concurrent_duplicate_is_not_auto_renamed(teams_test_env):
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    ensure_teams_initialized(config)
+    barrier = Barrier(2)
+
+    def create():
+        barrier.wait(timeout=10)
+        try:
+            return create_team("Explicit", team_id="exact", config_dir=config,
+                               database_path=database, set_as_active=False)
+        except ValueError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [future.result(timeout=30) for future in [pool.submit(create), pool.submit(create)]]
+    successes = [result for result in results if isinstance(result, dict)]
+    errors = [result for result in results if isinstance(result, ValueError)]
+    assert len(successes) == len(errors) == 1
+    assert successes[0]["team_id"] == "exact" and "already exists" in str(errors[0])
+    assert CommandBus(database).revision(LiveContext("exact", "2026/27", 2)) == 1
+    assert not (config / "teams" / "exact-2").exists()
+
+
+@pytest.mark.parametrize("activate", [False, True])
+@pytest.mark.parametrize("collide", [False, True])
+def test_create_pins_source_season_and_bank_before_active_team_switch(teams_test_env, monkeypatch, activate, collide):
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    alpha = load_current_squad(config / "current_squad.json")
+    beta = replace(alpha, season="2025/26", bank_tenths=77, gameweek=4)
+    create_team("Alpha", team_id="alpha", squad_state=alpha, config_dir=config, database_path=database)
+    create_team("Beta", team_id="beta", squad_state=beta, config_dir=config,
+                database_path=database, set_as_active=False)
+    execute = CommandBus.execute
+    switched = False
+
+    def switch_source(self, context, operation, payload, action, *args, **kwargs):
+        nonlocal switched
+        if operation == "create_team" and context.team_id == "copied" and not switched:
+            switched = True
+            if collide:
+                create_team("Occupied", team_id="copied", squad_state=beta, config_dir=config,
+                            database_path=database, set_as_active=False)
+            set_active_team("beta", config_dir=config, database_path=database)
+        return execute(self, context, operation, payload, action, *args, **kwargs)
+
+    monkeypatch.setattr(CommandBus, "execute", switch_source)
+    result = create_team("Copied", config_dir=config, database_path=database, set_as_active=activate)
+    copied = load_current_squad(Path(result["squad_path"]))
+    tid = "copied-2" if collide else "copied"
+    assert switched and result["team_id"] == tid
+    assert copied.season == alpha.season and copied.bank_tenths == alpha.bank_tenths
+    assert copied.gameweek == alpha.gameweek
+    assert CommandBus(database).revision(LiveContext(tid, alpha.season, alpha.gameweek)) == 1
+    assert CommandBus(database).revision(LiveContext(tid, beta.season, beta.gameweek)) == 0
+    assert get_active_team_id(config) == (tid if activate else "beta")
+    with SnapshotStore(database)._connect() as connection:
+        context_json, receipt_json = connection.execute(
+            "SELECT context_json, receipt_json FROM application_commands "
+            "WHERE operation='create_team' ORDER BY sequence DESC LIMIT 1"
+        ).fetchone()
+    assert json.loads(context_json) == LiveContext(tid, alpha.season, alpha.gameweek).to_dict()
+    assert json.loads(receipt_json)["result"]["squad_path"] == result["squad_path"]
+
+
+def test_create_does_not_derive_source_from_a_racing_target(teams_test_env, monkeypatch):
+    from fpl_manager import teams
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    source = load_current_squad(config / "current_squad.json")
+    occupant = replace(source, season="2025/26", bank_tenths=88, gameweek=4)
+    ensure_teams_initialized(config)
+    exists = teams.team_workspace_exists
+    inserted = False
+
+    def occupy_after_lookup(team_id, config_dir=None):
+        nonlocal inserted
+        result = exists(team_id, config_dir)
+        if team_id == "racing" and not result and not inserted:
+            inserted = True
+            create_team("Occupant", team_id="racing", squad_state=occupant, config_dir=config,
+                        database_path=database, set_as_active=False)
+        return result
+
+    monkeypatch.setattr(teams, "team_workspace_exists", occupy_after_lookup)
+    result = create_team("Racing", config_dir=config, database_path=database, set_as_active=False)
+    copied = load_current_squad(Path(result["squad_path"]))
+    assert result["team_id"] == "racing-2"
+    assert copied.season == source.season and copied.bank_tenths == source.bank_tenths
+    assert copied.gameweek == source.gameweek
+    assert CommandBus(database).revision(LiveContext("racing-2", source.season, source.gameweek)) == 1
+    assert CommandBus(database).revision(LiveContext("racing-2", occupant.season, occupant.gameweek)) == 0
+
+
+def test_create_template_fallback_uses_its_exact_period(teams_test_env):
+    from fpl_manager.application import CommandBus, LiveContext
+    config, database = teams_test_env
+    legacy = config / "current_squad.json"
+    template = replace(load_current_squad(legacy), season="2025/26", bank_tenths=39, gameweek=4)
+    legacy.unlink()
+    save_current_squad(config / "current_squad.example.json", template)
+    result = create_team("Template Copy", config_dir=config, database_path=database)
+    copied = load_current_squad(Path(result["squad_path"]))
+    assert copied.season == template.season and copied.bank_tenths == template.bank_tenths
+    assert copied.gameweek == template.gameweek
+    assert CommandBus(database).revision(LiveContext("template-copy", template.season, template.gameweek)) == 1
 
 
 def test_ensure_teams_initialized_and_list(teams_test_env: tuple[Path, Path]) -> None:

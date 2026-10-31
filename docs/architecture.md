@@ -55,6 +55,16 @@ continues to hide Live Matchday and AI Advisor & Briefing tabs.
 - Typed revision-tagged squad, valuation, staged move, lineup, plan, decision and chip read models.
 - HTTP and CLI consume shared command services; not every legacy HTTP calculation has moved from server.py—generic application query boundary wraps remaining orchestration.
 
+**PR review follow-up (2026-10-31):**
+- Read-only revision lookup uses one SQLite transaction for schema, pending-publication and revision checks. Session loads reread state within before/after revision guards.
+- Older committed same-entity responses raise `STALE_COMMAND_RESPONSE` with `committed=true`; the HUD revision and successful response continuations are not replaced by stale results. Equal-revision idempotency receipts remain usable.
+- Optional typed `OwnershipSnapshot` JSON fields (`gameweek_start_state`, `pre_free_hit_state`) preserve clean-deadline ownership, acquisition prices, bank, FTs and lifecycle metadata. Fields are omitted when absent.
+- Free Hit covers all trades for its deadline, including those preceding activation. Advancement restores permanent ownership without refunding the consumed chip; normal segment renewal remains explicit and idempotent.
+- Snapshot-backed Undo restores the saved FTs as well as prices/bank/chips. Legacy reconstruction uses authoritative human acquisition records or fails before changing state.
+- Team creation pins both generated identity and resolved creation portfolio before execution; narrow collision retries rebind the target, not the source or season.
+- Persisted-state planner calls infer chips only for their actual deadline. Free Hit future steps and post-Free-Hit previews use permanent ownership without mutating stored state.
+- Registry structure remains validated for partial archives; unavailable future announcement/deadline timing is reported separately under `stages.unavailability_registry.deadline_timing`.
+
 **Validation and cache:**
 - Data validation and cache; predictor identity with no GBDT fallback.
 - Admissible search bonus; signed regret with honest bounded shortlist.

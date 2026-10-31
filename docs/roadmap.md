@@ -2270,6 +2270,11 @@ Use distinct states:
 - [x] Add shared application services, typed read models, Windows CI and installed-wheel checks.
 - [x] Complete local candidate validation (961 passing tests, 42 Node controller cases)
   and configure Linux/Windows candidate CI with installed-wheel checks.
+- [x] Implement the PR review corrections: atomic revision reads, complete live
+  Free Hit/Undo ownership, coherent generated identities, stale-receipt rejection,
+  and partial-season registry admission.
+- [x] Complete the follow-up's final validation (1,017 pytest cases, 46 controller
+  cases and an installed-wheel smoke), and update local `pr_text.txt` with evidence.
 - [ ] Approve native designs, licensing and a worker/model/packaging spike.
 - [ ] Implement the native client only after approval and prerequisite gates.
 - [ ] Complete two-mode parity, Windows packaging and manual acceptance before cutover.

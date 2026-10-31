@@ -373,6 +373,7 @@ def _validate_references(
 
 def _registry_season_issues(
     registry_path: Path, season: str, entries: Any, manifest: dict[str, Any],
+    *, timing_checks: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     if not isinstance(entries, dict):
@@ -414,14 +415,28 @@ def _registry_season_issues(
             issues.append(f"{label}: invalid 'known_from' date format '{known_from}': {exc}")
             continue
         first_valid_gw = next((gw for gw, deadline in chronological if deadline > known_dt), None)
-        if first_valid_gw is None:
-            issues.append(f"{label}: no supplied deadline falls after known_from='{known_from}'.")
+        timing = {"season": season, "player_id": str(pid), "known_from": known_from, "start_gw": start}
+        if first_valid_gw is None and chronological and start > max(deadlines):
+            timing.update(
+                status="not_checked",
+                reason="Announcement and unavailable window are beyond supplied archive coverage.",
+            )
+        elif first_valid_gw is None:
+            issue = f"{label}: no supplied deadline falls after known_from='{known_from}'."
+            issues.append(issue)
+            timing.update(status="failed", reason=issue)
         elif start != first_valid_gw:
-            issues.append(
+            issue = (
                 f"Registry lookahead leakage in {season} player {pid} ({name}): "
                 f"start_gw={start} does not match first post-event deadline gameweek (GW{first_valid_gw}) "
                 f"for known_from='{known_from}'."
             )
+            issues.append(issue)
+            timing.update(status="failed", reason=issue)
+        else:
+            timing.update(status="passed", first_post_announcement_gameweek=first_valid_gw)
+        if timing_checks is not None:
+            timing_checks.append(timing)
     return issues
 
 
@@ -437,6 +452,7 @@ def validate_season_dataset(season_dir: Path) -> dict[str, Any]:
     schema: list[str] = []
     references: list[str] = []
     registry_issues: list[str] = []
+    registry_timing: list[dict[str, Any]] = []
     digests: dict[str, str] = {}
     manifest_path = season_dir / "season_manifest.json"
     manifest = _read_validation_asset(manifest_path, availability, schema, digests)
@@ -492,7 +508,9 @@ def validate_season_dataset(season_dir: Path) -> dict[str, Any]:
         if not isinstance(registry, dict):
             registry_issues.append(f"Registry {reg_path} must be a JSON object (global parse/schema failure).")
         elif season is not None and isinstance(manifest, dict):
-            registry_issues.extend(_registry_season_issues(reg_path, season, registry.get(season, {}), manifest))
+            registry_issues.extend(_registry_season_issues(
+                reg_path, season, registry.get(season, {}), manifest, timing_checks=registry_timing,
+            ))
 
     def stage(issues: list[str], checked: bool = True) -> dict[str, Any]:
         return {"status": "failed" if issues else ("passed" if checked else "not_checked"), "issues": issues}
@@ -533,6 +551,14 @@ def validate_season_dataset(season_dir: Path) -> dict[str, Any]:
     }
     if issues:
         report["error"] = issues[0]
+    timing_statuses = {check["status"] for check in registry_timing}
+    report["stages"]["unavailability_registry"]["deadline_timing"] = {
+        "status": (
+            "failed" if "failed" in timing_statuses else
+            "not_checked" if "not_checked" in timing_statuses or not registry_timing else "passed"
+        ),
+        "checks": registry_timing,
+    }
     return report
 
 

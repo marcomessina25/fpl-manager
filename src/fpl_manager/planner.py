@@ -6,7 +6,7 @@ and provides an independent Bellman dynamic programming reference oracle (`plan_
 for verifying multi-step optimality on bounded problem instances.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
 from typing import Any
@@ -186,12 +186,44 @@ def generate_multi_gameweek_plan(
     if str(risk_profile or "").strip().lower() in ("balanced", "default"):
         risk_profile = "neutral"
     risk_profile = validate_risk_profile(risk_profile)
-    if active_chip in ("free_hit", "freehit") and horizon > 1 and pre_free_hit_state is None:
-        raise ValueError("A multi-GW Free Hit plan requires the permanent pre_free_hit_state.")
-
     store = SnapshotStore(database_path)
+    state = load_current_squad(squad_path) if initial_squad_ids is None else None
     if start_gw is None:
         start_gw = get_current_gameweek(store)
+        if state is not None and state.gameweek is not None:
+            start_gw = max(start_gw, state.gameweek)
+
+    if state is not None:
+        from .decision_log import get_gameweek_decision, normalize_chip
+
+        saved = state.pre_free_hit_state
+        owner = (
+            squad_path.parent.name
+            if squad_path.name == "squad.json" and squad_path.parent.parent.name == "teams"
+            else "default" if squad_path.name == "current_squad.json" else None
+        )
+        recorded_chip = None
+        if owner is not None:
+            decision = get_gameweek_decision(
+                state.gameweek or start_gw, team_id=owner, season=state.season, database_path=database_path,
+            )
+            if decision is not None and decision.get("chip_played"):
+                recorded_chip = normalize_chip(decision["chip_played"])
+        if saved is not None and start_gw > saved.gameweek:
+            state = replace(saved.restore(state), pre_free_hit_state=None)
+            recorded_chip = None
+        elif saved is not None and start_gw == saved.gameweek:
+            recorded_chip = "free_hit"
+            if pre_free_hit_state is None:
+                pre_free_hit_state = asdict(saved)
+        elif recorded_chip == "free_hit" and start_gw > (state.gameweek or start_gw):
+            raise ValueError("A future Free Hit plan requires the permanent pre_free_hit_state.")
+        if start_gw != (state.gameweek or start_gw):
+            recorded_chip = None
+        if active_chip is None:
+            active_chip = recorded_chip
+    if active_chip in ("free_hit", "freehit") and horizon > 1 and pre_free_hit_state is None:
+        raise ValueError("A multi-GW Free Hit plan requires the permanent pre_free_hit_state.")
 
     target_gws = list(range(start_gw, start_gw + horizon))
 
@@ -229,7 +261,7 @@ def generate_multi_gameweek_plan(
             else {pid: players_map[pid].price_tenths for pid in init_ids if pid in players_map}
         )
     else:
-        state = load_current_squad(squad_path)
+        assert state is not None
         init_ids = state.player_ids
         init_bank = state.bank_tenths
         init_ft = state.free_transfers
