@@ -1,6 +1,6 @@
 """Data models for historical interactive simulation (V1.4)."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -55,6 +55,7 @@ class GameweekResolution:
     engine_net_points: int | None = None
     human_engine_divergence: dict[str, Any] | None = None
     purchase_basis_unverified: bool = False
+    execution_version: str = "v147"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -82,6 +83,8 @@ class SimulationSummary:
     override_count: int = 0
     override_positive_count: int = 0
     override_negative_count: int = 0
+    execution_version: str = "v147"
+    read_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

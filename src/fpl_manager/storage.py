@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Player, Position
+from .application.commands import BorrowedConnection, ambient_connection
 
 
 def utc_timestamp() -> str:
@@ -46,6 +47,8 @@ class SnapshotStore:
         self.database_path = database_path
 
     def initialize(self) -> None:
+        if ambient_connection(self.database_path) is not None:
+            return
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection, connection:
             connection.executescript(
@@ -759,8 +762,9 @@ class SnapshotStore:
             })
         return results
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.database_path)
+    def _connect(self) -> sqlite3.Connection | BorrowedConnection:
+        borrowed = ambient_connection(self.database_path)
+        return borrowed if borrowed is not None else sqlite3.connect(self.database_path)
 
 
 

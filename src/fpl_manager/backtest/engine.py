@@ -1,6 +1,8 @@
 """Sequential manager simulation and backtest execution engine for FPL Manager (V1.0.1)."""
 
 from dataclasses import dataclass, field
+from functools import wraps
+from inspect import signature
 import hashlib
 import json
 from pathlib import Path
@@ -9,11 +11,14 @@ from typing import Any
 
 from ..chip_strategy import SeasonalChipInventory, SeasonalChipPolicy
 from ..expected_points import ExpectedPointsProjection
+from ..execution import ExecutionVersion, execution_scope, resolve_execution_version
 from ..historical.models import GameweekOutcome, HistoricalGameweekSnapshot, Position
 from ..historical.reconstruction import reconstruct_features_and_project
 from ..historical.snapshots import build_historical_snapshot, load_gameweek_outcomes
-from ..models import is_departed_from_premier_league, is_long_term_unavailable
+from ..models import Player, is_departed_from_premier_league, is_long_term_unavailable
 from ..rules import validate_starting_lineup
+from ..squad_state import CurrentSquadState
+from ..transfers import Transfer, prepare_transfer_finance, selling_price
 from .decision_engine import BaseDecisionEngine, DecisionEngineV08, DecisionEngineV09, resolve_decision_engine
 from .strategies import BacktestStrategy
 
@@ -97,6 +102,7 @@ class SimulationResult:
     fallback_occurred: bool = False
     fallback_reason: str | None = None
     configuration_hash: str = ""
+    execution_version: str = ExecutionVersion.LEGACY_V146.value
 
 
 
@@ -372,6 +378,19 @@ def initialize_greedy_squad(
     return selected_ids, purchase_prices, remaining_bank
 
 
+def _execution_scoped(function):
+    sig = signature(function)
+
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        with execution_scope(bound.arguments["execution_version"]):
+            return function(*args, **kwargs)
+    return wrapped
+
+
+@_execution_scoped
 def run_sequential_simulation(
     season_dir: Path,
     strategy: BacktestStrategy,
@@ -388,8 +407,14 @@ def run_sequential_simulation(
     chip_policy: SeasonalChipPolicy | None = None,
     experiment_id: str | None = None,
     dead_capital_weight: float = 3.0,
+    execution_version: str | ExecutionVersion = ExecutionVersion.LEGACY_V146,
 ) -> SimulationResult:
-    """Replay a complete historical season as a sequential deterministic FPL manager simulation."""
+    """Replay a season under an explicit, recorded execution policy.
+
+    The offline research default preserves frozen V1.4.6 experiments; interactive
+    and new CLI callers explicitly select corrected V1.4.7 semantics.
+    """
+    execution_policy = resolve_execution_version(execution_version)
     chosen_initial_strategy = initial_strategy or (
         getattr(decision_engine, "initial_strategy", "balanced")
         if isinstance(decision_engine, BaseDecisionEngine)
@@ -559,10 +584,11 @@ def run_sequential_simulation(
                 saved_bank = bank
 
             selling_prices = {
-                pid: purchase_prices.get(pid, 50)
-                + max(0, (proj_map[pid].price_tenths - purchase_prices.get(pid, 50)) // 2)
-                if pid in proj_map
-                else purchase_prices.get(pid, 50)
+                pid: (
+                    selling_price(purchase_prices.get(pid, 50), proj_map[pid].price_tenths)
+                    if execution_policy == ExecutionVersion.CORRECTED_V147 else
+                    purchase_prices.get(pid, 50) + max(0, (proj_map[pid].price_tenths - purchase_prices.get(pid, 50)) // 2)
+                ) if pid in proj_map else purchase_prices.get(pid, 50)
                 for pid in squad_ids
             }
             total_funds = bank + sum(selling_prices.values())
@@ -583,6 +609,22 @@ def run_sequential_simulation(
                     out_list = sorted(list(old_set - new_set))
                     in_list = sorted(list(new_set - old_set))
                     chosen_transfers = list(zip(out_list, in_list))
+                    if execution_policy == ExecutionVersion.CORRECTED_V147:
+                        if chosen_transfers:
+                            settled, _ = prepare_transfer_finance(
+                                CurrentSquadState(
+                                    tuple(squad_ids), dict(purchase_prices), bank, free_transfers,
+                                    (), snapshot.season, gw,
+                                ),
+                                [
+                                    Player(p.player_id, p.web_name, p.position, p.team_id, p.price_tenths)
+                                    for p in projections
+                                ],
+                                [Transfer(out_id, in_id) for out_id, in_id in chosen_transfers],
+                            )
+                            new_prices, new_bank = settled.purchase_prices_tenths, settled.bank_tenths
+                        else:
+                            new_prices, new_bank = dict(purchase_prices), bank
                     squad_ids = new_squad_ids
                     purchase_prices = new_prices
                     bank = new_bank
@@ -616,13 +658,30 @@ def run_sequential_simulation(
             rem_ft = max(0, free_transfers - num_transfers)
             free_transfers = min(5, rem_ft + 1)  # roll 1 free transfer for next week (max 5 in modern FPL rules)
 
-            for out_id, in_id in chosen_transfers:
+            if chosen_transfers and execution_policy == ExecutionVersion.CORRECTED_V147:
+                settled, _ = prepare_transfer_finance(
+                    CurrentSquadState(
+                        tuple(squad_ids), dict(purchase_prices), bank, free_transfers,
+                        (), snapshot.season, gw,
+                    ),
+                    [Player(p.player_id, p.web_name, p.position, p.team_id, p.price_tenths) for p in projections],
+                    [Transfer(out_id, in_id) for out_id, in_id in chosen_transfers],
+                )
+                squad_ids = list(settled.player_ids)
+                purchase_prices = settled.purchase_prices_tenths
+                bank = settled.bank_tenths
+
+            for out_id, in_id in (chosen_transfers if execution_policy == ExecutionVersion.LEGACY_V146 else []):
                 out_p = proj_map.get(out_id)
                 in_p = proj_map.get(in_id)
                 if out_p and in_p and out_id in squad_ids:
                     cur_out_price = out_p.price_tenths
                     bought_price = purchase_prices.get(out_id, cur_out_price)
-                    sell_price = bought_price + max(0, (cur_out_price - bought_price) // 2)
+                    sell_price = (
+                        selling_price(bought_price, cur_out_price)
+                        if execution_policy == ExecutionVersion.CORRECTED_V147 else
+                        bought_price + max(0, (cur_out_price - bought_price) // 2)
+                    )
 
                     bank += sell_price
                     bank -= in_p.price_tenths
@@ -727,6 +786,8 @@ def run_sequential_simulation(
         f"{str(decision_engine) if isinstance(decision_engine, str) else dec_engine.version}:"
         f"{chosen_initial_strategy}:{chosen_initial_horizon}:{use_chips}:{dead_capital_weight}"
     )
+    if execution_policy != ExecutionVersion.LEGACY_V146:
+        prov_payload += f":execution={execution_policy.value}"
     conf_hash = hashlib.sha256(prov_payload.encode("utf-8")).hexdigest()[:16]
     exp_id = experiment_id or f"exp_{season_dir.name}_{dec_engine.version}_{'chips' if use_chips else 'nochips'}_{conf_hash[:8]}"
 
@@ -765,6 +826,7 @@ def run_sequential_simulation(
         fallback_occurred=getattr(dec_engine, "fallback_occurred", False),
         fallback_reason=getattr(dec_engine, "fallback_reason", None),
         configuration_hash=conf_hash,
+        execution_version=execution_policy.value,
     )
 
     if save_report and target_path_str is not None:
@@ -781,6 +843,7 @@ def run_sequential_simulation(
     return result
 
 
+@_execution_scoped
 def run_decision_backtest(
     season_dir: Path,
     strategy: str | BacktestStrategy | list[BacktestStrategy] = "all",
@@ -798,6 +861,7 @@ def run_decision_backtest(
     chip_policy: SeasonalChipPolicy | None = None,
     experiment_id: str | None = None,
     dead_capital_weight: float = 3.0,
+    execution_version: str | ExecutionVersion = ExecutionVersion.LEGACY_V146,
 ) -> list[SimulationResult]:
     """Execute sequential manager decision simulations across one or more strategies.
 
@@ -818,6 +882,7 @@ def run_decision_backtest(
         chip_policy: Calibrated seasonal chip policy.
         experiment_id: Explicit experiment identifier for provenance.
         dead_capital_weight: Priority weight for recovering dead capital from departed players.
+        execution_version: Recorded execution semantics; legacy offline research by default.
 
     Returns:
         List of SimulationResult objects for each evaluated strategy.
@@ -888,6 +953,7 @@ def run_decision_backtest(
             chip_policy=chip_policy,
             experiment_id=experiment_id,
             dead_capital_weight=dead_capital_weight,
+            execution_version=execution_version,
         )
         simulations.append(sim)
 
@@ -942,4 +1008,3 @@ def compare_simulations(sim_a: SimulationResult, sim_b: SimulationResult) -> dic
         "mean_gw_difference": mean_diff,
         "gw_differences": gw_diffs,
     }
-

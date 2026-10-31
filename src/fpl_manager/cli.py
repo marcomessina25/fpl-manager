@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .api import fetch_current_data
+from .application import CommandBus, HistoricalContext, LiveContext
+from .application.services import ApplicationService
+from .errors import FPLError
 from .fixtures import analyze_squad_fixtures, analyze_team_fixtures
 from .import_squad import (
     DEFAULT_PLAYERS_PATH,
@@ -841,10 +844,14 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(prog="fpl", description="Local-first FPL decision engine")
     parser.add_argument("-v", "--verbose", action="store_true", help="Output full detailed JSON payload")
+    parser.add_argument("--expected-revision", type=int, default=None, help="Reject a mutation against a changed state revision")
+    parser.add_argument("--command-id", default=None, help="Idempotency ID for a mutation")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     subcommands.add_parser("update", help="Download and persist the latest official FPL data")
     subcommands.add_parser("report", help="Write a machine-readable summary of the latest snapshot")
+    recovery_p = subcommands.add_parser("recover", help="Recover committed commands whose JSON publication was interrupted")
+    recovery_p.add_argument("--historical", action="store_true", help="Recover only the isolated simulation journal")
 
     subcommands.add_parser("teams", help="List all configured teams and active team")
 
@@ -852,6 +859,8 @@ def main(argv: list[str] | None = None) -> None:
     team_sub = team_parser.add_subparsers(dest="team_command", required=True)
 
     team_sub.add_parser("list", help="List all configured teams")
+    advance_p = team_sub.add_parser("advance", help="Explicitly advance a team's deadline and renew eligible chips")
+    advance_p.add_argument("team_id", nargs="?", default=None, help="Team ID (defaults to active team)")
 
     switch_p = team_sub.add_parser("switch", help="Switch the active team")
     switch_p.add_argument("team_id", help="ID or name of the team to activate")
@@ -1099,6 +1108,10 @@ def main(argv: list[str] | None = None) -> None:
     bt_pred_parser.add_argument("--save-report", action="store_true", help="Save formatted Markdown research report to reports/backtests/")
 
     bt_dec_parser = subcommands.add_parser("backtest-decisions", help="Run sequential manager decision backtesting across strategies")
+    bt_dec_parser.add_argument(
+        "--execution-version", choices=["v147", "v146"], default="v147",
+        help="Corrected execution by default; v146 is an explicit legacy research replay",
+    )
     bt_dec_parser.add_argument("--season", type=str, default="2023-24", help="Historical season (e.g. 2023-24, 2022-23)")
     bt_dec_parser.add_argument("--strategy", choices=["all", "notransfer", "simplexp", "optimizer"], default="all", help="Strategy to evaluate")
     bt_dec_parser.add_argument("--start-gw", type=int, default=1, help="Starting gameweek (default: 1)")
@@ -1179,6 +1192,9 @@ def main(argv: list[str] | None = None) -> None:
 
     sc_status = sim_sub.add_parser("status", help="Show current simulation state, squad, bank, and chips")
     sc_status.add_argument("--id", "-i", type=str, required=True, help="Simulation session ID")
+    sc_fork = sim_sub.add_parser("fork", help="Create a corrected trial from a read-only archive without rescoring it")
+    sc_fork.add_argument("--id", "-i", required=True, help="Source simulation ID")
+    sc_fork.add_argument("--new-id", required=True, help="New simulation ID")
 
     sc_over = sim_sub.add_parser("overview", help="Display point-in-time league standings, past results, and upcoming fixtures")
     sc_over.add_argument("--season", "-s", type=str, default="2023-24", help="Historical season")
@@ -1210,7 +1226,39 @@ def main(argv: list[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
 
     try:
-        if arguments.command == "teams" or (arguments.command == "team" and arguments.team_command == "list"):
+        revision_options = arguments.expected_revision is not None or arguments.command_id is not None
+        supports_revision = (
+            arguments.command == "log-decision"
+            or (arguments.command == "team" and arguments.team_command == "advance")
+            or (arguments.command == "sim" and arguments.sim_command in {
+                "create", "fork", "transfer", "clear-transfers", "chip", "run-gw",
+            })
+        )
+        if revision_options and not supports_revision:
+            raise ValueError("Revision/idempotency options require a supported state command, not a query or export.")
+        if arguments.command == "recover":
+            service = ApplicationService(DATABASE_PATH, PROJECT_ROOT / "config")
+            if arguments.historical:
+                journal = PROJECT_ROOT / "config" / "simulations" / "command_journal.sqlite3"
+                receipts = CommandBus(journal, historical_database_path=journal).recover()
+            else:
+                receipts = service.recover()
+            print(json.dumps({"recovered": [receipt.to_dict() for receipt in receipts]}, indent=2))
+        elif arguments.command == "team" and arguments.team_command == "advance":
+            from .teams import advance_current_squad
+
+            tid = arguments.team_id or get_active_team_id()
+            service = ApplicationService(DATABASE_PATH, PROJECT_ROOT / "config")
+            receipt = service.execute(
+                service.live_context(tid), "advance", {},
+                lambda: advance_current_squad(
+                    get_team_squad_path(tid), team_id=tid,
+                    config_dir=PROJECT_ROOT / "config", database_path=DATABASE_PATH,
+                ),
+                expected_revision=arguments.expected_revision, command_id=arguments.command_id,
+            )
+            print(json.dumps(receipt.to_dict(), indent=2))
+        elif arguments.command == "teams" or (arguments.command == "team" and arguments.team_command == "list"):
             teams_data = list_teams()
             print(json.dumps({"teams": teams_data}, indent=2, ensure_ascii=False) if arguments.verbose else format_teams_concise(teams_data))
         elif arguments.command == "team" and arguments.team_command in ("switch", "load"):
@@ -1403,49 +1451,22 @@ def main(argv: list[str] | None = None) -> None:
         elif arguments.command == "log-decision":
             squad_path = resolve_squad_path(arguments)
             team_id = getattr(arguments, "team", None) or get_team_id_from_squad_path(squad_path)
-            if arguments.actual_points is not None:
-                gw = arguments.gameweek
-                if gw is None:
-                    from .fixtures import get_current_gameweek
-                    gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
-                existing = get_gameweek_decision(gw, team_id=team_id, database_path=DATABASE_PATH)
-                if existing is not None and not arguments.overwrite:
-                    result = record_actual_gameweek_score(gw, arguments.actual_points, team_id=team_id, database_path=DATABASE_PATH)
-                else:
-                    log_decision_from_current_squad(
-                        gameweek=gw,
-                        squad_path=squad_path,
-                        database_path=DATABASE_PATH,
-                        team_id=team_id,
-                        squad_player_ids=getattr(arguments, "squad_players", None),
-                        starting_player_ids=arguments.starters,
-                        bench_player_ids=arguments.bench,
-                        captain_id=arguments.captain,
-                        vice_captain_id=arguments.vice_captain,
-                        chip_played=arguments.chip,
-                        transfer_hits=arguments.hits,
-                        transfers=arguments.transfer,
-                        notes=arguments.notes,
-                        overwrite=arguments.overwrite,
-                    )
-                    result = record_actual_gameweek_score(gw, arguments.actual_points, team_id=team_id, database_path=DATABASE_PATH)
-            else:
-                result = log_decision_from_current_squad(
-                    gameweek=arguments.gameweek,
-                    squad_path=squad_path,
-                    database_path=DATABASE_PATH,
-                    team_id=team_id,
-                    squad_player_ids=getattr(arguments, "squad_players", None),
-                    starting_player_ids=arguments.starters,
-                    bench_player_ids=arguments.bench,
-                    captain_id=arguments.captain,
-                    vice_captain_id=arguments.vice_captain,
-                    chip_played=arguments.chip,
-                    transfer_hits=arguments.hits,
-                    transfers=arguments.transfer,
-                    notes=arguments.notes,
-                    overwrite=arguments.overwrite,
-                )
+            squad = load_current_squad(squad_path)
+            context = LiveContext(team_id, squad.season, squad.gameweek or 1)
+            config = squad_path.parents[2] if squad_path.parent.parent.name == "teams" else squad_path.parent
+            service = ApplicationService(DATABASE_PATH, config)
+            result = service.log_live_decision(
+                context, {
+                    "gameweek": arguments.gameweek, "actual_points": arguments.actual_points,
+                    "squad_players": getattr(arguments, "squad_players", None),
+                    "starters": arguments.starters, "bench": arguments.bench,
+                    "captain": arguments.captain, "vice_captain": arguments.vice_captain,
+                    "chip": arguments.chip, "hits": arguments.hits,
+                    "transfers": arguments.transfer, "notes": arguments.notes,
+                    "overwrite": arguments.overwrite,
+                }, squad_path=squad_path, expected_revision=arguments.expected_revision,
+                command_id=arguments.command_id,
+            ).result
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else format_decision_concise(result))
         elif arguments.command == "decisions":
             team_id = getattr(arguments, "team", None) or get_active_team_id()
@@ -1478,6 +1499,10 @@ def main(argv: list[str] | None = None) -> None:
                 from .fixtures import get_current_gameweek
                 gw = get_current_gameweek(SnapshotStore(DATABASE_PATH))
             result = update_gameweek_scores(gameweek=gw, database_path=DATABASE_PATH)
+            from .scores import finalize_completed_gameweek_scores
+            result["finalized_decisions"] = finalize_completed_gameweek_scores(
+                gameweek=gw, database_path=DATABASE_PATH,
+            )
             print(json.dumps(result, indent=2, ensure_ascii=False) if arguments.verbose else f"Updated matchday scores for Gameweek {gw} ({result['players_updated']} players saved).")
         elif arguments.command in ("ownership", "risk"):
             gw = arguments.gameweek
@@ -1589,6 +1614,7 @@ def main(argv: list[str] | None = None) -> None:
                     decision_engine=dec_engine_ver,
                     initial_strategy=init_strat,
                     initial_horizon=init_horiz,
+                    execution_version=arguments.execution_version,
                 )
                 sims_baseline = run_decision_backtest(
                     season_dir=season_dir,
@@ -1601,6 +1627,7 @@ def main(argv: list[str] | None = None) -> None:
                     decision_engine=base_dec_engine_ver,
                     initial_strategy=init_strat,
                     initial_horizon=init_horiz,
+                    execution_version=arguments.execution_version,
                 )
                 all_sims = sims_primary + sims_baseline
                 for sim in all_sims:
@@ -1625,6 +1652,7 @@ def main(argv: list[str] | None = None) -> None:
                     decision_engine=dec_engine_ver,
                     initial_strategy=init_strat,
                     initial_horizon=init_horiz,
+                    execution_version=arguments.execution_version,
                 )
 
                 for sim in simulations:
@@ -1760,16 +1788,36 @@ def main(argv: list[str] | None = None) -> None:
         elif arguments.command == "sim":
             from .simulation import HistoricalSimulationSession
             from .historical.standings import get_historical_matchday_overview
+            service = ApplicationService(DATABASE_PATH, PROJECT_ROOT / "config")
+
+            def sim_command(operation: str, payload: dict[str, Any]) -> Any:
+                return service.historical_command(
+                    service.historical_context(arguments.id), operation, payload,
+                    expected_revision=arguments.expected_revision, command_id=arguments.command_id,
+                ).result
 
             if arguments.sim_command == "create":
-                sim = HistoricalSimulationSession.create(
-                    session_id=arguments.id,
-                    season=arguments.season,
-                    start_gw=arguments.start_gw,
-                    starting_strategy=arguments.strategy,
-                    manager_name=arguments.manager,
+                def create_simulation() -> dict[str, Any]:
+                    created = HistoricalSimulationSession.create(
+                        session_id=arguments.id, season=arguments.season,
+                        start_gw=arguments.start_gw, starting_strategy=arguments.strategy,
+                        manager_name=arguments.manager,
+                    )
+                    return {
+                        "session_id": created.session_id, "season": created.season, "current_gw": created.current_gw,
+                        "bank_tenths": created.bank_tenths, "free_transfers": created.free_transfers,
+                    }
+
+                receipt = service.execute(
+                    HistoricalContext(arguments.id, arguments.season, arguments.start_gw),
+                    "create", {"strategy": arguments.strategy, "manager": arguments.manager}, create_simulation,
+                    expected_revision=arguments.expected_revision, command_id=arguments.command_id,
                 )
-                print(f"Created simulation '{sim.session_id}' ({sim.season}, GW {sim.current_gw}). Bank: £{sim.bank_tenths/10:.1f}m, FTs: {sim.free_transfers}.")
+                created = receipt.result
+                print(
+                    f"Created simulation '{created['session_id']}' ({created['season']}, GW {created['current_gw']}). "
+                    f"Bank: £{created['bank_tenths']/10:.1f}m, FTs: {created['free_transfers']}."
+                )
             elif arguments.sim_command == "list":
                 sessions = HistoricalSimulationSession.list_sessions()
                 if not sessions:
@@ -1778,7 +1826,14 @@ def main(argv: list[str] | None = None) -> None:
                     print(f"{'ID':<25} {'SEASON':<10} {'GW':<5} {'NET PTS':<10} {'STATUS':<10}")
                     print("-" * 65)
                     for s in sessions:
-                        print(f"{s['session_id']:<25} {s['season']:<10} {s['current_gw']:<5} {s['total_net_points']:<10} {s['status']:<10}")
+                        status = "read-only archive" if s["read_only"] else s["status"]
+                        print(f"{s['session_id']:<25} {s['season']:<10} {s['current_gw']:<5} {s['total_net_points']:<10} {status}")
+            elif arguments.sim_command == "fork":
+                receipt = service.fork_historical(
+                    arguments.id, arguments.new_id,
+                    expected_revision=arguments.expected_revision, command_id=arguments.command_id,
+                )
+                print(json.dumps(receipt.to_dict(), indent=2))
             elif arguments.sim_command == "overview":
                 over = get_historical_matchday_overview(arguments.season, arguments.gameweek)
                 print(f"\n=== Premier League Standings ({arguments.season} - Before GW {arguments.gameweek}) ===")
@@ -1801,6 +1856,7 @@ def main(argv: list[str] | None = None) -> None:
                 squad = sim.get_squad_player_details()
                 tot_net = sum(h.get('net_points',0) for h in sim.history)
                 print(f"\n=== Simulation: {sim.session_id} ({sim.season} - GW {sim.current_gw}) ===")
+                print(f"Execution: {sim.execution_version.value} | Revision: {sim._revision} | Read-only archive: {sim.read_only}")
                 print(f"Status: {sim.status} | Total Net: {tot_net} pts | Bank: £{sim.bank_tenths/10:.1f}m | FTs: {sim.free_transfers} | Chip: {sim.active_chip or 'None'}")
                 print("\nSquad (11 Starters, 4 Bench):")
                 print(f"{'Role':<8} {'Pos':<5} {'Name':<22} {'Price':<8} {'Pts':<5}")
@@ -1815,20 +1871,20 @@ def main(argv: list[str] | None = None) -> None:
                     for st in sim.transfers_staged:
                         print(f"  OUT: {st['out_name']} -> IN: {st['in_name']} (Cost: £{st['cost_tenths']/10:.1f}m)")
             elif arguments.sim_command == "transfer":
+                staged = sim_command("transfers", {"transfers": [{"out_id": arguments.out, "in_id": arguments.in_id}]})
                 sim = HistoricalSimulationSession.load(arguments.id)
-                st = sim.stage_transfer(arguments.out, arguments.in_id)
+                st = staged[0]
                 print(f"Staged transfer: {st['out_name']} -> {st['in_name']} (Cost: £{st['cost_tenths']/10:.1f}m). Staged total: {len(sim.transfers_staged)}.")
             elif arguments.sim_command == "clear-transfers":
-                sim = HistoricalSimulationSession.load(arguments.id)
-                sim.clear_staged_transfers()
-                print(f"Cleared staged transfers for simulation '{sim.session_id}'.")
+                sim_command("clear-transfers", {})
+                print(f"Cleared staged transfers for simulation '{arguments.id}'.")
             elif arguments.sim_command == "chip":
-                sim = HistoricalSimulationSession.load(arguments.id)
                 if arguments.cancel:
-                    sim.cancel_chip()
+                    sim_command("chip", {"chip": None})
                     print("Cancelled active chip.")
                 elif arguments.play:
-                    act = sim.play_chip(arguments.play)
+                    act = sim_command("chip", {"chip": arguments.play})["active_chip"]
+                    sim = HistoricalSimulationSession.load(arguments.id)
                     print(f"Activated chip '{act}' for Gameweek {sim.current_gw}.")
             elif arguments.sim_command == "recommendations":
                 sim = HistoricalSimulationSession.load(arguments.id)
@@ -1843,8 +1899,8 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     print("Suggested Transfers: Roll free transfer (no moves).")
             elif arguments.sim_command == "run-gw":
+                res = sim_command("run-gw", {})
                 sim = HistoricalSimulationSession.load(arguments.id)
-                res = sim.run_gameweek()
                 print(f"\n=== Gameweek {res['gameweek']} Matchday Resolved ===")
                 print(f"Net Points: {res['net_points']} (Gross: {res['gross_points']} | Hits: -{res['transfer_hits']})")
                 print(f"Cumulative Net Points: {res['cumulative_net_points']}")
@@ -1872,10 +1928,9 @@ def main(argv: list[str] | None = None) -> None:
                     print(f"\nExported reports to:\n  {j_p}\n  {m_p}")
         else:
             parser.print_help()
-    except (RuntimeError, ValueError) as error:
+    except (FPLError, RuntimeError, ValueError) as error:
         parser.error(str(error))
 
 
 if __name__ == "__main__":
     main()
-

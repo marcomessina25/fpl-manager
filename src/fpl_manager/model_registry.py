@@ -170,6 +170,64 @@ MODEL_REGISTRY_CATALOG: dict[str, dict[str, str]] = {
     },
 }
 
+PREDICTOR_ALIASES = {
+    "v07": "v0.7", "v0.7.0": "v0.7",
+    "v08": "v0.8", "v0.8.0": "v0.8",
+    "v09": "v0.9", "v0.9.1": "v0.9",
+    "v1.0-canonical": "v1.0", "v1.0.0": "v1.0",
+    "v1.0.1-canonical": "v1.0.1",
+    # V1.1 changed strategic squad construction, not the frozen V1.0 xP model.
+    "v1.1": "v1.0", "v11": "v1.0",
+    "v13": "v1.3", "v1.3.0": "v1.3", "v1.3-canonical": "v1.3", "gbdt": "v1.3",
+    "v09_part_v08_comp": "v0.9_part_v0.8_comp",
+    "v08_part_v09_comp": "v0.8_part_v0.9_comp",
+    "v09_no_regimes": "v0.9_no_regimes",
+    "v09_no_calib": "v0.9_no_calib",
+    "v09_raw": "v0.9_raw",
+}
+
+MODEL_REGISTRY_CATALOG["v0.7"] = {
+    "model_version": "v0.7.0",
+    "quantitative_core_version": "v0.7.0-frozen",
+    "training_data_cutoff": "pre-deadline-strict-pit (GWs 1..N-1 only)",
+    "feature_set_version": "v0.7.0-heuristic-minutes",
+    "parameter_version": "0.7.0-frozen",
+}
+for _variant in (
+    "v0.9_part_v0.8_comp", "v0.8_part_v0.9_comp",
+    "v0.9_no_regimes", "v0.9_no_calib", "v0.9_raw",
+):
+    MODEL_REGISTRY_CATALOG[_variant] = {
+        **MODEL_REGISTRY_CATALOG["v0.9"],
+        "model_version": _variant,
+        "quantitative_core_version": _variant,
+        "parameter_version": _variant,
+    }
+
+
+def resolve_predictor_version(version: str) -> str:
+    """Resolve only registered executable identities; unknown versions are errors."""
+    norm = version.strip().lower()
+    resolved = PREDICTOR_ALIASES.get(norm, norm)
+    if resolved not in MODEL_REGISTRY_CATALOG:
+        raise ValueError(f"Unsupported predictor version: {version!r}.")
+    return resolved
+
+
+def predictor_version_from_metadata(metadata: ModelMetadata | dict[str, Any]) -> str:
+    """Recover executable identity without guessing from a version prefix."""
+    raw = metadata.to_dict() if isinstance(metadata, ModelMetadata) else metadata
+    version = raw.get("model_version")
+    if not version:
+        raise ValueError("Missing model_version for predictor identity.")
+    resolved = resolve_predictor_version(str(version))
+    legacy_identity = raw.get("predictor_version")
+    if legacy_identity and resolve_predictor_version(str(legacy_identity)) != resolved:
+        raise ValueError("predictor_version does not match model_version.")
+    if raw.get("fallback_used"):
+        raise ValueError("Fallback prediction metadata cannot identify the requested predictor.")
+    return resolved
+
 
 def resolve_historical_snapshot_timestamp(snapshot: Any, gameweek: int | None = None) -> str:
     """Extract deterministic historical snapshot/deadline timestamp without calling system clock (P1.3)."""
@@ -207,8 +265,8 @@ def get_model_metadata(
       `prediction_timestamp` uses the supplied timestamp, deterministic GW pre-deadline anchor,
       or the current UTC prediction time.
     """
-    norm = predictor_version.strip().lower()
-    spec = MODEL_REGISTRY_CATALOG.get(norm, MODEL_REGISTRY_CATALOG["v1.0"])
+    norm = resolve_predictor_version(predictor_version)
+    spec = MODEL_REGISTRY_CATALOG[norm]
     effective_gw = gameweek if gameweek is not None else getattr(snapshot, "gameweek", None)
 
     cutoff = training_data_cutoff
@@ -264,14 +322,10 @@ def reconstruct_historical_prediction(
         deterministic_meta = ModelMetadata.from_dict(raw_meta, strict=True)
 
     cfg = configuration or {}
-    predictor_ver = cfg.get("predictor_version")
-    if not predictor_ver:
-        if deterministic_meta.model_version.startswith("v0.8"):
-            predictor_ver = "v0.8"
-        elif deterministic_meta.model_version.startswith("v0.7"):
-            predictor_ver = "v0.7"
-        else:
-            predictor_ver = "v1.0"
+    predictor_ver = predictor_version_from_metadata(model_metadata)
+    configured = cfg.get("predictor_version")
+    if configured and resolve_predictor_version(configured) != predictor_ver:
+        raise ValueError("Configured predictor does not match recorded model_version.")
 
     player_ids = cfg.get("player_ids")
     raw_projections = reconstruct_features_and_project(
@@ -279,7 +333,10 @@ def reconstruct_historical_prediction(
         player_ids=player_ids,
         predictor_version=predictor_ver,
     )
+    if any(
+        predictor_version_from_metadata(proj.model_metadata or {}) != predictor_ver
+        for proj in raw_projections
+    ):
+        raise ValueError("Reconstructed predictor identity does not match recorded model_version.")
     meta_dict = deterministic_meta.to_dict()
     return [replace(proj, model_metadata=meta_dict) for proj in raw_projections]
-
-

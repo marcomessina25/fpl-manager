@@ -6,7 +6,7 @@ and provides an independent Bellman dynamic programming reference oracle (`plan_
 for verifying multi-step optimality on bounded problem instances.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
 from typing import Any
@@ -17,8 +17,9 @@ from .models import Position, is_departed_from_premier_league, is_long_term_unav
 from .optimizer import PlayerOptInfo, get_player_profile_value, solve_transfers, validate_risk_profile
 from .squad_state import CurrentSquadState, load_current_squad
 from .storage import SnapshotStore
-from .suggest_transfers import load_all_players_meta
+from .suggest_transfers import _projected_fixture_maps, load_all_players_meta
 from .transfers import selling_price
+from .rules import free_transfer_transition as planner_transfer_transition
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = PROJECT_ROOT / "data"
@@ -168,10 +169,14 @@ def generate_multi_gameweek_plan(
     risk_profile: str = "neutral",
     allow_hits: bool = True,
     beam_width: int = 5,
-    report_path: Path = PLAN_REPORT_PATH,
+    report_path: Path | None = PLAN_REPORT_PATH,
     initial_squad_ids: list[int] | None = None,
     initial_bank_tenths: int | None = None,
     initial_purchase_prices: dict[int, int] | None = None,
+    initial_free_transfers: int | None = None,
+    season: str | None = None,
+    active_chip: str | None = None,
+    pre_free_hit_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate an optimal multi-gameweek transfer roadmap using beam search."""
     from .optimizer import validate_risk_profile
@@ -181,10 +186,44 @@ def generate_multi_gameweek_plan(
     if str(risk_profile or "").strip().lower() in ("balanced", "default"):
         risk_profile = "neutral"
     risk_profile = validate_risk_profile(risk_profile)
-
     store = SnapshotStore(database_path)
+    state = load_current_squad(squad_path) if initial_squad_ids is None else None
     if start_gw is None:
         start_gw = get_current_gameweek(store)
+        if state is not None and state.gameweek is not None:
+            start_gw = max(start_gw, state.gameweek)
+
+    if state is not None:
+        from .decision_log import get_gameweek_decision, normalize_chip
+
+        saved = state.pre_free_hit_state
+        owner = (
+            squad_path.parent.name
+            if squad_path.name == "squad.json" and squad_path.parent.parent.name == "teams"
+            else "default" if squad_path.name == "current_squad.json" else None
+        )
+        recorded_chip = None
+        if owner is not None:
+            decision = get_gameweek_decision(
+                state.gameweek or start_gw, team_id=owner, season=state.season, database_path=database_path,
+            )
+            if decision is not None and decision.get("chip_played"):
+                recorded_chip = normalize_chip(decision["chip_played"])
+        if saved is not None and start_gw > saved.gameweek:
+            state = replace(saved.restore(state), pre_free_hit_state=None)
+            recorded_chip = None
+        elif saved is not None and start_gw == saved.gameweek:
+            recorded_chip = "free_hit"
+            if pre_free_hit_state is None:
+                pre_free_hit_state = asdict(saved)
+        elif recorded_chip == "free_hit" and start_gw > (state.gameweek or start_gw):
+            raise ValueError("A future Free Hit plan requires the permanent pre_free_hit_state.")
+        if start_gw != (state.gameweek or start_gw):
+            recorded_chip = None
+        if active_chip is None:
+            active_chip = recorded_chip
+    if active_chip in ("free_hit", "freehit") and horizon > 1 and pre_free_hit_state is None:
+        raise ValueError("A multi-GW Free Hit plan requires the permanent pre_free_hit_state.")
 
     target_gws = list(range(start_gw, start_gw + horizon))
 
@@ -197,9 +236,12 @@ def generate_multi_gameweek_plan(
     profiles_map = project_multi_gameweek_profiles(target_gws, database_path=database_path)
     players_map, team_map = load_all_players_meta(store, profiles_map)
 
-    fdr_analysis = analyze_team_fixtures(database_path=database_path, num_gameweeks=horizon, start_gw=start_gw)
-    fdr_map = {t["short_name"]: t["avg_difficulty"] for t in fdr_analysis["team_rankings"]}
-    ticker_map = {t["short_name"]: t["ticker"] for t in fdr_analysis["team_rankings"]}
+    if report_path is None:
+        fdr_map, ticker_map = _projected_fixture_maps(target_gws, database_path, gw_projections)
+    else:
+        fdr_analysis = analyze_team_fixtures(database_path=database_path, num_gameweeks=horizon, start_gw=start_gw)
+        fdr_map = {t["short_name"]: t["avg_difficulty"] for t in fdr_analysis["team_rankings"]}
+        ticker_map = {t["short_name"]: t["ticker"] for t in fdr_analysis["team_rankings"]}
 
     candidate_pool_all = [
         p
@@ -212,18 +254,20 @@ def generate_multi_gameweek_plan(
     if initial_squad_ids is not None:
         init_ids = list(initial_squad_ids)
         init_bank = initial_bank_tenths if initial_bank_tenths is not None else 0
-        init_ft = 1
+        init_ft = 1 if initial_free_transfers is None else initial_free_transfers
         init_prices = (
             dict(initial_purchase_prices)
             if initial_purchase_prices is not None
             else {pid: players_map[pid].price_tenths for pid in init_ids if pid in players_map}
         )
     else:
-        state = load_current_squad(squad_path)
+        assert state is not None
         init_ids = state.player_ids
         init_bank = state.bank_tenths
         init_ft = state.free_transfers
         init_prices = {p_id: state.purchase_price(p_id) for p_id in state.player_ids}
+        season = season or getattr(state, "season", "2026-27")
+    max_ft = 5 if int((season or "2026-27")[:4]) >= 2024 else 2
 
     # Keep mean/floor/ceiling reporting separate from the requested net ranking utility.
     beam: list[tuple[float, float, float, set[int], int, int, dict[int, int], list[dict[str, Any]], float]] = [
@@ -234,6 +278,9 @@ def generate_multi_gameweek_plan(
         next_beam_candidates = []
 
         for cum_score, cum_floor, cum_ceil, s_pids, bank, ft, p_prices, history, cum_utility in beam:
+            chip_at_step = active_chip if step_idx == 0 else None
+            chip_free = gw == 1 or str(chip_at_step or "").startswith("wildcard") or chip_at_step in ("free_hit", "freehit")
+            effective_ft = 99 if chip_free else ft
             squad_players = [players_map[pid] for pid in s_pids if pid in players_map]
             s_prices = {
                 p.id: selling_price(p_prices.get(p.id, p.price_tenths), p.price_tenths)
@@ -243,15 +290,15 @@ def generate_multi_gameweek_plan(
 
             # --- Action 1: ROLL TRANSFER (0 transfers) ---
             l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                s_pids, gw_projections[gw], risk_profile=risk_profile
+                s_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
             )
             starting_ids, bench_ids = _extract_starting_and_bench_ids(
                 s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
             )
             net_utility = _lineup_profile_utility(
-                starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
+                starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, active_chip=chip_at_step,
             )
-            ft_after = min(5, ft + 1)
+            _, ft_after = planner_transfer_transition(gw, ft, 0, max_free_transfers=max_ft, active_chip=chip_at_step)
             roll_step = {
                 "gameweek": gw,
                 "action": "ROLL",
@@ -287,13 +334,13 @@ def generate_multi_gameweek_plan(
 
             # --- Action 2: 1 TRANSFER ---
             # Allowed if ft >= 1, or if allow_hits is True
-            if ft >= 1 or allow_hits:
+            if effective_ft >= 1 or allow_hits:
                 tx1_results, _ = solve_transfers(
                     num_transfers=1,
                     squad_players=squad_players,
                     candidate_pool=cand_pool,
                     bank_tenths=bank,
-                    free_transfers=ft,
+                    free_transfers=effective_ft,
                     selling_prices=s_prices,
                     fdr_map=fdr_map,
                     ticker_map=ticker_map,
@@ -301,7 +348,9 @@ def generate_multi_gameweek_plan(
                     max_results=3,
                 )
                 for tx in tx1_results:
-                    hits = tx["transfer_hits"]
+                    hits, ft_after = planner_transfer_transition(
+                        gw, ft, 1, max_free_transfers=max_ft, active_chip=chip_at_step,
+                    )
                     if not allow_hits and hits > 0:
                         continue
                     out_p = tx["outgoing"][0]
@@ -311,10 +360,9 @@ def generate_multi_gameweek_plan(
                     new_prices = dict(p_prices)
                     new_prices[in_p["id"]] = in_p["price_tenths"]
                     new_bank = tx["bank_after_tenths"]
-                    ft_after = min(5, max(0, ft - 1) + 1)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                        new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
                     )
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
@@ -324,7 +372,7 @@ def generate_multi_gameweek_plan(
                     net_floor = round(l_floor - hit_deduction, 2)
                     net_ceil = round(l_ceil - hit_deduction, 2)
                     net_utility = round(_lineup_profile_utility(
-                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, active_chip=chip_at_step,
                     ) - hit_deduction, 2)
                     action_label = "1_TRANSFER" if hits == 0 else "1_TRANSFER_HIT"
 
@@ -365,13 +413,13 @@ def generate_multi_gameweek_plan(
                     ))
 
             # --- Action 3: 2 TRANSFERS ---
-            if ft >= 2 or (allow_hits and ft >= 1):
+            if effective_ft >= 2 or (allow_hits and effective_ft >= 1):
                 tx2_results, _ = solve_transfers(
                     num_transfers=2,
                     squad_players=squad_players,
                     candidate_pool=cand_pool,
                     bank_tenths=bank,
-                    free_transfers=ft,
+                    free_transfers=effective_ft,
                     selling_prices=s_prices,
                     fdr_map=fdr_map,
                     ticker_map=ticker_map,
@@ -379,7 +427,9 @@ def generate_multi_gameweek_plan(
                     max_results=2,
                 )
                 for tx in tx2_results:
-                    hits = tx["transfer_hits"]
+                    hits, ft_after = planner_transfer_transition(
+                        gw, ft, 2, max_free_transfers=max_ft, active_chip=chip_at_step,
+                    )
                     if not allow_hits and hits > 0:
                         continue
                     out_ids = {p["id"] for p in tx["outgoing"]}
@@ -391,10 +441,9 @@ def generate_multi_gameweek_plan(
                         new_prices[in_p["id"]] = in_p["price_tenths"]
 
                     new_bank = tx["bank_after_tenths"]
-                    ft_after = min(5, max(0, ft - 2) + 1)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
-                        new_pids, gw_projections[gw], risk_profile=risk_profile
+                        new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
                     )
                     starting_ids, bench_ids = _extract_starting_and_bench_ids(
                         new_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
@@ -404,7 +453,7 @@ def generate_multi_gameweek_plan(
                     net_floor = round(l_floor - hit_deduction, 2)
                     net_ceil = round(l_ceil - hit_deduction, 2)
                     net_utility = round(_lineup_profile_utility(
-                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile,
+                        starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, active_chip=chip_at_step,
                     ) - hit_deduction, 2)
                     action_label = "2_TRANSFERS" if hits == 0 else "2_TRANSFERS_HIT"
 
@@ -446,6 +495,17 @@ def generate_multi_gameweek_plan(
                         history + [tx_step],
                         round(cum_utility + net_utility, 2),
                     ))
+
+        if step_idx == 0 and active_chip in ("free_hit", "freehit") and pre_free_hit_state is not None:
+            permanent_ids = set(pre_free_hit_state.get("squad_ids", pre_free_hit_state.get("player_ids", [])))
+            permanent_prices = {
+                int(pid): price for pid, price in pre_free_hit_state["purchase_prices_tenths"].items()
+            }
+            next_beam_candidates = [
+                (score, floor, ceiling, permanent_ids, pre_free_hit_state["bank_tenths"],
+                 ft_after, permanent_prices, history, utility)
+                for score, floor, ceiling, _, _, ft_after, _, history, utility in next_beam_candidates
+            ]
 
         # Sort and retain top beam_width distinct paths
         next_beam_candidates.sort(key=lambda x: (x[8], x[0]), reverse=True)
@@ -523,6 +583,7 @@ def generate_historical_multi_gameweek_plan(
     risk_profile: str = "neutral",
     allow_hits: bool = True,
     beam_width: int = 5,
+    report_path: Path | None = None,
 ) -> dict[str, Any]:
     """Generate a point-in-time historical multi-gameweek transfer roadmap using beam search.
 
@@ -659,11 +720,6 @@ def generate_historical_multi_gameweek_plan(
     max_ft = int(getattr(sim, "max_free_transfers", 5))
     is_step0_free_chip = getattr(sim, "active_chip", None) in ("wildcard_1", "wildcard_2", "free_hit")
 
-    def _next_gw_ft(curr_gw: int, ft_before: int, tx_count: int, chip_active: bool) -> int:
-        if curr_gw == 1 or chip_active:
-            return 1
-        return min(max_ft, max(0, ft_before - tx_count) + 1)
-
     def _format_action_label(tx_count: int, hits_count: int) -> str:
         if tx_count <= 0:
             return "ROLL"
@@ -718,7 +774,10 @@ def generate_historical_multi_gameweek_plan(
                 s_pids, starters_list, gw_projections[gw], risk_profile=risk_profile
             )
             tot_tx0 = base_tx_count
-            hits0 = 0 if chip_free else max(0, tot_tx0 - ft)
+            hits0, ft_after0 = planner_transfer_transition(
+                gw, ft, tot_tx0, max_free_transfers=max_ft, active_chip=chip_at_step,
+                initial_deadline=gw == getattr(sim, "start_gw", 1),
+            )
             hits_pts0 = hits0 * 4
             net_xp0 = round(l_xp - hits_pts0, 2)
             net_floor0 = round(l_floor - hits_pts0, 2)
@@ -726,7 +785,6 @@ def generate_historical_multi_gameweek_plan(
             net_utility0 = round(_lineup_profile_utility(
                 starting_ids, bench_ids, cap, gw_projections[gw], risk_profile, chip_at_step,
             ) - hits_pts0, 2)
-            ft_after0 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx0, chip_free)
             roll_step = {
                 "gameweek": gw,
                 "action": _format_action_label(tot_tx0, hits0),
@@ -785,7 +843,10 @@ def generate_historical_multi_gameweek_plan(
                 )
                 for tx in tx1_results:
                     tot_tx1 = base_tx_count + 1
-                    hits1 = 0 if chip_free else max(0, tot_tx1 - ft)
+                    hits1, ft_after1 = planner_transfer_transition(
+                        gw, ft, tot_tx1, max_free_transfers=max_ft, active_chip=chip_at_step,
+                        initial_deadline=gw == getattr(sim, "start_gw", 1),
+                    )
                     if not allow_hits and hits1 > 0 and not is_gw1:
                         continue
                     out_p = tx["outgoing"][0]
@@ -796,7 +857,6 @@ def generate_historical_multi_gameweek_plan(
                     new_prices.pop(out_p["id"], None)
                     new_prices[in_p["id"]] = in_p["price_tenths"]
                     new_bank = tx["bank_after_tenths"]
-                    ft_after1 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx1, chip_free)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
@@ -873,7 +933,10 @@ def generate_historical_multi_gameweek_plan(
                 )
                 for tx in tx2_results:
                     tot_tx2 = base_tx_count + 2
-                    hits2 = 0 if chip_free else max(0, tot_tx2 - ft)
+                    hits2, ft_after2 = planner_transfer_transition(
+                        gw, ft, tot_tx2, max_free_transfers=max_ft, active_chip=chip_at_step,
+                        initial_deadline=gw == getattr(sim, "start_gw", 1),
+                    )
                     if not allow_hits and hits2 > 0 and not is_gw1:
                         continue
                     out_ids = {p["id"] for p in tx["outgoing"]}
@@ -887,7 +950,6 @@ def generate_historical_multi_gameweek_plan(
                         new_prices[in_p["id"]] = in_p["price_tenths"]
 
                     new_bank = tx["bank_after_tenths"]
-                    ft_after2 = 1 if is_gw1 else _next_gw_ft(gw, ft, tot_tx2, chip_free)
 
                     l_xp, l_floor, l_ceil, form, cap, vc, starters_list = _evaluate_lineup_for_gameweek(
                         new_pids, gw_projections[gw], risk_profile=risk_profile, active_chip=chip_at_step
@@ -979,7 +1041,7 @@ def generate_historical_multi_gameweek_plan(
             "steps": history,
         })
 
-    return {
+    report = {
         "session_id": sim.session_id,
         "season": sim.season,
         "planning_horizon": eff_horizon,
@@ -997,6 +1059,10 @@ def generate_historical_multi_gameweek_plan(
         "best_plan": plans[0] if plans else None,
         "alternative_plans": plans[1:] if len(plans) > 1 else [],
     }
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return report
 
 
 MAX_MULTI_GW_REFERENCE_STATES = 25_000
@@ -1557,4 +1623,3 @@ def plan_multi_gw_exact_reference(
 
 plan_multi_gw_dp_reference = plan_multi_gw_exact_reference
 plan_multi_gw_exhaustive = plan_multi_gw_exact_reference
-

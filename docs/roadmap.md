@@ -2255,6 +2255,37 @@ Use distinct states:
 - [x] Add follow-up regressions for compound Apply accounting, delayed GUI context transitions, legal chip-squad completion, legacy purchase-basis recovery and all accepted risk objectives.
 - [ ] Record real-browser smoke verification separately from the automated HTTP and Node controller tests.
 
+## Candidate — V1.4.7 Correctness and Application Foundations
+
+- [x] Branch from merged `master` and remove decision-engine version menus while
+  preserving LLM controls and correct Historical tab restrictions.
+- [x] Produce the [repository assessment](v1.4.7/repository_analysis.md),
+  [delivery plan](v1.4.7/v147_plan.md) and
+  [PyQt6 migration estimate](v1.4.7/pyqt6_migration_plan.md).
+- [x] Correct double-GW outcome aggregation and authoritative price/funds handling.
+- [x] Establish revisioned commands, durable recovery and non-mutating state queries.
+- [x] Repair predictor identity, objective bounds and research-measurement contracts.
+- [x] Harden dataset admission, cache integrity and decision-context capture.
+- [x] Preserve legacy/unknown trials as read-only archives with explicit corrected forks.
+- [x] Add shared application services, typed read models, Windows CI and installed-wheel checks.
+- [x] Complete local candidate validation (961 passing tests, 42 Node controller cases)
+  and configure Linux/Windows candidate CI with installed-wheel checks.
+- [x] Implement the PR review corrections: atomic revision reads, complete live
+  Free Hit/Undo ownership, coherent generated identities, stale-receipt rejection,
+  and partial-season registry admission.
+- [x] Complete the follow-up's final validation (1,017 pytest cases, 46 controller
+  cases and an installed-wheel smoke), and update local `pr_text.txt` with evidence.
+- [ ] Approve native designs, licensing and a worker/model/packaging spike.
+- [ ] Implement the native client only after approval and prerequisite gates.
+- [ ] Complete two-mode parity, Windows packaging and manual acceptance before cutover.
+
+The branch implements stabilization and application foundations, not a PyQt6 port.
+Legacy HTTP calculation orchestration remains behind the shared query boundary.
+The current native-client
+estimate is 44-68 base person-days, or 58-89 including uncertainty; broader audit
+remediation changes that scope. See the estimate assumptions rather than treating
+these figures as a promised date.
+
 ## Later — V1.5
 
 - [ ] Multi-provider LLM benchmark.

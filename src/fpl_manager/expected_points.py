@@ -25,7 +25,6 @@ See `docs/expected_points.md` for full mathematical documentation.
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -498,7 +497,11 @@ def project_player_gameweek(
         )
     )
 
-    pred_clean = predictor_version.lower()
+    from .model_registry import predictor_version_from_metadata, resolve_predictor_version
+    predictor_version = resolve_predictor_version(predictor_version)
+    if model_metadata is not None and predictor_version_from_metadata(model_metadata) != predictor_version:
+        raise ValueError("Supplied model metadata does not match executable predictor.")
+    pred_clean = predictor_version
     if pred_clean in ("v0.7", "v07"):
         part_mode = "v0.7"
         comp_version = "v0.7"
@@ -531,16 +534,12 @@ def project_player_gameweek(
     gbdt_predictor = None
     player_feat_vector = None
     if part_mode == "v1.3":
-        strict_mode = strict_predictor or (os.environ.get("FPL_STRICT_PREDICTOR") == "1")
+        # A requested executable predictor is required, never a hint to fall back.
         try:
             from .ml import get_canonical_gbdt_predictor, get_walk_forward_gbdt_predictor, HAS_SKLEARN
             from .ml.features import build_feature_vector
             if not HAS_SKLEARN:
-                if strict_mode:
-                    raise RuntimeError("scikit-learn is required for predictor_version='v1.3'. Install with: pip install '.[ml]'")
-                part_mode = "v0.9"
-                if model_metadata is not None:
-                    model_metadata["fallback_used"] = "v0.9"
+                raise RuntimeError("scikit-learn is required for predictor_version='v1.3'. Install with: pip install '.[ml]'")
             else:
                 if eval_season:
                     gbdt_predictor = get_walk_forward_gbdt_predictor(eval_season)
@@ -587,11 +586,7 @@ def project_player_gameweek(
                 p_play = part.p_play
                 regime_str = getattr(part, "role_category", "STARTER").upper()
         except Exception as err:
-            if strict_mode:
-                raise RuntimeError(f"V1.3 GBDT predictor failed for player {player_id}: {err}") from err
-            part_mode = "v0.9"
-            if model_metadata is not None:
-                model_metadata["fallback_used"] = "v0.9"
+            raise RuntimeError(f"V1.3 GBDT predictor failed for player {player_id}: {err}") from err
     if part_mode == "v0.7":
         exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
             status=status,
@@ -641,7 +636,7 @@ def project_player_gameweek(
         prob_sub = part.p_sub
         p_play = part.p_play
         regime_str = getattr(part, "regime", "STARTER")
-    else:
+    elif part_mode == "v0.8":
         from .participation import predict_player_participation
         part = predict_player_participation(
             status=status,
@@ -670,7 +665,6 @@ def project_player_gameweek(
     total_xp = 0.0
     total_floor = 0.0
     total_ceiling = 0.0
-    sum_variance = 0.0
 
     for fix in team_fixtures_in_gw:
         opp_id = fix["opponent_id"]
@@ -721,7 +715,6 @@ def project_player_gameweek(
         total_xp += final_xp
         total_floor += fix_floor
         total_ceiling += fix_ceil
-        sum_variance += fix_var
 
         fixture_projections.append(
             PlayerFixtureProjection(
@@ -746,7 +739,7 @@ def project_player_gameweek(
             )
         )
 
-    std_dev = round(math.sqrt(sum_variance), 2)
+    std_dev = round(math.sqrt(sum(f.variance for f in fixture_projections)), 2)
     if model_metadata is None:
         from .model_registry import get_model_metadata
         meta_dict = get_model_metadata(predictor_version=predictor_version, gameweek=gameweek).to_dict()
@@ -766,7 +759,7 @@ def project_player_gameweek(
         gameweek=gameweek,
         fixtures=tuple(fixture_projections),
         expected_points=round(total_xp, 2),
-        expected_minutes=exp_mins,
+        expected_minutes=round(exp_mins * len(fixture_projections), 1),
         start_probability=p_start,
         xp_floor=round(total_floor, 2),
         xp_ceiling=round(total_ceiling, 2),
@@ -920,202 +913,37 @@ def project_multi_gameweek_profiles(
     database_path: Path = DATABASE_PATH,
     predictor_version: str = "v0.9",
 ) -> dict[int, MultiGameweekProfile]:
-    """Generate multi-gameweek projections with minutes, floor, ceiling, and uncertainty.
-
-    Returns a mapping of player_id -> MultiGameweekProfile.
-    """
-    store = SnapshotStore(database_path)
-    store.initialize()
-
-    with store._connect() as connection:
-        snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
-        if snapshot is None:
-            raise RuntimeError("No FPL data found. Run `fpl update` first.")
-        snapshot_id = snapshot[0]
-
-        fin_row = connection.execute(
-            "SELECT MAX(event) FROM fixtures WHERE snapshot_id = ? AND finished = 1 AND event IS NOT NULL",
-            (snapshot_id,),
-        ).fetchone()
-        finished_matches = int(fin_row[0]) if fin_row and fin_row[0] is not None else 0
-
-        teams_rows = connection.execute(
-            "SELECT team_id, short_name FROM teams WHERE snapshot_id = ?",
-            (snapshot_id,),
-        ).fetchall()
-        team_map = {row[0]: row[1] for row in teams_rows}
-
-        placeholders_gw = ",".join("?" for _ in gameweeks)
-        fixtures_rows = connection.execute(
-            f"""
-            SELECT fixture_id, event, team_h, team_a, team_h_difficulty, team_a_difficulty
-            FROM fixtures
-            WHERE snapshot_id = ? AND event IN ({placeholders_gw})
-            """,
-            (snapshot_id, *gameweeks),
-        ).fetchall()
-
-        cols = (
-            "player_id, web_name, position_id, team_id, price_tenths, status, total_points, "
-            "minutes, starts, chance_of_playing_next_round, chance_of_playing_this_round, "
-            "expected_goals, expected_assists, expected_goal_involvements, expected_goals_conceded, "
-            "expected_goals_per_90, expected_assists_per_90, expected_goals_conceded_per_90, clean_sheets_per_90, "
-            "bps, ict_index, form, points_per_game, selected_by_percent, news"
-        )
-        if player_ids:
-            placeholders_p = ",".join("?" for _ in player_ids)
-            players_rows = connection.execute(
-                f"SELECT {cols} FROM players WHERE snapshot_id = ? AND player_id IN ({placeholders_p})",
-                (snapshot_id, *player_ids),
-            ).fetchall()
-        else:
-            players_rows = connection.execute(
-                f"SELECT {cols} FROM players WHERE snapshot_id = ?",
-                (snapshot_id,),
-            ).fetchall()
-
-    team_fixtures: dict[int, list[dict[str, Any]]] = {t_id: [] for t_id in team_map}
-    for _, event, team_h, team_a, h_diff, a_diff in fixtures_rows:
-        h_fdr = int(h_diff) if h_diff is not None else 3
-        a_fdr = int(a_diff) if a_diff is not None else 3
-        if team_h in team_fixtures:
-            team_fixtures[team_h].append({
-                "event": event,
-                "opponent_id": team_a,
-                "opponent_short": team_map.get(team_a, f"T{team_a}"),
-                "is_home": True,
-                "fdr": h_fdr,
-            })
-        if team_a in team_fixtures:
-            team_fixtures[team_a].append({
-                "event": event,
-                "opponent_id": team_h,
-                "opponent_short": team_map.get(team_h, f"T{team_h}"),
-                "is_home": False,
-                "fdr": a_fdr,
-            })
+    """Aggregate the same version-resolved single-GW pipeline, including blank/DGWs."""
+    from .model_registry import resolve_predictor_version
+    predictor_version = resolve_predictor_version(predictor_version)
+    by_player: dict[int, list[ExpectedPointsProjection]] = {}
+    for gw in dict.fromkeys(gameweeks):
+        for projection in project_gameweek(
+            gw, player_ids=player_ids, database_path=database_path,
+            predictor_version=predictor_version,
+        ):
+            by_player.setdefault(projection.player_id, []).append(projection)
 
     profiles: dict[int, MultiGameweekProfile] = {}
-    for row in players_rows:
-        (
-            p_id, web_name, pos_id, t_id, price, status, pts,
-            mins, starts, chance_next, chance_this,
-            xg, xa, xgi, xgc,
-            xg90, xa90, xgc90, cs90,
-            bps, ict, form, ppg, selected, news
-        ) = row
-
-        pos = Position(pos_id)
-        t_short = team_map.get(t_id, f"T{t_id}")
-        base_xp = calculate_base_xp(price, pts, finished_matches)
-        avail = calculate_availability(status, chance_next)
-
-        if predictor_version in ("v0.7", "v07"):
-            exp_mins, p_start, prob_60, prob_sub = calculate_expected_minutes(
-                status=status,
-                chance_of_playing_next_round=chance_next,
-                starts=starts or 0,
-                minutes=mins or 0,
-                finished_matches=finished_matches,
-                price_tenths=price,
-                position=pos,
-            )
-        elif predictor_version in ("v0.9", "v09"):
-            from .learned_participation import predict_player_participation_v09
-            part = predict_player_participation_v09(
-                status=status,
-                chance_of_playing_next_round=chance_next,
-                season_starts=starts or 0,
-                season_minutes=mins or 0,
-                finished_matches=finished_matches,
-                price_tenths=price,
-                position=pos,
-            )
-            exp_mins = part.expected_minutes
-            p_start = part.p_start
-            prob_60 = part.prob_60_plus
-            prob_sub = part.p_sub
-        else:
-            from .participation import predict_player_participation
-            part = predict_player_participation(
-                status=status,
-                chance_of_playing_next_round=chance_next,
-                season_starts=starts or 0,
-                season_minutes=mins or 0,
-                finished_matches=finished_matches,
-                price_tenths=price,
-                position=pos,
-            )
-            exp_mins = part.expected_minutes
-            p_start = part.p_start
-            prob_60 = part.prob_60_plus
-            prob_sub = part.p_sub
-
-        p_fixtures = team_fixtures.get(t_id, [])
-        total_xp = 0.0
-        total_floor = 0.0
-        total_ceil = 0.0
-        sum_var = 0.0
-        p_gw_breakdown: dict[int, float] = {int(gw): 0.0 for gw in gameweeks}
-        n90_live = max(0.1, (mins or 0) / 90.0)
-        eff_xg90_col = min(1.20, max(0.0, round((xg or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xg90 or 0.0)))
-        eff_xa90_col = min(1.00, max(0.0, round((xa or 0.0) / n90_live, 2) if (mins or 0) < 90 else (xa90 or 0.0)))
-
-        for f in p_fixtures:
-            f_event = f.get("event")
-            fdr = f["fdr"]
-            is_home = f["is_home"]
-            baseline_xp = calculate_fixture_xp(base_xp, avail, pos, fdr, is_home)
-            comp = calculate_component_xp(
-                position=pos,
-                price_tenths=price,
-                fdr=fdr,
-                is_home=is_home,
-                expected_minutes=exp_mins,
-                prob_60_plus=prob_60,
-                prob_sub=prob_sub,
-                expected_goals_per_90=eff_xg90_col,
-                expected_assists_per_90=eff_xa90_col,
-                expected_goals_conceded_per_90=xgc90 or 0.0,
-                clean_sheets_per_90=cs90 or 0.0,
-                finished_matches=finished_matches,
-            )
-
-            if avail <= 0.0:
-                final_xp = 0.0
-                f_floor = 0.0
-                f_ceil = 0.0
-                f_var = 0.0
-            else:
-                final_xp = round(0.70 * comp["total"] + 0.30 * baseline_xp, 2)
-                f_floor = comp["floor"]
-                f_ceil = comp["ceil"]
-                f_var = comp["sigma"] ** 2
-
-            total_xp += final_xp
-            total_floor += f_floor
-            total_ceil += f_ceil
-            sum_var += f_var
-            if f_event is not None:
-                p_gw_breakdown[f_event] = round(p_gw_breakdown.get(f_event, 0.0) + final_xp, 2)
-
-        profiles[p_id] = MultiGameweekProfile(
-            player_id=p_id,
-            web_name=web_name,
-            position=pos,
-            team_id=t_id,
-            team_short=t_short,
-            price_tenths=price,
-            status=status,
-            expected_points=round(total_xp, 2),
-            expected_minutes=round(exp_mins * len(p_fixtures), 1),
-            xp_floor=round(total_floor, 2),
-            xp_ceiling=round(total_ceil, 2),
-            standard_deviation=round(math.sqrt(sum_var), 2),
-            fixtures_count=len(p_fixtures),
-            gw_breakdown_xp=p_gw_breakdown,
+    for pid, projections in by_player.items():
+        first = projections[0]
+        variance = sum(f.variance for p in projections for f in p.fixtures)
+        profiles[pid] = MultiGameweekProfile(
+            player_id=pid,
+            web_name=first.web_name,
+            position=first.position,
+            team_id=first.team_id,
+            team_short=first.team_short,
+            price_tenths=first.price_tenths,
+            status=first.status,
+            expected_points=round(sum(p.expected_points for p in projections), 2),
+            expected_minutes=round(sum(p.expected_minutes for p in projections), 1),
+            xp_floor=round(sum(p.xp_floor for p in projections), 2),
+            xp_ceiling=round(sum(p.xp_ceiling for p in projections), 2),
+            standard_deviation=round(math.sqrt(variance), 2),
+            fixtures_count=sum(len(p.fixtures) for p in projections),
+            gw_breakdown_xp={p.gameweek: p.expected_points for p in projections},
         )
-
     return profiles
 
 

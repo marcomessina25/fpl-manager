@@ -6,6 +6,7 @@ import pytest
 
 from fpl_manager.cli import main
 from fpl_manager.storage import SnapshotStore
+from fpl_manager.squad_state import CurrentSquadState
 from fpl_manager.teams import create_team, get_team_squad_path, set_active_team
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -63,19 +64,20 @@ def cli_test_team(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("fpl_manager.suggest_transfers.DATABASE_PATH", db_path)
     monkeypatch.setattr("fpl_manager.decision_log.DATABASE_PATH", db_path)
     monkeypatch.setattr("fpl_manager.fixtures.DATABASE_PATH", db_path)
-
-    from fpl_manager.teams import delete_team
-    try:
-        delete_team("cli_strategic_test")
-    except Exception:
-        pass
-    team_info = create_team("CLI Strategic Test Team", team_id="cli_strategic_test", set_as_active=True)
+    config = tmp_path / "config"
+    monkeypatch.setattr("fpl_manager.teams.CONFIG_DIR", config)
+    ids = tuple([1, 2] + list(range(5, 10)) + list(range(15, 20)) + list(range(25, 28)))
+    state = CurrentSquadState(
+        player_ids=ids, purchase_prices_tenths={pid: 50 for pid in ids},
+        bank_tenths=250, free_transfers=1,
+        chips_remaining=("wildcard", "free_hit", "bench_boost", "triple_captain"),
+        season="2026/27", gameweek=2,
+    )
+    team_info = create_team(
+        "CLI Strategic Test Team", team_id="cli_strategic_test",
+        squad_state=state, config_dir=config, set_as_active=True,
+    )
     yield team_info
-    try:
-        set_active_team("default")
-        delete_team("cli_strategic_test")
-    except Exception:
-        pass
 
 
 def test_cli_strategic_squad_initial(capsys, cli_test_team, tmp_path):

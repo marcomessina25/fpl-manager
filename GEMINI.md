@@ -13,13 +13,15 @@ Whenever designing, extending, refactoring, or testing features across FPL Manag
 3. **Clean Session & Data Isolation**: Historical mode must strictly operate on the currently selected historical simulation session (`session_id`). Live 2026/27 SQLite database tables and active team files must **NEVER** leak into or be queried by historical mode.
 4. **Zero Future Leakage**: In Historical mode, predictions, projections, standings, fixtures, and evaluations must strictly reflect point-in-time knowledge up to the active simulation gameweek (`current_gw`). Never reveal or use future matchday outcomes.
 
+**Intentional live-only exceptions:** Live Matchday and AI Advisor & Briefing are hidden in Historical mode. Preserve this existing behavior. The parity requirement applies to shared workflows; it does not authorize live-data or LLM calls from Historical mode.
+
 ---
 
 ## 2. Tab-by-Tab Parity Specifications
 
 ### Transfers & Staging (`#tab-transfers`)
 - **Shared Unified Architecture**: Both Live Manager and Historical Time Machine share `#live-transfers-wrapper`.
-- **Combinatorial Solvers**: Must support solving 1 to 5 transfers (`#tx-num`), horizons from 1 to 10 gameweeks (`#tx-gws`), risk profiles (`neutral`, `floor`, `ceiling`), and solver engines (`v1.3.5`, `v1.2.5`).
+- **Combinatorial Solvers**: Must support solving 1 to 5 transfers (`#tx-num`), horizons from 1 to 10 gameweeks (`#tx-gws`), and risk profiles (`neutral`, `floor`, `ceiling`). GUI calculations use the latest registered decision engine without a version selector in either mode. Legacy engine selection remains available for explicit CLI/research use; existing frozen simulation baselines must retain their recorded version.
 - **Proposition Cards**: Solvers output ranked candidates (`#1 Best Move`, etc.) with xP deltas, post-move bank amounts, reason badges (`Lineup xP`, `Pool Expansion`, `GK Suppression`, `Horizon Gain`), and an interactive **⚡ Apply Move** button.
 - **Manual Transfers Prohibition**: Manual transfer dropdowns (e.g., sell player X, buy player Y) must **NEVER** live on the Transfers tab. They belong exclusively under Decision Logger.
 

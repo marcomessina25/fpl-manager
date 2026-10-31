@@ -2,7 +2,7 @@
 
 A local-first Fantasy Premier League decision engine for the 2026/27 season.
 
-![Version](https://img.shields.io/badge/Version-1.4.6-purple) ![Python](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.4.7--candidate-purple) ![Python](https://img.shields.io/badge/Python-3.11--3.13-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -308,7 +308,74 @@ fpl advise --persona tactical_analyst
 fpl advise --persona devil_advocate --provider gemini
 ```
 
-### Current scope (V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark, 1:1 Live/Historical Parity & Solver Hardening)
+### V1.4.7 Candidate — Correctness and Application Foundations
+
+The `v147` branch starts from merged V1.4.6. Its immediate GUI cleanup removes
+decision-engine version selectors and uses the latest registered engine for new
+GUI calculations, while preserving explicit research versions, saved baselines,
+LLM provider/model choices and Historical's existing live-only tab exclusions.
+
+The candidate implements the assessment's core remediation: fixture-level DGW
+aggregation, conserved transfer finances, recoverable revisioned commands,
+explicit lifecycle transitions, data admission, and predictor/search contracts.
+HTTP and CLI share application services; remaining legacy HTTP calculation
+orchestration is documented rather than presented as a completed GUI rewrite.
+**No PyQt6 client or Qt dependency has been added.**
+
+New simulation files explicitly record corrected execution as `v147`. Legacy,
+missing, null or unrecognized execution identities remain read-only archives.
+An explicit corrected fork preserves the source and its recorded results,
+starting a distinct comparison at a recoverable clean deadline:
+
+```powershell
+fpl sim status --id archived_trial
+fpl sim fork --id archived_trial --new-id corrected_trial
+fpl team advance default
+```
+
+Reads no longer advance squads or finalize decisions. Use **Advance Deadline**
+or `team advance` for lifecycle changes and **Scores** or `update-scores` for
+score finalization. A mutation explicitly targeting a later deadline runs the
+same lifecycle transition atomically.
+
+State commands stage JSON and commit SQL with a durable journal before atomic
+file publication. `RECOVERY_REQUIRED` means the command **committed**, not that
+it rolled back. Restart the GUI or run `fpl recover` (`--historical` for the
+isolated simulation journal); do not resubmit it as a new action. External
+recovery conflicts are reported without overwriting conflicting files.
+Writers hold a per-database cross-process lock through SQL commit and JSON
+publication. Runtime `*.command.lock` sidecars remain in place; do not delete
+them while the application is running. A crashed writer releases its OS lock,
+but its committed journal entry still requires recovery.
+
+The PR review follow-up strengthens that boundary: pending recovery and revision
+lookups share a read transaction, persisted sessions are checked against
+before/after revisions, and older committed HTTP responses cannot regress the
+HUD or run successful continuations. Generated team IDs and their source
+portfolios are pinned to the same command identity.
+
+Live squads can contain optional `gameweek_start_state` and
+`pre_free_hit_state` ownership snapshots. Free Hit restores the clean deadline
+portfolio, including trades made before chip activation, when explicitly
+advancing; future plans use permanent ownership after the temporary week.
+Undo restores authoritative bank, purchase prices and free transfers.
+Unverifiable legacy purchase/Free Hit state is rejected rather than priced
+from sale quotes, market snapshots or another team's portfolio.
+
+For partial historical imports, registry announcements outside supplied
+deadline coverage are marked `not_checked`, not rejected as corruption.
+Structural errors and entries leaking into covered deadlines still fail.
+
+- [Full repository assessment: strengths, weaknesses and evidence](docs/v1.4.7/repository_analysis.md)
+- [Prioritized V1.4.7 delivery plan and acceptance gates](docs/v1.4.7/v147_plan.md)
+- [PyQt6 architecture, licensing, phased port and effort estimate](docs/v1.4.7/pyqt6_migration_plan.md)
+
+The native parity estimate is approximately **12-18 working weeks for one
+engineer**, including application-boundary work and uncertainty, or **14-22
+weeks** if the complete audit remediation is included in the same programme.
+These are pre-spike planning ranges, not a committed release date.
+
+### Previous scope (V1.4.6 — Empirical Human-in-the-Loop Replay Benchmark, 1:1 Live/Historical Parity & Solver Hardening)
 
 V1.4.6 completes the **5-Season Paired Human-in-the-Loop Replay Benchmark** (`2021-22` through `2025-26`, 190 simulated gameweeks) and enforces strict 1:1 functional, visual, and behavioral parity between Live Manager (`2026/27`) and the Historical Time Machine (`GEMINI.md`):
 
@@ -352,7 +419,7 @@ V1.4 transforms FPL Manager into an interactive **Historical Season Simulation /
 - **Stateful Isolated Simulation Sessions (`src/fpl_manager/simulation/`)**: Sessions are isolated under `config/simulations/<session_id>.json` (never touching live squad or database). Features full legality validation, transfer staging, multi-chip mechanics (Wildcard windows, Free Hit squad reversion, Bench Boost, Triple Captain), deterministic matchday scoring with autosubs, transfer hit accounting, and parallel baseline tracking (`DecisionEngineV125` / `DecisionEngineV135`).
 - **Web Studio GUI Time Machine Interface**: Interactive interface featuring Premier League Standings table, Recent Match Results, Upcoming Fixtures with FDR ratings, Interactive Pitch squad view with captaincy toggles, transfer staging modal, and matchday progression.
 - **Full CLI Suite (`fpl sim`)**: Direct command-line control for headless simulation runs, batch experiments, and report generation.
-- **Milestone Sequencing Handoff (V1.4 → V1.4.5 → V1.4.6)**: 
+- **Milestone Sequencing Handoff (V1.4 → V1.4.5 → V1.4.6)**:
   - V1.4.5 delivered the unified **ML / EV-driven Strategic Chip Optimizer**, eliminating heuristic wastage and aligning live and simulation models.
   - **V1.4.6 (Next)** will execute the controlled **Human-in-the-Loop Replay Benchmark Study** across the finalized V1.4.5 baseline.
 - Full specifications: [`docs/v1.4/v14_historical_simulation.md`](docs/v1.4/v14_historical_simulation.md), [`docs/v1.4.5/v145_chip_optimization.md`](docs/v1.4.5/v145_chip_optimization.md), and [`docs/v1.4.6/v146_human_benchmark.md`](docs/v1.4.6/v146_human_benchmark.md).

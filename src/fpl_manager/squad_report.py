@@ -21,23 +21,18 @@ SQUAD_REPORT_PATH = PROJECT_ROOT / "reports" / "squad_report.json"
 def generate_squad_report(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
-    report_path: Path = SQUAD_REPORT_PATH,
+    report_path: Path | None = SQUAD_REPORT_PATH,
     gameweek: int | None = None,
     team_id: str | None = None,
+    state: CurrentSquadState | None = None,
 ) -> dict[str, Any]:
     """Generate a comprehensive report of the manager's current squad state.
     
     If gameweek is provided and has a logged decision, reconstructs the squad representation
     from that point in time.
     """
-    if gameweek is None:
-        try:
-            from .teams import sync_squad_with_current_gameweek
-            state = sync_squad_with_current_gameweek(squad_path, team_id=team_id or "default", database_path=database_path)
-        except Exception:
-            state = load_current_squad(squad_path)
-    else:
-        state = load_current_squad(squad_path)
+    explicit_state = state is not None
+    state = state if explicit_state else load_current_squad(squad_path)
 
     store = SnapshotStore(database_path)
 
@@ -45,7 +40,7 @@ def generate_squad_report(
     is_logged = False
     actual_scores: dict[int, float] = {}
 
-    if gameweek is not None:
+    if gameweek is not None and not explicit_state:
         try:
             from .decision_log import get_gameweek_decision
             from .scores import get_or_fetch_gameweek_scores
@@ -57,7 +52,6 @@ def generate_squad_report(
         except Exception:
             pass
 
-    store.initialize()
     with store._connect() as connection:
         snapshot = connection.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
         if snapshot is None:
@@ -172,7 +166,8 @@ def generate_squad_report(
         "players": players_detail,
     }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return report

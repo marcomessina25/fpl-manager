@@ -138,7 +138,7 @@ def solve_transfers(
     cand_limit: int | None = None,
     dead_capital_weight: float = 0.0,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Find top multi-transfer moves using recursive branch-and-bound search.
+    """Find top multi-transfer moves within a heuristically shortlisted candidate pool.
 
     Features:
     - Supports arbitrary K transfers (1, 2, 3, 4+).
@@ -252,8 +252,19 @@ def solve_transfers(
         out_fdr_avg = out_fdr_sum / num_transfers
 
         out_baseline = sum(get_player_profile_value(p, risk_profile) for p in out_combo)
-        # Constant additive term contributed by outgoing players to final score
-        out_score_constant = (0.1 * out_fdr_avg) - out_baseline - hit_penalty_pts
+        dead_capital_bonus = (
+            sum(
+                round(dead_capital_weight * (p.price_tenths / 10.0), 2)
+                for p in sorted_out_combo
+                if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
+            )
+            if dead_capital_weight > 0.0
+            else 0.0
+        )
+        # Every outgoing-only objective term must also contribute to the bound.
+        out_score_constant = (
+            (0.1 * out_fdr_avg) - out_baseline - hit_penalty_pts + dead_capital_bonus
+        )
 
         def dfs(
             slot: int,
@@ -287,15 +298,6 @@ def solve_transfers(
                 else:
                     rank_metric = xp_delta - hit_penalty_pts
 
-                dead_capital_bonus = (
-                    sum(
-                        round(dead_capital_weight * (p.price_tenths / 10.0), 2)
-                        for p in sorted_out_combo
-                        if is_departed_from_premier_league(p) or is_long_term_unavailable(p)
-                    )
-                    if dead_capital_weight > 0.0
-                    else 0.0
-                )
                 score = round(rank_metric + 0.1 * fdr_delta + dead_capital_bonus, 2)
                 bank_after = max_budget - curr_price
                 canonical_ids = (

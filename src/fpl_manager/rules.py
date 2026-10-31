@@ -44,6 +44,19 @@ def is_free_transfers_chip(chip: str | None) -> bool:
     return norm in FREE_TRANSFER_CHIPS
 
 
+def free_transfer_transition(
+    gameweek: int, free_transfers: int, transfer_count: int, *,
+    max_free_transfers: int = 5, active_chip: str | None = None,
+    initial_deadline: bool = False,
+) -> tuple[int, int]:
+    """Return hit count and next-deadline FTs without changing ownership state."""
+    free_chip = is_free_transfers_chip(active_chip)
+    hits = 0 if gameweek == 1 or free_chip else max(0, transfer_count - free_transfers)
+    if gameweek == 1 or free_chip or initial_deadline:
+        return hits, 1
+    return hits, min(max_free_transfers, max(0, free_transfers - transfer_count) + 1)
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
     errors: tuple[str, ...]

@@ -344,6 +344,9 @@ class DecisionRegretRecord:
     optimizer_regret: float
     total_decision_regret: float
     runtime_ms: float = 0.0
+    action_universe: str = "heuristic_one_transfer_shortlist_plus_selected"
+    action_count: int = 0
+    is_exhaustive: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -362,6 +365,9 @@ class DecisionRegretRecord:
             "optimizer_regret": round(self.optimizer_regret, 2),
             "total_decision_regret": round(self.total_decision_regret, 2),
             "runtime_ms": round(self.runtime_ms, 2),
+            "action_universe": self.action_universe,
+            "action_count": self.action_count,
+            "is_exhaustive": self.is_exhaustive,
         }
 
 
@@ -380,7 +386,10 @@ def compute_gameweek_decision_regret(
     max_transfers: int = 1,
     allow_hits: bool = True,
 ) -> tuple[DecisionRegretRecord, list[tuple[int, int]]]:
-    """Compute exact decision regret decomposition for a single gameweek decision.
+    """Compute signed regret over a disclosed one-transfer heuristic shortlist.
+
+    The shortlist is not an independent/global oracle. Multi-transfer regret
+    requires an explicitly bounded independent reference implementation.
 
     Mathematical Invariant:
         Prediction Regret = Realized Hindsight Points - Realized Best Model Points
@@ -388,6 +397,11 @@ def compute_gameweek_decision_regret(
         Total Decision Regret = Realized Hindsight Points - Realized Selected Points
         Identity: Prediction Regret + Optimizer Regret == Total Decision Regret
     """
+    if max_transfers not in (0, 1):
+        raise ValueError(
+            "Shortlist regret supports only zero/one-transfer actions, not an exact "
+            "multi-transfer oracle."
+        )
     t_start = time.perf_counter()
 
     # 1. Evaluate candidate transfer moves under the model
@@ -430,7 +444,8 @@ def compute_gameweek_decision_regret(
         cur_p = opt_map.get(pid)
         cur_price = cur_p.price_tenths if cur_p else 50
         bought = purchase_prices.get(pid, cur_price)
-        selling_prices[pid] = bought + max(0, (cur_price - bought) // 2)
+        from .decision_engine import _execution_selling_price
+        selling_prices[pid] = _execution_selling_price(bought, cur_price)
 
     needed_pids = set(squad_ids) | {p.id for p in cand_pool}
     projections_by_gw = _get_forward_projections(
@@ -493,7 +508,7 @@ def compute_gameweek_decision_regret(
     selected_model_val, realized_selected_pts = evaluate_action_outcome(selected_action)
 
     # 3. Explore candidate actions to find best_model and best_hindsight
-    legal_candidate_actions: list[list[tuple[int, int]]] = [[]]  # No transfer is always legal
+    legal_candidate_actions: list[list[tuple[int, int]]] = [[], selected_action]
 
     k_max = max_transfers if allow_hits else min(max_transfers, free_transfers)
     if k_max > 0:
@@ -533,29 +548,16 @@ def compute_gameweek_decision_regret(
             realized_hindsight_pts = r_pts
             best_action_hindsight = action
 
-    # If selected action had better model or hindsight value, adjust
-    if selected_model_val > best_model_val:
-        best_model_val = selected_model_val
-        best_action_model = selected_action
-        realized_best_model_pts = realized_selected_pts
-
-    if realized_selected_pts > realized_hindsight_pts:
-        realized_hindsight_pts = realized_selected_pts
-        best_action_hindsight = selected_action
-
     t_end = time.perf_counter()
     runtime_ms = (t_end - t_start) * 1000.0
 
     # Derive exact regret decomposition
-    prediction_regret = round(max(0.0, realized_hindsight_pts - realized_best_model_pts), 2)
-    optimizer_regret = round(max(0.0, realized_best_model_pts - realized_selected_pts), 2)
+    prediction_regret = round(realized_hindsight_pts - realized_best_model_pts, 2)
+    optimizer_regret = round(realized_best_model_pts - realized_selected_pts, 2)
     total_decision_regret = round(realized_hindsight_pts - realized_selected_pts, 2)
 
-    # Invariant assertion tolerance check
-    decomp_sum = round(prediction_regret + optimizer_regret, 2)
-    if abs(decomp_sum - total_decision_regret) > 0.05:
-        # Reconcile any float rounding discrepancies
-        total_decision_regret = decomp_sum
+    if abs(prediction_regret + optimizer_regret - total_decision_regret) > 0.02:
+        raise AssertionError("Signed regret components do not match measured total.")
 
     record = DecisionRegretRecord(
         season=season,
@@ -573,5 +575,6 @@ def compute_gameweek_decision_regret(
         optimizer_regret=optimizer_regret,
         total_decision_regret=total_decision_regret,
         runtime_ms=runtime_ms,
+        action_count=len({tuple(sorted(action)) for action in legal_candidate_actions}),
     )
     return record, selected_action

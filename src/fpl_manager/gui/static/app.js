@@ -84,7 +84,52 @@ function formatMarkdown(str) {
 }
 
 // API Request Wrapper
+let commandSequence = 0;
+
+class StaleCommandResponseError extends Error {
+  constructor(command) {
+    super("This command already committed, but newer changes superseded its response. The older response was ignored.");
+    this.name = "StaleCommandResponseError";
+    this.code = "STALE_COMMAND_RESPONSE";
+    this.committed = true;
+    this.commandId = command.command_id;
+    this.revision = command.revision_after;
+  }
+}
+
 async function api(endpoint, options = {}) {
+  const requestContext = captureAppContext();
+  const isPost = (options.method || "GET").toUpperCase() === "POST";
+  const commandRoutes = new Set([
+    "/api/transfers/execute", "/api/decisions", "/api/decisions/undo",
+    "/api/wildcard/apply", "/api/strategic-squad/apply", "/api/plan/apply-step",
+    "/api/teams/advance",
+  ]);
+  const historicalCommand = endpoint.startsWith("/api/historical/simulations/") &&
+    !endpoint.endsWith("/create") && !endpoint.endsWith("/fork");
+  if (isPost && (commandRoutes.has(endpoint) || historicalCommand)) {
+    const body = JSON.parse(options.body || "{}");
+    if (state.appMode === "historical" && !body.session_id && !historicalCommand) {
+      throw new Error("Historical commands require the selected simulation.");
+    }
+    const data = body.session_id || historicalCommand ? histState.sessionData : state.currentSquad;
+    if (data?.read_only) {
+      throw new Error("This trial is a read-only archive. Create a corrected fork to make changes.");
+    }
+    if (data?.command_context && Number.isInteger(data.revision)) {
+      const target = data.command_context;
+      const routeSession = historicalCommand ? endpoint.split("/")[4] : body.session_id;
+      const matches = target.mode === "historical"
+        ? target.session_id === routeSession
+        : target.team_id === (body.team_id || state.activeTeamId);
+      if (!matches) throw new Error("Reload the selected team or simulation before applying this command.");
+      body.command_context ??= target;
+      body.expected_revision ??= data.revision;
+      body.command_id ||= globalThis.crypto?.randomUUID?.() ||
+        `web-${Date.now()}-${++commandSequence}-${Math.random().toString(16).slice(2)}`;
+      options = { ...options, body: JSON.stringify(body) };
+    }
+  }
   try {
     const res = await fetch(endpoint, {
       headers: { "Content-Type": "application/json" },
@@ -94,9 +139,25 @@ async function api(endpoint, options = {}) {
     if (!res.ok) {
       throw new Error(data.error || `HTTP ${res.status}`);
     }
+    if (data.command && isCurrentAppContext(requestContext)) {
+      const target = data.command.context;
+      const selected = target.mode === "historical" ? histState.sessionData : state.currentSquad;
+      const identity = selected?.command_context;
+      if (identity?.mode === target.mode &&
+          (target.mode === "historical" ? identity.session_id === target.session_id : identity.team_id === target.team_id)) {
+        if (Number.isInteger(selected.revision) && data.command.revision_after < selected.revision) {
+          throw new StaleCommandResponseError(data.command);
+        }
+        selected.revision = data.command.revision_after;
+      }
+    }
     return data;
   } catch (err) {
-    console.error(`API Error on ${endpoint}:`, err);
+    if (err instanceof StaleCommandResponseError) {
+      console.warn("Superseded committed command response", { commandId: err.commandId, revision: err.revision });
+    } else {
+      console.error(`API Error on ${endpoint}:`, err);
+    }
     throw err;
   }
 }
@@ -842,6 +903,11 @@ async function loadSquadHUD() {
     const data = await api(`/api/squad?team=${state.activeTeamId}`);
     if (!isCurrentAppContext(ctx)) return;
     state.currentSquad = data;
+    const advance = document.getElementById("btn-advance-team");
+    if (advance) {
+      advance.style.display = data.command_context && data.command_context.gameweek < state.currentGameweek ? "" : "none";
+      advance.textContent = `Advance to GW${state.currentGameweek || 1}`;
+    }
     const activeObj = state.teams.find(t => t.team_id === state.activeTeamId);
     const candidateGw = data.gameweek || (activeObj && activeObj.gameweek) || (data.state && data.state.gameweek) || state.currentGameweek || 1;
     state.activeGameweek = Math.max(candidateGw, state.currentGameweek || 1);
@@ -2273,7 +2339,6 @@ async function runSuggestTransfers() {
   const numTx = document.getElementById("tx-num").value;
   const gws = document.getElementById("tx-gws").value;
   const risk = document.getElementById("tx-risk").value;
-  const engine = document.getElementById("tx-engine") ? document.getElementById("tx-engine").value : "v1.3.5";
 
   const isHist = state.appMode === "historical";
   if (isHist && !histState.sessionId) {
@@ -2294,7 +2359,7 @@ async function runSuggestTransfers() {
   const gwParam = !isHist && targetGw ? `&gameweek=${targetGw}` : "";
 
   try {
-    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}&engine=${engine}${sidParam}${gwParam}`);
+    const data = await api(`/api/transfers?team=${state.activeTeamId}&transfers=${numTx}&gameweeks=${gws}&risk=${risk}${sidParam}${gwParam}`);
     if (
       thisReqSeq !== state.transferRequestSeq ||
       state.contextEpoch !== reqProvenance.epoch ||
@@ -2473,6 +2538,8 @@ async function runSuggestTransfers() {
               await api(`/api/historical/simulations/${histState.sessionId}/transfers`, {
                 method: "POST",
                 body: JSON.stringify({
+                  command_context: data.command_context,
+                  expected_revision: data.revision,
                   transfers: opt.outgoing.map((o, i) => ({
                     out_id: o.id,
                     in_id: opt.incoming[i].id,
@@ -2523,6 +2590,8 @@ async function runSuggestTransfers() {
             const res = await api("/api/transfers/execute", {
               method: "POST",
               body: JSON.stringify({
+                command_context: data.command_context,
+                expected_revision: data.revision,
                 team_id: state.activeTeamId,
                 gameweek: targetGw,
                 transfers: transfersPayload,
@@ -2844,6 +2913,8 @@ async function runPlanner() {
             await api(`/api/historical/simulations/${encodeURIComponent(planCtx.sessionId)}/apply-plan-step`, {
               method: "POST",
               body: JSON.stringify({
+                command_context: data.command_context,
+                expected_revision: data.revision,
                 gameweek: step0.gameweek,
                 transfers: batchTxs,
                 starting_ids: starters,
@@ -2877,6 +2948,8 @@ async function runPlanner() {
             await api("/api/plan/apply-step", {
               method: "POST",
               body: JSON.stringify({
+                command_context: data.command_context,
+                expected_revision: data.revision,
                 team_id: planCtx.teamId,
                 gameweek: step0.gameweek,
                 transfers: transfersPayload,
@@ -4920,6 +4993,8 @@ function initStrategicStudio() {
         applyBtn.textContent = "Applying...";
 
         const applyPayload = {
+          command_context: cand.command_context,
+          expected_revision: cand.revision,
           app_mode: state.appMode,
           candidate: cand,
           team_id: state.activeTeamId,
@@ -5029,7 +5104,7 @@ function setHistoricalMutationControls(ready) {
   ["btn-hist-save-lineup", "btn-hist-auto-lineup", "hist-chip-select", "btn-hist-run-gw",
     "btn-hist-run-gw-top", "btn-hist-clear-tx", "btn-hist-stage-trade", "btn-execute-trade"].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.disabled = !ready || !!histState.isCompleted;
+    if (el) el.disabled = !ready || !!histState.isCompleted || !!histState.sessionData?.read_only;
   });
 }
 
@@ -5043,6 +5118,10 @@ function detachHistoricalSession() {
   histState.subbingPlayer = null;
   histState.swapOutPlayer = null;
   histState.isCompleted = false;
+  const archiveNotice = document.getElementById("hist-archive-notice");
+  if (archiveNotice) archiveNotice.style.display = "none";
+  const forkButton = document.getElementById("btn-hist-fork");
+  if (forkButton) forkButton.style.display = "none";
   state.playerPoolRequestSeq++;
   setHistoricalMutationControls(false);
   renderEmptyHistoricalSquad();
@@ -5073,6 +5152,28 @@ function isCurrentHistoricalMutationContext(ctx) {
 function initHistoricalTimeMachine() {
   if (histState.initialized) return;
   histState.initialized = true;
+  const forkButton = document.getElementById("btn-hist-fork");
+  if (forkButton) forkButton.addEventListener("click", async () => {
+    const ctx = getHistoricalMutationContext();
+    if (!ctx || !ctx.data.read_only) return;
+    if (!confirm("Create a new corrected trial from this recorded clean deadline? The archive is preserved; previous results are not rescored.")) return;
+    forkButton.disabled = true;
+    try {
+      const result = await api(`/api/historical/simulations/${ctx.sessionId}/fork`, {
+        method: "POST",
+        body: JSON.stringify({ new_session_id: `${ctx.sessionId}_v147_${Date.now()}` }),
+      });
+      if (!isCurrentAppContext(ctx)) return;
+      await loadHistoricalSession(result.session_id);
+      if (state.appMode === "historical" && histState.sessionId === result.session_id) {
+        await loadHistoricalSimulationsList();
+      }
+    } catch (err) {
+      if (isCurrentAppContext(ctx)) showToast(`Could not create corrected fork: ${err.message}`, true);
+    } finally {
+      if (isCurrentAppContext(ctx)) forkButton.disabled = false;
+    }
+  });
 
   // Subtab switching in Matchday Center
   const subtabBtns = document.querySelectorAll(".hist-subtab-btn");
@@ -5197,7 +5298,6 @@ function initHistoricalTimeMachine() {
       const startGw = parseInt(document.getElementById("create-sim-start-gw").value, 10) || 1;
       const simId = document.getElementById("create-sim-id").value.trim() || `sim_${Date.now()}`;
       const manager = document.getElementById("create-sim-manager").value.trim() || "Human Manager";
-      const strat = document.getElementById("create-sim-strategy").value;
 
       try {
         btnConfirmCreate.disabled = true;
@@ -5208,7 +5308,6 @@ function initHistoricalTimeMachine() {
             session_id: simId,
             season: season,
             start_gw: startGw,
-            starting_strategy: strat,
             manager_name: manager,
           }),
         });
@@ -5732,6 +5831,13 @@ async function loadHistoricalSession(sessionId) {
     if (!isCurrent()) return;
     const gwChanged = histState.gameweek !== data.current_gw;
     histState.sessionData = data;
+    const archiveNotice = document.getElementById("hist-archive-notice");
+    if (archiveNotice) archiveNotice.style.display = data.read_only ? "block" : "none";
+    const forkButton = document.getElementById("btn-hist-fork");
+    if (forkButton) {
+      forkButton.style.display = data.read_only && !data.is_completed ? "" : "none";
+      forkButton.disabled = false;
+    }
     histState.season = data.season;
     histState.gameweek = data.current_gw;
     if (gwChanged) {
@@ -6665,7 +6771,7 @@ function showHistoricalResolutionModal(res) {
         <div style="font-size: 1.8rem; font-weight: 800; color: ${deltaColor};">
           ${divergence.point_delta_vs_engine > 0 ? '+' : ''}${divergence.point_delta_vs_engine || 0} pts
         </div>
-        <div style="font-size: 0.75rem; color: #94a3b8;">Engine v1.2.5: ${res.engine_net_points} pts</div>
+        <div style="font-size: 0.75rem; color: #94a3b8;">Baseline: ${res.engine_net_points} pts</div>
       </div>
     </div>
 
@@ -6829,8 +6935,7 @@ function showHistoricalRecommendationsModal(recs) {
   const body = document.getElementById("hist-modal-body");
   if (!modal || !body) return;
 
-  const engVer = recs.engine_version || "v1.3.5";
-  if (title) title.textContent = `Decision Engine Recommendations (${engVer} - GW ${recs.gameweek})`;
+  if (title) title.textContent = `Decision Recommendations (GW ${recs.gameweek})`;
 
   const chipRec = recs.recommended_chip;
   const chipBadge = chipRec
@@ -6860,7 +6965,7 @@ function showHistoricalRecommendationsModal(recs) {
     </div>
 
     <div style="margin-bottom: 1.25rem;">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers (${engVer} Baseline)</h4>
+      <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Recommended Transfers</h4>
       ${txsHtml}
     </div>
 
@@ -6947,6 +7052,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   initEventListeners();
   initStrategicStudio();
   initHistoricalTimeMachine();
+  const advance = document.getElementById("btn-advance-team");
+  if (advance) advance.addEventListener("click", async () => {
+    if (state.appMode !== "live" || !state.activeTeamId) return;
+    const ctx = captureAppContext();
+    advance.disabled = true;
+    try {
+      await api("/api/teams/advance", {
+        method: "POST", body: JSON.stringify({ team_id: state.activeTeamId }),
+      });
+      if (isCurrentAppContext(ctx)) await loadTeams();
+    } catch (err) {
+      if (isCurrentAppContext(ctx)) showToast(`Could not advance deadline: ${err.message}`, true);
+    } finally {
+      advance.disabled = false;
+    }
+  });
   await syncGameweekAndScoresAtStartup();
   await loadTeams();
   await loadAllLeaguePlayers();

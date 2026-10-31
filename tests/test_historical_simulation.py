@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import pytest
 
-from src.fpl_manager.simulation import HistoricalSimulationSession
+from fpl_manager.simulation import HistoricalSimulationSession
 
 
 @pytest.fixture
@@ -237,15 +237,13 @@ def test_list_sessions_skips_corrupted_json_with_log(tmp_path: Path) -> None:
 def test_baseline_engine_wildcard_failure_raises_data_integrity(tmp_path: Path) -> None:
     """Verify that a broken solver in baseline chip deployment raises DataIntegrityError."""
     from unittest.mock import patch
-    from src.fpl_manager.errors import DataIntegrityError
-    from src.fpl_manager.historical.models import GameweekOutcome, Position
+    from fpl_manager.errors import DataIntegrityError
+    from fpl_manager.historical.models import GameweekOutcome, Position
 
-    sim = HistoricalSimulationSession(
+    sim = HistoricalSimulationSession.create(
         session_id="solver_fail_test",
         season="2023-24",
         config_dir=tmp_path,
-        squad_ids=list(range(1, 16)),
-        engine_baseline_squad_ids=list(range(1, 16)),
     )
     sim.active_chip = "wildcard"
 
@@ -253,8 +251,8 @@ def test_baseline_engine_wildcard_failure_raises_data_integrity(tmp_path: Path) 
     outcomes = {pid: GameweekOutcome(pid, 5, 90, 0, 0, 0, 0, 0, 0, 0, 0) for pid in range(1, 16)}
     positions = {pid: Position.MIDFIELDER for pid in range(1, 16)}
 
-    with patch("src.fpl_manager.simulation.session.SeasonalChipPolicy.evaluate_gameweek_chip", return_value="wildcard"), \
-         patch("src.fpl_manager.simulation.session.resolve_decision_engine") as mock_resolve:
+    with patch("fpl_manager.simulation.session.SeasonalChipPolicy.evaluate_gameweek_chip", return_value="wildcard"), \
+         patch("fpl_manager.simulation.session.resolve_decision_engine") as mock_resolve:
         mock_engine = mock_resolve.return_value
         mock_engine.version = "v1.3.5"
         mock_engine.initialize_squad.side_effect = RuntimeError("Infeasible budget solver")

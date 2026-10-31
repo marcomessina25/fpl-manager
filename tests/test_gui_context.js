@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { test } = require("node:test");
 
+
 class Element {
   constructor(tag = "div") {
     this.tagName = tag.toUpperCase();
@@ -88,6 +89,9 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 const source = fs.readFileSync(
   path.join(__dirname, "..", "src", "fpl_manager", "gui", "static", "app.js"), "utf8",
 );
+const html = fs.readFileSync(
+  path.join(__dirname, "..", "src", "fpl_manager", "gui", "static", "index.html"), "utf8",
+);
 
 async function harness() {
   const elements = new Map();
@@ -95,11 +99,14 @@ async function harness() {
     if (!elements.has(id)) elements.set(id, new Element());
     return elements.get(id);
   };
-  const tabs = ["overview", "decisions", "strategic"].map(name => {
+  const tabs = [...html.matchAll(/<button class="([^"]*\btab-btn\b[^"]*)" data-tab="([^"]+)"/g)].map(([, classes, name]) => {
     const tab = new Element("button");
+    tab.className = classes;
     tab.setAttribute("data-tab", name);
     return tab;
   });
+  const panes = tabs.map(tab => element(`tab-${tab.dataset.tab}`));
+  panes[0].classList.add("active");
   const requests = [];
   let route = () => ({});
   const errors = [];
@@ -109,9 +116,19 @@ async function harness() {
       getElementById: element,
       createElement: tag => new Element(tag),
       addEventListener() {}, // Explicitly initialize only relevant actual handlers.
-      querySelector: selector => selector === ".tabs-nav .tab-btn.active"
-        ? tabs.find(t => t.classList.contains("active")) || null : null,
-      querySelectorAll: selector => selector === ".tabs-nav .tab-btn" ? tabs : [],
+      querySelector: selector => {
+        if (selector === ".tabs-nav .tab-btn.active") {
+          return tabs.find(t => t.classList.contains("active")) || null;
+        }
+        const name = selector.match(/^\.tabs-nav \.tab-btn\[data-tab="([^"]+)"\]$/);
+        return name ? tabs.find(t => t.dataset.tab === name[1]) || null : null;
+      },
+      querySelectorAll: selector => {
+        if (selector === ".tabs-nav .tab-btn") return tabs;
+        if (selector === ".mode-live-only") return tabs.filter(t => t.classList.contains("mode-live-only"));
+        if (selector === ".tab-pane") return panes;
+        return [];
+      },
     },
     fetch: async (url, options) => {
       requests.push({ url, method: options.method || "GET", body: options.body && JSON.parse(options.body) });
@@ -123,6 +140,12 @@ async function harness() {
     confirm: () => true,
     alert() {},
     window: {},
+    localStorage: {
+      values: new Map(),
+      getItem(key) { return this.values.get(key) || null; },
+      setItem(key, value) { this.values.set(key, String(value)); },
+      removeItem(key) { this.values.delete(key); },
+    },
   });
   vm.runInContext(source, sandbox, { filename: "app.js" });
   const run = script => vm.runInContext(script, sandbox);
@@ -169,6 +192,189 @@ function defaults(url) {
   if (/\/simulations\/[AB]$/.test(url)) return session(url.endsWith("A") ? "A" : "B");
   return {};
 }
+
+test("live writes carry the loaded revision and adopt only their matching receipt", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 4, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  h.route(() => ({
+    success: true,
+    command: { context: h.state.currentSquad.command_context, revision_after: 5 },
+  }));
+  await h.run('api("/api/decisions", {method:"POST",body:JSON.stringify({team_id:"live",gameweek:12})})');
+  const body = h.requests[0].body;
+  assert.equal(body.expected_revision, 4);
+  assert.equal(body.command_context.team_id, "live");
+  assert.ok(body.command_id);
+  assert.equal(h.state.currentSquad.revision, 5);
+  h.assertNoErrors();
+});
+
+test("a delayed command receipt cannot replace another team's revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 4, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  const response = deferred();
+  h.route(() => response.promise);
+  const pending = h.run('api("/api/decisions", {method:"POST",body:JSON.stringify({team_id:"live",gameweek:12})})');
+  h.state.contextEpoch++;
+  h.state.activeTeamId = "next";
+  h.state.currentSquad = {
+    revision: 2, command_context: { mode: "live", team_id: "next", season: "2026/27", gameweek: 12 },
+  };
+  response.resolve({
+    command: { context: { mode: "live", team_id: "live" }, revision_after: 5 },
+  });
+  await pending;
+  assert.equal(h.state.currentSquad.revision, 2);
+  h.assertNoErrors();
+});
+
+for (const mode of ["live", "historical"]) {
+  test(`older ${mode} receipts cannot regress revisions or run successful continuations`, async () => {
+    const h = await harness();
+    h.state.appMode = mode;
+    h.hist.sessionId = mode === "historical" ? "A" : null;
+    const context = mode === "historical"
+      ? { mode, session_id: "A", season: "2023-24", gameweek: 5 }
+      : { mode, team_id: "live", season: "2026/27", gameweek: 12 };
+    const setState = revision => {
+      const data = { revision, command_context: context };
+      if (mode === "historical") h.hist.sessionData = data;
+      else h.state.currentSquad = data;
+    };
+    setState(4);
+    const response = deferred();
+    h.route(() => response.promise);
+    const endpoint = mode === "historical" ? "/api/historical/simulations/A/chip" : "/api/decisions";
+    const body = mode === "historical" ? { chip: null } : { team_id: "live", gameweek: 12 };
+    const pending = h.run(`(async () => {
+      await api(${JSON.stringify(endpoint)}, {method:"POST",body:${JSON.stringify(JSON.stringify(body))}});
+      document.getElementById("stale-continuation").textContent = "ran";
+    })()`);
+    setState(6);
+    response.resolve({
+      success: true,
+      command: { context, command_id: "older-command", revision_after: 5 },
+    });
+    await assert.rejects(pending, error =>
+      error.code === "STALE_COMMAND_RESPONSE" && error.committed === true);
+    const selected = mode === "historical" ? h.hist.sessionData : h.state.currentSquad;
+    assert.equal(selected.revision, 6);
+    assert.equal(h.element("stale-continuation").textContent, "");
+    assert.equal(h.requests.length, 1);
+  });
+
+  test(`equal ${mode} idempotency receipts remain usable`, async () => {
+    const h = await harness();
+    h.state.appMode = mode;
+    h.hist.sessionId = mode === "historical" ? "A" : null;
+    const context = mode === "historical"
+      ? { mode, session_id: "A", season: "2023-24", gameweek: 5 }
+      : { mode, team_id: "live", season: "2026/27", gameweek: 12 };
+    const selected = { revision: 6, command_context: context };
+    if (mode === "historical") h.hist.sessionData = selected;
+    else h.state.currentSquad = selected;
+    h.route(() => ({
+      success: true, command: { context, command_id: "replayed-command", revision_after: 6 },
+    }));
+    const endpoint = mode === "historical" ? "/api/historical/simulations/A/chip" : "/api/decisions";
+    const body = { expected_revision: 5, command_id: "replayed-command" };
+    if (mode === "live") body.team_id = "live";
+    const result = await h.run(`api(${JSON.stringify(endpoint)}, {
+      method:"POST",body:${JSON.stringify(JSON.stringify(body))}
+    })`);
+    assert.equal(result.success, true);
+    assert.equal(selected.revision, 6);
+    h.assertNoErrors();
+  });
+}
+
+test("a calculation's original revision is not replaced by a newer HUD revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 8, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 12 },
+  };
+  h.route(() => ({ success: true }));
+  await h.run('api("/api/plan/apply-step", {method:"POST",body:JSON.stringify({team_id:"live",expected_revision:6})})');
+  assert.equal(h.requests[0].body.expected_revision, 6);
+  h.assertNoErrors();
+});
+
+test("Strategic Studio applies the candidate revision rather than the latest HUD revision", async () => {
+  const h = await harness();
+  h.state.currentSquad = {
+    revision: 8, command_context: { mode: "live", team_id: "live", season: "2026/27", gameweek: 1 },
+  };
+  h.run(`strategicState.previousCandidate = {
+    strategy:"balanced", mode:"initial", revision:6,
+    command_context:{mode:"live",team_id:"live",season:"2026/27",gameweek:1}
+  };`);
+  h.route(() => ({ success: false }));
+  await h.element("btn-apply-strategic-squad").click();
+  const applied = h.requests.find(request => request.url === "/api/strategic-squad/apply");
+  assert.ok(applied);
+  assert.equal(applied.body.expected_revision, 6);
+  h.assertNoErrors();
+});
+
+test("historical writes carry session revisions and cannot fall back to a live team", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.hist.sessionData = {
+    revision: 7, command_context: { mode: "historical", session_id: "A", season: "2023-24", gameweek: 5 },
+  };
+  h.route(() => ({ success: true }));
+  await h.run('api("/api/historical/simulations/A/chip", {method:"POST",body:JSON.stringify({chip:null})})');
+  assert.equal(h.requests[0].body.expected_revision, 7);
+  assert.equal(h.requests[0].body.command_context.session_id, "A");
+  await assert.rejects(h.run('api("/api/decisions", {method:"POST",body:"{}"})'), /selected simulation/);
+  assert.equal(h.requests.length, 1);
+  h.assertNoErrors();
+});
+
+test("read-only archives render normally but never submit mutation requests", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.route(url => url === "/api/historical/simulations/A"
+    ? { ...session("A"), read_only: true, execution_version: "v146" } : defaults(url));
+  await h.run('loadHistoricalSession("A")');
+  assert.ok(h.run("getHistoricalMutationContext()"), "read context must remain usable");
+  assert.equal(h.element("hist-archive-notice").style.display, "block");
+  assert.equal(h.element("btn-hist-run-gw").disabled, true);
+  assert.equal(h.element("btn-execute-trade").disabled, true);
+  const count = h.requests.length;
+  await assert.rejects(
+    h.run('api("/api/historical/simulations/A/chip", {method:"POST",body:"{}"})'),
+    /read-only archive/,
+  );
+  assert.equal(h.requests.length, count);
+  await h.element("btn-mode-live").click();
+  assert.equal(h.element("hist-archive-notice").style.display, "none");
+  h.assertNoErrors();
+});
+
+test("explicit fork preserves archive controls and hydrates the corrected session", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.route(url => {
+    if (url === "/api/historical/simulations/A") return { ...session("A"), read_only: true };
+    if (url.endsWith("/fork")) return { session_id: "B" };
+    if (url === "/api/historical/simulations") return {
+      simulations: ["A", "B"].map(session_id => ({ session_id, season: "2023-24", current_gw: 5 })),
+    };
+    return defaults(url);
+  });
+  await h.run('loadHistoricalSession("A")');
+  await h.element("btn-hist-fork").click();
+  assert.equal(h.requests.filter(request => request.url.endsWith("/fork")).length, 1);
+  assert.equal(h.hist.sessionId, "B");
+  assert.equal(h.element("hist-archive-notice").style.display, "none");
+  assert.equal(h.element("btn-hist-run-gw").disabled, false);
+  h.assertNoErrors();
+});
 
 test("historical continuation cannot overwrite live GW after its lineup finishes", async () => {
   const h = await harness();
@@ -638,5 +844,113 @@ test("a transfer proposition retained across a mode change cannot apply to the l
   const count = h.requests.length;
   await apply.click();
   assert.equal(h.requests.length, count);
+  h.assertNoErrors();
+});
+
+test("the dashboard has no decision engine version selectors but retains solver profiles and LLM choices", () => {
+  for (const id of ["tx-engine", "strategic-engine-select", "create-sim-strategy"]) {
+    assert.doesNotMatch(html, new RegExp(`\\bid="${id}"`));
+    assert.doesNotMatch(source, new RegExp(`getElementById\\("${id}"\\)`));
+  }
+  for (const select of html.matchAll(/<select\b[^>]*>[\s\S]*?<\/select>/g)) {
+    assert.doesNotMatch(select[0], /<option value="v\d[\d.]*"/);
+  }
+  const options = id => [...html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)</select>`))[1]
+    .matchAll(/<option value="([^"]*)"/g)].map(m => m[1]);
+  assert.deepEqual(options("tx-risk"), ["neutral", "floor", "ceiling"]);
+  assert.deepEqual(options("tx-num"), ["1", "2", "3", "4", "5"]);
+  assert.deepEqual(options("strategic-mode-select"), ["initial", "wildcard", "free_hit"]);
+  assert.deepEqual(options("adv-provider"), ["auto", "heuristic", "openrouter", "gemini", "openai"]);
+  assert.deepEqual(options("adv-model"), [""]);
+});
+
+for (const mode of ["live", "historical"]) {
+  test(`${mode} transfer handler delegates engine selection to the backend`, async () => {
+    const h = await harness();
+    h.state.appMode = mode;
+    h.hist.sessionId = mode === "historical" ? "A" : null;
+    h.hist.gameweek = 5;
+    h.element("tx-engine").value = "v1.0";
+    h.element("tx-num").value = "3";
+    h.element("tx-gws").value = "8";
+    h.element("tx-risk").value = "ceiling";
+    h.route(url => url.startsWith("/api/transfers?") ? { top_suggestions: [] } : defaults(url));
+    await h.element("btn-run-suggest-tx").click();
+    const request = h.requests.find(r => r.url.startsWith("/api/transfers?"));
+    const params = new URL(request.url, "http://localhost").searchParams;
+    assert.equal(params.has("engine"), false);
+    assert.equal(params.get("transfers"), "3");
+    assert.equal(params.get("gameweeks"), "8");
+    assert.equal(params.get("risk"), "ceiling");
+    assert.equal(params.get("session_id"), mode === "historical" ? "A" : null);
+    h.assertNoErrors();
+  });
+}
+
+test("new simulation handler omits algorithm versions and preserves creation settings", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.element("create-sim-season").value = "2023-24";
+  h.element("create-sim-start-gw").value = "5";
+  h.element("create-sim-id").value = "A";
+  h.element("create-sim-manager").value = "Test Manager";
+  h.element("create-sim-strategy").value = "v0.9";
+  h.route(defaults);
+  await h.element("btn-confirm-create-sim").click();
+  const request = h.requests.find(r => r.url === "/api/historical/simulations/create");
+  assert.deepEqual(request.body, {
+    session_id: "A", season: "2023-24", start_gw: 5, manager_name: "Test Manager",
+  });
+  h.assertNoErrors();
+});
+
+test("LLM provider changes still populate their model choices", async () => {
+  const h = await harness();
+  for (const provider of ["openrouter", "gemini", "openai"]) {
+    await h.select("adv-provider", provider);
+    const expected = h.run(`PROVIDER_MODELS["${provider}"].map(m => m.id)`);
+    assert.deepEqual(h.element("adv-model").options.map(o => o.value), ["", ...expected]);
+    assert.equal(h.element("adv-model-group").style.display, "inline-flex");
+    assert.equal(h.element("adv-api-key").disabled, false);
+  }
+  await h.select("adv-provider", "heuristic");
+  assert.equal(h.element("adv-model-group").style.display, "none");
+  assert.equal(h.element("adv-api-key").disabled, true);
+  h.assertNoErrors();
+});
+
+for (const activeTab of ["live", "advisor"]) {
+  test(`historical mode preserves live-only tab hiding when leaving ${activeTab}`, async () => {
+    const h = await harness();
+    h.route(defaults);
+    await h.tabs.find(t => t.dataset.tab === activeTab).click();
+    h.requests.length = 0;
+    await h.element("btn-mode-historical").click();
+    await settle();
+    assert.equal(h.tabs.find(t => t.classList.contains("active")).dataset.tab, "overview");
+    for (const name of ["live", "advisor"]) {
+      assert.equal(h.tabs.find(t => t.dataset.tab === name).style.display, "none");
+      assert.equal(h.element(`tab-${name}`).classList.contains("active"), false);
+    }
+    assert.equal(h.requests.some(r => !r.url.startsWith("/api/historical/") &&
+      !r.url.startsWith("/api/decisions?session_id=")), false, JSON.stringify(h.requests));
+    h.assertNoErrors();
+  });
+}
+
+test("historical comparison and recommendation text never invent an engine version", async () => {
+  const h = await harness();
+  h.state.appMode = "historical";
+  h.route(defaults);
+  await h.run('loadHistoricalSession("A")');
+  h.run(`showHistoricalResolutionModal({
+    gameweek: 5, starters_points: [], net_points: 50, gross_points: 50,
+    captain_points: 10, engine_net_points: 47,
+  })`);
+  assert.match(h.element("hist-modal-body").innerHTML, /Baseline: 47 pts/);
+  assert.doesNotMatch(h.element("hist-modal-body").innerHTML, /v1\.\d/);
+  h.run('showHistoricalRecommendationsModal({gameweek: 5, engine_version: "v0.9"})');
+  assert.equal(h.element("hist-modal-title").textContent, "Decision Recommendations (GW 5)");
+  assert.doesNotMatch(h.element("hist-modal-body").innerHTML, /v0\.9|v1\.3\.5/);
   h.assertNoErrors();
 });

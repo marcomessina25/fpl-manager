@@ -51,15 +51,17 @@ def select_starting_lineup(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     database_path: Path = DATABASE_PATH,
     gameweek: int | None = None,
-    report_path: Path = LINEUP_REPORT_PATH,
+    report_path: Path | None = LINEUP_REPORT_PATH,
     risk_profile: str = "neutral",
     lineup_penalty_weight: float = 0.0,
+    state: CurrentSquadState | None = None,
 ) -> dict[str, Any]:
     """Determine optimal legal starting 11, captain, vice-captain, and ordered bench."""
     from .optimizer import get_player_profile_value, validate_risk_profile
 
     risk_profile = validate_risk_profile(risk_profile)
-    state: CurrentSquadState = load_current_squad(squad_path)
+    pure_calculation = state is not None or report_path is None
+    state = state if state is not None else load_current_squad(squad_path)
     store = SnapshotStore(database_path)
 
     if gameweek is None:
@@ -180,11 +182,13 @@ def select_starting_lineup(
         ownership_map = {}
         cap_map = {}
 
-    try:
-        from .scores import get_or_fetch_gameweek_scores
-        actual_scores = get_or_fetch_gameweek_scores(gameweek=gameweek, database_path=database_path)
-    except Exception:
-        actual_scores = {}
+    actual_scores = {}
+    if not pure_calculation:
+        try:
+            from .scores import get_or_fetch_gameweek_scores
+            actual_scores = get_or_fetch_gameweek_scores(gameweek=gameweek, database_path=database_path)
+        except Exception:
+            actual_scores = {}
 
     starters_serialized = []
     for p in best_starters:
@@ -248,8 +252,9 @@ def select_starting_lineup(
         "all_squad": [_serialize_lineup_player(p, "SQUAD", ownership_map, cap_map, actual_scores) for p in projections],
     }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return report
 

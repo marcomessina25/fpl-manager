@@ -2,17 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ master, v09, version_10, v10, v115, v12, v125, v13 ]
+    branches: [ master, v09, version_10, v10, v115, v12, v125, v13, v147 ]
   pull_request:
     branches: [ master, v09, version_10, v10, v115, v12, v125, v13 ]
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
       - name: Check out repository
@@ -40,3 +44,12 @@ jobs:
         run: |
           python -m fpl_manager.cli --help
           fpl --help
+
+      - name: Build and install candidate wheel
+        run: |
+          python -m pip wheel . --no-deps --wheel-dir dist --quiet
+          python -c "import glob,subprocess,sys; subprocess.check_call([sys.executable,'-m','pip','install','--force-reinstall','--no-deps',*glob.glob('dist/*.whl')])"
+
+      - name: Smoke installed artifact outside checkout
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/scripts/smoke_installed.py"

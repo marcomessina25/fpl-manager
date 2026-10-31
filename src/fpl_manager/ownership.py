@@ -199,7 +199,7 @@ def analyze_squad_risk_profile(
     squad_path: Path = DEFAULT_SQUAD_PATH,
     gameweek: int | None = None,
     database_path: Path = DATABASE_PATH,
-    report_path: Path = OWNERSHIP_REPORT_PATH,
+    report_path: Path | None = OWNERSHIP_REPORT_PATH,
 ) -> dict[str, Any]:
     """Evaluate user's squad risk profile, net exposure, and non-owned rank threats."""
     state: CurrentSquadState = load_current_squad(squad_path)
@@ -208,7 +208,9 @@ def analyze_squad_risk_profile(
         gameweek = get_current_gameweek(store)
 
     from .lineup import select_starting_lineup
-    lineup_res = select_starting_lineup(squad_path=squad_path, database_path=database_path, gameweek=gameweek)
+    lineup_res = select_starting_lineup(
+        squad_path=squad_path, database_path=database_path, gameweek=gameweek, report_path=None,
+    )
 
     ownership_map = get_player_ownership_map(database_path)
     projections = project_gameweek(gameweek=gameweek, database_path=database_path)
@@ -309,6 +311,7 @@ def analyze_squad_risk_profile(
         "top_non_owned_rank_threats": top_threats,
     }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return result

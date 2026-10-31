@@ -547,19 +547,6 @@ def evaluate_gameweek_decision(
 
     xp_delta = round(actual_lineup - decision["predicted_lineup_xp"], 2)
 
-    # Auto-update actual points in decision record if not yet finalized,
-    # PROVIDED that evaluation is authoritative AND the gameweek is fully completed.
-    # Fallback or in-progress matchday calculations must NEVER silently contaminate the decision record.
-    if decision.get("actual_points") is None and actual_scores and evaluation_status == "authoritative":
-        from .scores import is_gameweek_completed
-        if is_gameweek_completed(gameweek, database_path=database_path):
-            try:
-                from .decision_log import record_actual_gameweek_score
-                record_actual_gameweek_score(gameweek, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
-                decision["actual_points"] = round(actual_lineup)
-            except Exception:
-                pass
-
     error_attribution = decompose_decision_error_components(
         predicted_lineup_xp=float(decision.get("predicted_lineup_xp") or 0.0),
         actual_lineup_score=round(actual_lineup, 2),
@@ -751,42 +738,10 @@ def evaluate_season_decisions(
     season: str = "2026/27",
     team_id: str = "default",
     database_path: Path = DATABASE_PATH,
-    report_path: Path = EVALUATION_REPORT_PATH,
+    report_path: Path | None = EVALUATION_REPORT_PATH,
 ) -> dict[str, Any]:
     """Aggregate decision evaluation across all finalized gameweeks in the season."""
     decisions = list_decisions(season=season, team_id=team_id, database_path=database_path)
-
-    # Auto-finalize any unfinalized decisions if scores are available AND gameweek is fully completed
-    from .scores import is_gameweek_completed
-    for d in decisions:
-        if d.get("actual_points") is None:
-            gw = d["gameweek"]
-            if not is_gameweek_completed(gw, database_path=database_path):
-                continue
-            starters = d["starting_player_ids"]
-            bench = d["bench_player_ids"]
-            cap_id = d["captain_id"]
-            vc_id = d["vice_captain_id"]
-            hits = d.get("transfer_hits", 0)
-            try:
-                from .live_matchday import compute_matchday_lineup_performance
-                perf = compute_matchday_lineup_performance(
-                    gameweek=gw,
-                    starting_ids=starters,
-                    bench_ids=bench,
-                    captain_id=cap_id,
-                    vice_captain_id=vc_id,
-                    chip_played=d.get("chip_played"),
-                    transfer_hits=hits,
-                    database_path=database_path,
-                )
-                if perf.get("has_match_data"):
-                    actual_lineup = perf["net_points"]
-                    from .decision_log import record_actual_gameweek_score
-                    record_actual_gameweek_score(gw, round(actual_lineup), season=season, team_id=team_id, database_path=database_path)
-                    d["actual_points"] = round(actual_lineup)
-            except Exception:
-                pass
 
     finalized = [d for d in decisions if d.get("actual_points") is not None]
 
@@ -900,6 +855,7 @@ def evaluate_season_decisions(
         "gameweeks": gw_details,
     }
 
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return result

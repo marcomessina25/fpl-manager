@@ -155,7 +155,7 @@ def test_evaluate_chip_candidates(chip_planner_env: tuple[Path, Path]) -> None:
     assert top_fh["squad_blanks"] > 0
 
 
-def test_recommend_chip_strategy(chip_planner_env: tuple[Path, Path], tmp_path: Path) -> None:
+def test_recommend_chip_strategy_reports_blocked_sparse_calendar(chip_planner_env: tuple[Path, Path], tmp_path: Path) -> None:
     db_path, squad_path = chip_planner_env
     rep_path = tmp_path / "chip_plan.json"
 
@@ -168,7 +168,11 @@ def test_recommend_chip_strategy(chip_planner_env: tuple[Path, Path], tmp_path: 
     )
 
     assert len(res["available_chips"]) == 4
-    assert len(res["recommended_schedule"]) > 0
+    # This five-team synthetic calendar has fewer than four fixtures on every
+    # date, so the shared postponed-matchday guard blocks all opportunities.
+    assert res["recommended_schedule"] == []
+    assert set(res["unscheduled_chips"]) == set(res["available_chips"])
+    assert all(c["blocked"] for ranking in res["candidate_rankings"].values() for c in ranking)
 
     # Verify no two chips are assigned to the exact same gameweek
     assigned_gws = [rec["gameweek"] for rec in res["recommended_schedule"]]
@@ -377,4 +381,3 @@ def test_recommend_chip_strategy_post_wildcard_cooldown(chip_planner_env: tuple[
     for rec in res["recommended_schedule"]:
         if rec["chip"] in ("freehit", "wildcard"):
             assert rec["gameweek"] not in (3, 4), f"{rec['chip']} was scheduled in cooldown GW {rec['gameweek']}"
-

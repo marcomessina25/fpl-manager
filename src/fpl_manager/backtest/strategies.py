@@ -7,7 +7,7 @@ from typing import Any
 from ..expected_points import ExpectedPointsProjection
 from ..historical.models import HistoricalGameweekSnapshot, Position
 from ..models import Player
-from .decision_engine import BaseDecisionEngine, resolve_decision_engine
+from .decision_engine import BaseDecisionEngine, _execution_selling_price, resolve_decision_engine
 
 
 class BacktestStrategy(ABC):
@@ -275,7 +275,7 @@ class LLMAdvisorStrategy(BacktestStrategy):
 
                         cur_price = out_p.price_tenths
                         bought = purchase_prices.get(out_id, cur_price)
-                        sell_price = bought + max(0, (cur_price - bought) // 2)
+                        sell_price = _execution_selling_price(bought, cur_price)
                         cur_bank = cur_bank + sell_price - in_p.price_tenths
 
                         if cur_bank < 0:
@@ -321,5 +321,4 @@ class LLMAdvisorStrategy(BacktestStrategy):
         )
         self.decision_logs.append(log)
         return llm_transfers
-
 

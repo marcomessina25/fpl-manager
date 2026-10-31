@@ -848,6 +848,30 @@ class TestIssue7RegistryValidation:
         assert result == {}
         assert snapshots_module._DEPARTURES_REGISTRY_CACHE == {}
 
+    @pytest.mark.parametrize("invalid", [
+        "{not json",
+        "[]",
+        '{"2023-24": {"117": {"start_gw": 30, "end_gw": 1}}}',
+    ])
+    def test_invalid_second_path_cannot_return_first_paths_cache(
+        self, tmp_path: Path, invalid: str,
+    ) -> None:
+        import fpl_manager.historical.snapshots as snapshots_module
+
+        valid_dir = tmp_path / "valid"
+        invalid_dir = tmp_path / "invalid"
+        valid_dir.mkdir()
+        invalid_dir.mkdir()
+        (valid_dir / "unavailability_registry.json").write_text(
+            '{"2023-24": {"117": {"start_gw": 1, "end_gw": 5}}}', encoding="utf-8",
+        )
+        (invalid_dir / "unavailability_registry.json").write_text(invalid, encoding="utf-8")
+        expected = snapshots_module.load_unavailability_registry(valid_dir)
+        for _ in range(2):
+            with pytest.raises(ValueError, match="unavailability_registry"):
+                snapshots_module.load_unavailability_registry(invalid_dir)
+        assert snapshots_module.load_unavailability_registry(valid_dir) == expected
+
 
 class TestRegistryStructuralLeakageValidation:
     """Task A4 / Issue 5: Structural leakage guard validating unavailability registry entries
@@ -912,6 +936,5 @@ class TestRegistryStructuralLeakageValidation:
         assert len(issues) == 1
         assert "Registry lookahead leakage" in issues[0]
         assert "start_gw=1 does not match first post-event deadline gameweek (GW2)" in issues[0]
-
 
 

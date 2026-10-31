@@ -129,6 +129,43 @@ def test_api_health(gui_test_server: str) -> None:
         assert data["version"] == __version__
 
 
+def test_gui_decision_engine_default_resolves_latest_without_changing_explicit_versions() -> None:
+    from fpl_manager.backtest.decision_engine import DecisionEngineV135, resolve_decision_engine
+
+    assert isinstance(resolve_decision_engine("default"), DecisionEngineV135)
+    assert resolve_decision_engine().version == "v0.9"
+    for version in ("v0.9", "v1.0", "v1.2.5", "v1.3.5"):
+        assert resolve_decision_engine(version).version == version
+
+
+@pytest.mark.parametrize("override", [None, "v1.0", "v1.2.5"])
+def test_api_transfers_resolves_central_default_and_preserves_explicit_versions(
+    gui_test_server: str, monkeypatch: pytest.MonkeyPatch, override: str | None
+) -> None:
+    from types import SimpleNamespace
+
+    resolved = []
+    received = []
+
+    def resolve(version):
+        resolved.append(version)
+        return SimpleNamespace(version="v1.3.5")
+
+    def transfers(**kwargs):
+        received.append(kwargs)
+        return {"engine": kwargs["engine"], "top_suggestions": []}
+
+    monkeypatch.setattr("fpl_manager.gui.server.resolve_decision_engine", resolve, raising=False)
+    monkeypatch.setattr("fpl_manager.gui.server.suggest_transfers", transfers)
+    query = f"&engine={override}" if override else ""
+    with urllib.request.urlopen(f"{gui_test_server}/api/transfers?transfers=2&risk=floor{query}") as response:
+        result = json.loads(response.read())
+    assert result["engine"] == (override or "v1.3.5")
+    assert resolved == ([] if override else ["default"])
+    assert received[0]["num_transfers"] == 2
+    assert received[0]["risk_profile"] == "floor"
+
+
 def test_api_teams_crud(gui_test_server: str) -> None:
     from fpl_manager import __version__
     # 1. GET /api/teams
@@ -720,7 +757,7 @@ def test_plan_apply_restores_existing_decision_after_execution_failure(
         raise RuntimeError("Injected failure after executing transfers")
 
     monkeypatch.setattr(
-        "fpl_manager.gui.server.log_decision_from_current_squad", fail_after_transfers
+        "fpl_manager.decision_log.log_decision_from_current_squad", fail_after_transfers
     )
     with pytest.raises(urllib.error.HTTPError):
         post("/api/plan/apply-step", [{"outgoing_id": 16, "incoming_id": 15}])
